@@ -1,9 +1,14 @@
 # TODO
 
-In progress:
-  - fix(workspace): oj workspace drop for orphaned worktrees (agent working)
+In progress (agents working):
+  - fix(cli): inconsistent shell exit error messages
+  - chore(cli): oj pipeline prune command
 
 Recently landed:
+  - fix(workspace): oj workspace drop for orphaned worktrees
+  - fix(daemon): auto-resume workers on daemon restart
+  - fix(cli): suppress empty 'Error: ' on silent exit codes
+  - fix(cli): deduplicate workspace nonces (ws-foo-abc-abc → ws-foo-abc)
   - fix(engine): allow $(cmd) in pipeline locals (interpolate_shell_trusted)
   - fix(cli): oj pipeline wait Ctrl+C handling
   - chore(runbooks): use local.repo in locals across oddjobs, wok, quench
@@ -104,6 +109,9 @@ Key features landed:
   - WAL materialization for consistent query state across daemon restarts
   - Trusted-prefix interpolation: $(cmd) in locals works for shell steps
   - Ctrl+C handling in oj pipeline wait
+  - Workspace drop resilience for orphaned worktrees
+  - Auto-resume workers on daemon restart
+  - Deduplicated workspace nonces, suppress empty Error: on silent exits
 
 Patterns that work:
   - oj run {build,fix,chore} → agent → submit → merge queue. Full loop end-to-end.

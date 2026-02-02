@@ -15,31 +15,6 @@ use uuid::Uuid;
 /// Liveness check interval (30 seconds)
 pub const LIVENESS_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Escape characters that have special meaning in shell double-quoted strings.
-///
-/// When a prompt is embedded in a command like `claude "${prompt}"`, characters
-/// like backticks and dollar signs would be interpreted by the shell. This
-/// function escapes them so they're treated literally.
-///
-/// Characters escaped:
-/// - Backslash `\` → `\\`
-/// - Backtick `` ` `` → `` \` ``
-/// - Dollar sign `$` → `\$`
-/// - Double quote `"` → `\"`
-fn escape_for_shell_double_quotes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '\\' => result.push_str("\\\\"),
-            '`' => result.push_str("\\`"),
-            '$' => result.push_str("\\$"),
-            '"' => result.push_str("\\\""),
-            _ => result.push(c),
-        }
-    }
-    result
-}
-
 /// Spawn an agent for a pipeline
 ///
 /// Returns the effects to execute for spawning the agent.
@@ -107,7 +82,7 @@ pub fn build_spawn_effects(
     let mut vars = prompt_vars.clone();
     vars.insert(
         "prompt".to_string(),
-        escape_for_shell_double_quotes(&rendered_prompt),
+        oj_runbook::escape_for_shell(&rendered_prompt),
     );
 
     // Prepare workspace directory (no longer writes settings)

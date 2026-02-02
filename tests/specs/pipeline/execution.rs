@@ -218,7 +218,7 @@ fn shell_exit_code_failure() {
 // Verify that user-provided arguments containing shell-special characters
 // (quotes, backticks, etc.) don't break shell command execution.
 
-/// Runbook that uses input values in single-quoted shell context
+/// Runbook that uses input values in double-quoted shell context
 const QUOTES_RUNBOOK: &str = r#"
 [command.greet]
 args = "<name>"
@@ -229,7 +229,7 @@ vars  = ["name"]
 
 [[pipeline.greet.step]]
 name = "execute"
-run = "echo 'hello:${var.name}' >> ${workspace}/output.log"
+run = "echo \"hello:${var.name}\" >> ${workspace}/output.log"
 "#;
 
 #[test]

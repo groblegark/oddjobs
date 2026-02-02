@@ -237,6 +237,10 @@ where
                         result_events.extend(self.executor.execute_all(effects).await?);
                         result_events.extend(self.complete_pipeline(pipeline).await?);
                     }
+                } else if pipeline.cancelling {
+                    // Cancel cleanup step completed; go to terminal "cancelled"
+                    let effects = steps::cancellation_effects(pipeline);
+                    result_events.extend(self.executor.execute_all(effects).await?);
                 } else {
                     let effects = steps::step_transition_effects(pipeline, "done");
                     result_events.extend(self.executor.execute_all(effects).await?);
@@ -452,6 +456,10 @@ where
     }
 
     /// Cancel a running pipeline.
+    ///
+    /// If the current step (or pipeline) has `on_cancel` configured, routes to
+    /// that cleanup step instead of going straight to terminal. The cleanup step
+    /// is non-cancellable — re-cancellation while `cancelling` is true is a no-op.
     pub(crate) async fn cancel_pipeline(
         &self,
         pipeline: &Pipeline,
@@ -462,13 +470,126 @@ where
             return Ok(vec![]);
         }
 
-        let effects = steps::cancellation_effects(pipeline);
-        let mut result = vec![];
-        for effect in effects {
-            result.extend(self.executor.execute(effect).await?);
+        // If already running a cancel cleanup step, don't re-cancel — let it finish
+        if pipeline.cancelling {
+            tracing::info!(pipeline_id = %pipeline.id, "cancel: already running cleanup, ignoring");
+            return Ok(vec![]);
+        }
+
+        let runbook = self.cached_runbook(&pipeline.runbook_hash)?;
+        let pipeline_def = runbook.get_pipeline(&pipeline.kind);
+        let current_step_def = pipeline_def
+            .as_ref()
+            .and_then(|p| p.get_step(&pipeline.step));
+        let on_cancel = current_step_def.and_then(|s| s.on_cancel.as_ref());
+
+        let pipeline_id = PipelineId::new(&pipeline.id);
+
+        // Cancel timers and kill session (same cleanup as fail_pipeline for agent steps)
+        let current_is_agent = current_step_def
+            .map(|s| matches!(&s.run, RunDirective::Agent { .. }))
+            .unwrap_or(false);
+        if current_is_agent {
+            self.executor
+                .execute(Effect::CancelTimer {
+                    id: TimerId::liveness(&pipeline_id),
+                })
+                .await?;
+            self.executor
+                .execute(Effect::CancelTimer {
+                    id: TimerId::exit_deferred(&pipeline_id),
+                })
+                .await?;
+
+            if let Some(agent_id) = pipeline
+                .step_history
+                .iter()
+                .rfind(|r| r.name == pipeline.step)
+                .and_then(|r| r.agent_id.as_ref())
+            {
+                self.agent_pipelines
+                    .lock()
+                    .remove(&oj_core::AgentId::new(agent_id));
+            }
+
+            if let Some(session_id) = &pipeline.session_id {
+                let sid = SessionId::new(session_id);
+                self.executor
+                    .execute(Effect::KillSession {
+                        session_id: sid.clone(),
+                    })
+                    .await?;
+                self.executor
+                    .execute(Effect::Emit {
+                        event: Event::SessionDeleted { id: sid },
+                    })
+                    .await?;
+            }
+        }
+
+        let mut result_events = Vec::new();
+
+        if let Some(on_cancel) = on_cancel {
+            // Step-level on_cancel: route to cleanup step
+            let target = on_cancel.step_name();
+            result_events.extend(
+                self.executor
+                    .execute(Effect::Emit {
+                        event: Event::PipelineCancelling {
+                            id: pipeline_id.clone(),
+                        },
+                    })
+                    .await?,
+            );
+            let effects = steps::cancellation_transition_effects(pipeline, target);
+            result_events.extend(self.executor.execute_all(effects).await?);
+            result_events.extend(
+                self.start_step(
+                    &pipeline_id,
+                    target,
+                    &pipeline.vars,
+                    &self.execution_dir(pipeline),
+                )
+                .await?,
+            );
+        } else if let Some(ref pipeline_on_cancel) =
+            pipeline_def.as_ref().and_then(|p| p.on_cancel.clone())
+        {
+            // Pipeline-level on_cancel fallback
+            let target = pipeline_on_cancel.step_name();
+            if pipeline.step != target {
+                result_events.extend(
+                    self.executor
+                        .execute(Effect::Emit {
+                            event: Event::PipelineCancelling {
+                                id: pipeline_id.clone(),
+                            },
+                        })
+                        .await?,
+                );
+                let effects = steps::cancellation_transition_effects(pipeline, target);
+                result_events.extend(self.executor.execute_all(effects).await?);
+                result_events.extend(
+                    self.start_step(
+                        &pipeline_id,
+                        target,
+                        &pipeline.vars,
+                        &self.execution_dir(pipeline),
+                    )
+                    .await?,
+                );
+            } else {
+                // Already at the cancel target; go terminal
+                let effects = steps::cancellation_effects(pipeline);
+                result_events.extend(self.executor.execute_all(effects).await?);
+            }
+        } else {
+            // No on_cancel configured; terminal cancellation as before
+            let effects = steps::cancellation_effects(pipeline);
+            result_events.extend(self.executor.execute_all(effects).await?);
         }
 
         tracing::info!(pipeline_id = %pipeline.id, "cancelled pipeline");
-        Ok(result)
+        Ok(result_events)
     }
 }

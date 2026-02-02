@@ -89,6 +89,30 @@ pub fn failure_effects(pipeline: &Pipeline, error: &str) -> Vec<Effect> {
     effects
 }
 
+/// Build effects to transition to a cancel-cleanup step (non-terminal).
+///
+/// Records the cancellation of the current step, then advances to the
+/// on_cancel target. The pipeline remains non-terminal so the cleanup
+/// step can execute.
+pub fn cancellation_transition_effects(pipeline: &Pipeline, on_cancel_step: &str) -> Vec<Effect> {
+    let pipeline_id = PipelineId::new(&pipeline.id);
+    vec![
+        Effect::Emit {
+            event: Event::StepFailed {
+                pipeline_id: pipeline_id.clone(),
+                step: pipeline.step.clone(),
+                error: "cancelled".to_string(),
+            },
+        },
+        Effect::Emit {
+            event: Event::PipelineAdvanced {
+                id: pipeline_id,
+                step: on_cancel_step.to_string(),
+            },
+        },
+    ]
+}
+
 /// Build effects to cancel a running pipeline.
 ///
 /// Kills the agent (if running), kills the tmux session, cancels timers,

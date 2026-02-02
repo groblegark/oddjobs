@@ -162,6 +162,9 @@ pub struct Pipeline {
     /// Cleared when step transitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_signal: Option<AgentSignal>,
+    /// True when running an on_cancel cleanup step. Prevents re-cancellation.
+    #[serde(default)]
+    pub cancelling: bool,
 }
 
 impl Pipeline {
@@ -197,6 +200,7 @@ impl Pipeline {
             }],
             action_attempts: HashMap::new(),
             agent_signal: None,
+            cancelling: false,
         }
     }
 

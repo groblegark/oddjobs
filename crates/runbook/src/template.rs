@@ -20,17 +20,31 @@ pub static VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 static ENV_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{(\w+):-([^}]*)\}").expect("constant regex pattern is valid"));
 
-/// Escape a string for safe use inside shell single-quoted contexts.
+/// Escape a string for safe use inside shell double-quoted contexts.
 ///
-/// Single quotes in the value are replaced with `'\''` (end quote, escaped
-/// literal quote, start quote), which is the standard bash idiom for
-/// embedding a single quote inside a single-quoted string.
+/// Characters that have special meaning in double-quoted shell strings
+/// are backslash-escaped so they're treated literally:
+/// - Backslash `\` → `\\`
+/// - Dollar sign `$` → `\$`
+/// - Backtick `` ` `` → `` \` ``
+/// - Double quote `"` → `\"`
 ///
-/// This escaping is also safe in unquoted shell contexts, though values with
-/// spaces will still be word-split. Runbook authors should wrap `${var}`
-/// references in single quotes for values that may contain spaces.
+/// Runbook shell commands conventionally wrap `${var}` references in
+/// double quotes (e.g. `git commit -m "${local.title}"`) so this
+/// escaping prevents user-provided values from being interpreted as
+/// shell expansions.
 pub fn escape_for_shell(s: &str) -> String {
-    s.replace('\'', "'\\''")
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => result.push_str("\\\\"),
+            '$' => result.push_str("\\$"),
+            '`' => result.push_str("\\`"),
+            '"' => result.push_str("\\\""),
+            _ => result.push(c),
+        }
+    }
+    result
 }
 
 /// Interpolate `${name}` placeholders with values from the vars map
@@ -46,7 +60,7 @@ pub fn interpolate(template: &str, vars: &HashMap<String, String>) -> String {
 /// Interpolate `${name}` placeholders with shell-safe escaping.
 ///
 /// Like [`interpolate`], but escapes substituted values for safe use in
-/// shell contexts (single quotes are escaped using the `'\''` idiom).
+/// shell double-quoted contexts (`$`, `` ` ``, `\`, `"` are backslash-escaped).
 /// Use this for shell commands; use [`interpolate`] for prompts and
 /// other non-shell contexts.
 pub fn interpolate_shell(template: &str, vars: &HashMap<String, String>) -> String {

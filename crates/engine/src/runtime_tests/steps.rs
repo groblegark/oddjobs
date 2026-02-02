@@ -887,7 +887,11 @@ async fn locals_interpolate_workspace_variables() {
     );
 }
 
-/// Runbook with locals containing shell command substitution (should be left as-is for shell eval)
+/// Locals containing shell syntax are stored literally at pipeline creation time.
+///
+/// Note: `interpolate_shell` will escape `$` in these values at step execution,
+/// so runbooks should use inline shell variables (e.g. `REPO=$(...)`) instead of
+/// storing shell expressions in locals.
 const RUNBOOK_LOCALS_SHELL_SUBST: &str = r#"
 [command.build]
 args = "<name>"
@@ -905,7 +909,7 @@ run = "echo ${local.repo}"
 "#;
 
 #[tokio::test]
-async fn locals_preserve_shell_command_substitution() {
+async fn locals_preserve_shell_syntax_in_stored_value() {
     let ctx = setup_with_runbook(RUNBOOK_LOCALS_SHELL_SUBST).await;
 
     ctx.runtime
@@ -924,7 +928,7 @@ async fn locals_preserve_shell_command_substitution() {
     let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
 
-    // Shell $() substitution should be preserved (not a template variable)
+    // Shell $() is stored literally by `interpolate` (non-shell) at pipeline creation
     assert_eq!(
         pipeline.vars.get("local.repo").map(String::as_str),
         Some("$(echo /some/repo)"),

@@ -37,18 +37,15 @@ pipeline "code-review" {
   vars      = ["branch", "base"]
   workspace = "ephemeral"
 
-  locals {
-    repo = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
-  }
-
   # Setup: fetch branch, generate diff
   step "setup" {
     run = <<-SHELL
-      git -C "${local.repo}" fetch origin ${var.branch} ${var.base}
+      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
+      git -C "$REPO" fetch origin ${var.branch} ${var.base}
 
-      git -C "${local.repo}" diff origin/${var.base}...origin/${var.branch} > ${workspace.root}/diff.patch
-      git -C "${local.repo}" diff --stat origin/${var.base}...origin/${var.branch} > ${workspace.root}/diff-stat.txt
-      git -C "${local.repo}" log --oneline origin/${var.base}...origin/${var.branch} > ${workspace.root}/commits.txt
+      git -C "$REPO" diff origin/${var.base}...origin/${var.branch} > ${workspace.root}/diff.patch
+      git -C "$REPO" diff --stat origin/${var.base}...origin/${var.branch} > ${workspace.root}/diff-stat.txt
+      git -C "$REPO" log --oneline origin/${var.base}...origin/${var.branch} > ${workspace.root}/commits.txt
 
       CONVOY_ID=$(bd create -t convoy \
         --title "Code Review: ${var.branch}" \

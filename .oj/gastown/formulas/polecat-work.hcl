@@ -17,14 +17,14 @@ pipeline "polecat-work" {
   workspace = "ephemeral"
 
   locals {
-    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "polecat/${var.bug.id}-${workspace.nonce}"
   }
 
   # Initialize workspace (worktree from shared repo)
   step "init" {
     run = <<-SHELL
-      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
+      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
+      git -C "$REPO" worktree add -b "${local.branch}" "${workspace.root}" HEAD
 
       # Store state for agent discovery
       echo "${var.bug.id}" > .hook-bead
@@ -51,7 +51,8 @@ pipeline "polecat-work" {
       git diff --cached --quiet || git commit -m "feat: ${var.bug.title}"
 
       # Push branch to origin
-      git -C "${local.repo}" push origin "${local.branch}"
+      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
+      git -C "$REPO" push origin "${local.branch}"
 
       # Create merge-request bead (enters the refinery queue)
       MR_ID=$(bd create -t merge-request \

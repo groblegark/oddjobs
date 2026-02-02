@@ -353,24 +353,6 @@ fn build_spawn_effects_inputs_namespace_in_prompt() {
 }
 
 #[test]
-fn escape_for_shell_double_quotes_escapes_backticks() {
-    let result = escape_for_shell_double_quotes("Write to `file.txt`");
-    assert_eq!(result, "Write to \\`file.txt\\`");
-}
-
-#[test]
-fn escape_for_shell_double_quotes_escapes_all_special_chars() {
-    let result = escape_for_shell_double_quotes(r#"$VAR `cmd` "quote" \slash"#);
-    assert_eq!(result, r#"\$VAR \`cmd\` \"quote\" \\slash"#);
-}
-
-#[test]
-fn escape_for_shell_double_quotes_preserves_normal_text() {
-    let result = escape_for_shell_double_quotes("Normal text with newlines\nand tabs\t");
-    assert_eq!(result, "Normal text with newlines\nand tabs\t");
-}
-
-#[test]
 fn build_spawn_effects_escapes_backticks_in_prompt() {
     let workspace = TempDir::new().unwrap();
     // Agent prompt contains backticks (like markdown code references)

@@ -20,7 +20,6 @@ pipeline "build" {
   workspace = "ephemeral"
 
   locals {
-    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "feature/${var.name}-${workspace.nonce}"
     title  = "feat(${var.name}): ${var.instructions}"
   }
@@ -34,14 +33,15 @@ pipeline "build" {
   # Initialize workspace: worktree with shared build cache via .cargo/config.toml
   step "init" {
     run = <<-SHELL
+      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
       if test -n "${var.new}"; then
         git init
         mkdir -p ${var.new}
       else
-        git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
+        git -C "$REPO" worktree add -b "${local.branch}" "${workspace.root}" HEAD
         mkdir -p .cargo
         echo "[build]" > .cargo/config.toml
-        echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
+        echo "target-dir = \"$REPO/target\"" >> .cargo/config.toml
       fi
       mkdir -p plans
     SHELL
@@ -62,9 +62,10 @@ pipeline "build" {
 
   step "submit" {
     run = <<-SHELL
+      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
-      git -C "${local.repo}" push origin "${local.branch}"
+      git -C "$REPO" push origin "${local.branch}"
       oj queue push merges --var branch="${local.branch}" --var title="${local.title}"
     SHELL
   }

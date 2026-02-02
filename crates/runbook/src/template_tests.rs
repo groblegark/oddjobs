@@ -8,18 +8,39 @@ use super::*;
 // =============================================================================
 
 #[test]
-fn escape_for_shell_no_quotes() {
+fn escape_for_shell_no_special_chars() {
     assert_eq!(escape_for_shell("hello world"), "hello world");
 }
 
 #[test]
-fn escape_for_shell_single_quote() {
-    assert_eq!(escape_for_shell("it's a test"), "it'\\''s a test");
+fn escape_for_shell_escapes_backslash() {
+    assert_eq!(escape_for_shell(r"path\to\file"), r"path\\to\\file");
 }
 
 #[test]
-fn escape_for_shell_multiple_single_quotes() {
-    assert_eq!(escape_for_shell("it's Bob's"), "it'\\''s Bob'\\''s");
+fn escape_for_shell_escapes_dollar_sign() {
+    assert_eq!(escape_for_shell("$HOME"), "\\$HOME");
+}
+
+#[test]
+fn escape_for_shell_escapes_backtick() {
+    assert_eq!(
+        escape_for_shell("Write to `file.txt`"),
+        "Write to \\`file.txt\\`"
+    );
+}
+
+#[test]
+fn escape_for_shell_escapes_double_quote() {
+    assert_eq!(escape_for_shell(r#"say "hello""#), r#"say \"hello\""#);
+}
+
+#[test]
+fn escape_for_shell_escapes_all_special_chars() {
+    assert_eq!(
+        escape_for_shell(r#"$VAR `cmd` "quote" \slash"#),
+        r#"\$VAR \`cmd\` \"quote\" \\slash"#
+    );
 }
 
 #[test]
@@ -28,15 +49,17 @@ fn escape_for_shell_empty_string() {
 }
 
 #[test]
-fn escape_for_shell_preserves_double_quotes() {
-    // Double quotes don't need escaping for single-quote context
-    assert_eq!(escape_for_shell(r#"say "hello""#), r#"say "hello""#);
+fn escape_for_shell_preserves_single_quotes() {
+    // Single quotes have no special meaning inside double quotes
+    assert_eq!(escape_for_shell("it's a test"), "it's a test");
 }
 
 #[test]
-fn escape_for_shell_preserves_special_chars() {
-    // Dollar signs and backticks are literal inside single quotes
-    assert_eq!(escape_for_shell("$HOME `pwd`"), "$HOME `pwd`");
+fn escape_for_shell_preserves_spaces_and_newlines() {
+    assert_eq!(
+        escape_for_shell("Normal text with newlines\nand tabs\t"),
+        "Normal text with newlines\nand tabs\t"
+    );
 }
 
 // =============================================================================
@@ -44,25 +67,40 @@ fn escape_for_shell_preserves_special_chars() {
 // =============================================================================
 
 #[test]
-fn interpolate_shell_escapes_single_quotes() {
-    let vars: HashMap<String, String> = [("msg".to_string(), "it's a test".to_string())]
-        .into_iter()
-        .collect();
+fn interpolate_shell_escapes_special_chars_in_double_quotes() {
+    let vars: HashMap<String, String> = [(
+        "title".to_string(),
+        r#"fix: handle "$HOME" path"#.to_string(),
+    )]
+    .into_iter()
+    .collect();
     assert_eq!(
-        interpolate_shell("echo '${msg}'", &vars),
-        "echo 'it'\\''s a test'"
+        interpolate_shell(r#"git commit -m "${title}""#, &vars),
+        r#"git commit -m "fix: handle \"\$HOME\" path""#
     );
 }
 
 #[test]
-fn interpolate_shell_preserves_double_quotes_and_specials() {
-    let vars: HashMap<String, String> = [("msg".to_string(), r#"say "hello" $HOME"#.to_string())]
+fn interpolate_shell_escapes_backticks() {
+    let vars: HashMap<String, String> =
+        [("title".to_string(), "fix: update `config.rs`".to_string())]
+            .into_iter()
+            .collect();
+    assert_eq!(
+        interpolate_shell(r#"git commit -m "${title}""#, &vars),
+        r#"git commit -m "fix: update \`config.rs\`""#
+    );
+}
+
+#[test]
+fn interpolate_shell_preserves_single_quotes_in_value() {
+    let vars: HashMap<String, String> = [("msg".to_string(), "it's a test".to_string())]
         .into_iter()
         .collect();
-    // Double quotes and $ are safe inside single-quoted shell context
+    // Single quotes in a value are harmless inside double-quoted shell context
     assert_eq!(
-        interpolate_shell("echo '${msg}'", &vars),
-        r#"echo 'say "hello" $HOME'"#
+        interpolate_shell(r#"echo "${msg}""#, &vars),
+        r#"echo "it's a test""#
     );
 }
 
@@ -77,11 +115,31 @@ fn interpolate_shell_unknown_left_alone() {
 
 #[test]
 fn interpolate_plain_does_not_escape() {
-    let vars: HashMap<String, String> = [("msg".to_string(), "it's a test".to_string())]
+    let vars: HashMap<String, String> = [("msg".to_string(), r#"$HOME `pwd` "hello""#.to_string())]
         .into_iter()
         .collect();
     // Regular interpolate should NOT escape
-    assert_eq!(interpolate("${msg}", &vars), "it's a test");
+    assert_eq!(interpolate("${msg}", &vars), r#"$HOME `pwd` "hello""#);
+}
+
+#[test]
+fn interpolate_shell_realistic_submit_step() {
+    // Simulate a submit step where local.title contains user-provided text
+    let vars: HashMap<String, String> = [
+        (
+            "local.title".to_string(),
+            "fix: handle `$PATH` and \"quotes\"".to_string(),
+        ),
+        ("local.branch".to_string(), "fix/bug-123".to_string()),
+    ]
+    .into_iter()
+    .collect();
+    let template = r#"git commit -m "${local.title}" && git push origin "${local.branch}""#;
+    let result = interpolate_shell(template, &vars);
+    assert_eq!(
+        result,
+        r#"git commit -m "fix: handle \`\$PATH\` and \"quotes\"" && git push origin "fix/bug-123""#
+    );
 }
 
 // =============================================================================

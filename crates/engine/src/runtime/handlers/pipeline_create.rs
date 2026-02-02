@@ -107,9 +107,21 @@ where
         };
 
         // Evaluate locals: interpolate each value with current vars, then add as local.*
-        for (key, template) in &pipeline_def.locals {
-            let value = oj_runbook::interpolate(template, &vars);
-            vars.insert(format!("local.{}", key), value);
+        // Build a lookup map that includes var.*-prefixed keys so templates like
+        // ${var.name} resolve (the vars map stores raw keys like "name").
+        if !pipeline_def.locals.is_empty() {
+            let mut lookup: HashMap<String, String> = vars
+                .iter()
+                .flat_map(|(k, v)| {
+                    let prefixed = format!("var.{}", k);
+                    vec![(k.clone(), v.clone()), (prefixed, v.clone())]
+                })
+                .collect();
+            for (key, template) in &pipeline_def.locals {
+                let value = oj_runbook::interpolate(template, &lookup);
+                lookup.insert(format!("local.{}", key), value.clone());
+                vars.insert(format!("local.{}", key), value);
+            }
         }
 
         // Compute initial step

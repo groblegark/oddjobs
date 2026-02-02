@@ -777,3 +777,153 @@ async fn step_level_on_fail_takes_precedence() {
         "Step-level on_fail should take precedence over pipeline-level"
     );
 }
+
+// --- Locals interpolation tests ---
+
+/// Runbook with locals that reference pipeline vars via ${var.*}
+const RUNBOOK_WITH_LOCALS: &str = r#"
+[command.build]
+args = "<name> <instructions>"
+run = { pipeline = "build" }
+
+[pipeline.build]
+input = ["name", "instructions"]
+
+[pipeline.build.locals]
+branch = "feature/${var.name}"
+title = "feat(${var.name}): ${var.instructions}"
+
+[[pipeline.build.step]]
+name = "init"
+run = "echo ${local.branch} ${local.title}"
+"#;
+
+#[tokio::test]
+async fn locals_interpolate_var_references() {
+    let ctx = setup_with_runbook(RUNBOOK_WITH_LOCALS).await;
+
+    ctx.runtime
+        .handle_event(command_event(
+            "pipe-1",
+            "build",
+            "build",
+            [
+                ("name".to_string(), "auth".to_string()),
+                ("instructions".to_string(), "add login".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+
+    assert_eq!(
+        pipeline.vars.get("local.branch").map(String::as_str),
+        Some("feature/auth"),
+        "local.branch should interpolate ${{var.name}}"
+    );
+    assert_eq!(
+        pipeline.vars.get("local.title").map(String::as_str),
+        Some("feat(auth): add login"),
+        "local.title should interpolate ${{var.name}} and ${{var.instructions}}"
+    );
+}
+
+/// Runbook with locals that reference workspace variables
+const RUNBOOK_LOCALS_WITH_WORKSPACE: &str = r#"
+[command.build]
+args = "<name>"
+run = { pipeline = "build" }
+
+[pipeline.build]
+input = ["name"]
+workspace = "ephemeral"
+
+[pipeline.build.locals]
+branch = "feature/${var.name}-${workspace.nonce}"
+
+[[pipeline.build.step]]
+name = "init"
+run = "echo ${local.branch}"
+"#;
+
+#[tokio::test]
+async fn locals_interpolate_workspace_variables() {
+    let ctx = setup_with_runbook(RUNBOOK_LOCALS_WITH_WORKSPACE).await;
+
+    ctx.runtime
+        .handle_event(command_event(
+            "pipe-1",
+            "build",
+            "build",
+            [("name".to_string(), "auth".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+
+    let branch = pipeline.vars.get("local.branch").cloned().unwrap_or_default();
+    assert!(
+        branch.starts_with("feature/auth-"),
+        "local.branch should start with 'feature/auth-', got: {branch}"
+    );
+    // Should NOT contain unresolved template variables
+    assert!(
+        !branch.contains("${"),
+        "local.branch should not contain unresolved variables, got: {branch}"
+    );
+}
+
+/// Runbook with locals containing shell command substitution (should be left as-is for shell eval)
+const RUNBOOK_LOCALS_SHELL_SUBST: &str = r#"
+[command.build]
+args = "<name>"
+run = { pipeline = "build" }
+
+[pipeline.build]
+input = ["name"]
+
+[pipeline.build.locals]
+repo = "$(echo /some/repo)"
+
+[[pipeline.build.step]]
+name = "init"
+run = "echo ${local.repo}"
+"#;
+
+#[tokio::test]
+async fn locals_preserve_shell_command_substitution() {
+    let ctx = setup_with_runbook(RUNBOOK_LOCALS_SHELL_SUBST).await;
+
+    ctx.runtime
+        .handle_event(command_event(
+            "pipe-1",
+            "build",
+            "build",
+            [("name".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+
+    // Shell $() substitution should be preserved (not a template variable)
+    assert_eq!(
+        pipeline.vars.get("local.repo").map(String::as_str),
+        Some("$(echo /some/repo)"),
+        "Shell command substitution should be preserved in locals"
+    );
+}

@@ -226,8 +226,11 @@ pub async fn startup(config: &Config) -> Result<StartupResult, LifecycleError> {
     match startup_inner(config).await {
         Ok(result) => Ok(result),
         Err(e) => {
-            // Clean up any resources created before failure
-            cleanup_on_failure(config);
+            // Don't clean up if we failed to acquire the lock —
+            // those files belong to the already-running daemon.
+            if !matches!(e, LifecycleError::LockFailed(_)) {
+                cleanup_on_failure(config);
+            }
             Err(e)
         }
     }
@@ -241,14 +244,21 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
     }
 
     // 2. Acquire lock file FIRST - prevents races
-    let lock_file = File::create(&config.lock_path)?;
+    // Use OpenOptions to avoid truncating the file before we hold the lock,
+    // which would wipe the running daemon's PID.
+    let lock_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&config.lock_path)?;
     lock_file
         .try_lock_exclusive()
         .map_err(LifecycleError::LockFailed)?;
 
-    // Write PID to lock file
+    // Write PID to lock file (truncate now that we hold the lock)
     use std::io::Write;
     let mut lock_file = lock_file;
+    lock_file.set_len(0)?;
     writeln!(lock_file, "{}", std::process::id())?;
     let lock_file = lock_file; // Drop mutability
 

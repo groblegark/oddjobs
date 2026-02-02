@@ -11,7 +11,7 @@ use oj_runbook::{PipelineDef, RunDirective, Runbook, StepDef};
 use oj_storage::{MaterializedState, Wal};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -389,5 +389,132 @@ fn reconcile_context_counts_non_terminal_pipelines() {
     assert_eq!(
         pipeline_count, 1,
         "only running pipeline should be counted as non-terminal"
+    );
+}
+
+/// Helper to create a Config pointing at a temp directory.
+fn test_config(dir: &Path) -> Config {
+    Config {
+        socket_path: dir.join("test.sock"),
+        lock_path: dir.join("test.lock"),
+        version_path: dir.join("test.version"),
+        log_path: dir.join("test.log"),
+        wal_path: dir.join("test.wal"),
+        snapshot_path: dir.join("test.snapshot"),
+        workspaces_path: dir.join("workspaces"),
+        logs_path: dir.join("logs"),
+    }
+}
+
+#[tokio::test]
+async fn startup_lock_failed_does_not_remove_existing_files() {
+    // Simulate a running daemon by holding the lock and creating its files.
+    // A second startup attempt must fail without deleting anything.
+    let dir = tempdir().unwrap();
+    let dir_path = dir.path().to_owned();
+
+    let config = test_config(&dir_path);
+    std::fs::create_dir_all(config.socket_path.parent().unwrap()).unwrap();
+
+    // Create the files a running daemon would have
+    std::fs::write(&config.socket_path, b"").unwrap();
+    std::fs::write(&config.version_path, b"0.1.0").unwrap();
+
+    // Hold an exclusive lock (simulating the running daemon)
+    let lock_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&config.lock_path)
+        .unwrap();
+    use fs2::FileExt;
+    lock_file.lock_exclusive().unwrap();
+    std::fs::write(&config.lock_path, b"12345").unwrap();
+
+    // Attempt startup — should fail with LockFailed
+    match startup(&config).await {
+        Err(LifecycleError::LockFailed(_)) => {} // expected
+        Err(e) => panic!("expected LockFailed, got: {e}"),
+        Ok(_) => panic!("expected LockFailed, but startup succeeded"),
+    }
+
+    // All files must still exist
+    assert!(
+        config.socket_path.exists(),
+        "socket file must not be deleted on LockFailed"
+    );
+    assert!(
+        config.version_path.exists(),
+        "version file must not be deleted on LockFailed"
+    );
+    assert!(
+        config.lock_path.exists(),
+        "lock file must not be deleted on LockFailed"
+    );
+}
+
+#[test]
+fn lock_file_not_truncated_before_lock_acquired() {
+    // Verify that opening the lock file for locking does not truncate it.
+    // A running daemon's PID must survive another process opening the file.
+    let dir = tempdir().unwrap();
+    let lock_path = dir.path().join("test.lock");
+
+    // Simulate running daemon: write PID and hold exclusive lock
+    let running_lock = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .unwrap();
+    use fs2::FileExt;
+    running_lock.lock_exclusive().unwrap();
+    use std::io::Write;
+    let mut f = &running_lock;
+    writeln!(f, "99999").unwrap();
+
+    // Second process opens the file (same OpenOptions as startup_inner)
+    let _second = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .unwrap();
+
+    // PID written by the "running daemon" must still be readable
+    let content = std::fs::read_to_string(&lock_path).unwrap();
+    assert_eq!(
+        content.trim(),
+        "99999",
+        "lock file content must not be truncated by another open"
+    );
+}
+
+#[test]
+fn cleanup_on_failure_removes_created_files() {
+    // When startup fails for a non-lock reason (e.g. bind failure),
+    // cleanup_on_failure should remove the files we created.
+    let dir = tempdir().unwrap();
+    let dir_path = dir.path().to_owned();
+    let config = test_config(&dir_path);
+
+    // Create files as if startup_inner created them before failing
+    std::fs::write(&config.socket_path, b"").unwrap();
+    std::fs::write(&config.version_path, b"0.1.0").unwrap();
+    std::fs::write(&config.lock_path, b"12345").unwrap();
+
+    cleanup_on_failure(&config);
+
+    assert!(
+        !config.socket_path.exists(),
+        "socket should be cleaned up on non-lock failure"
+    );
+    assert!(
+        !config.version_path.exists(),
+        "version file should be cleaned up on non-lock failure"
+    );
+    assert!(
+        !config.lock_path.exists(),
+        "lock file should be cleaned up on non-lock failure"
     );
 }

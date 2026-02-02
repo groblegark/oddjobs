@@ -295,6 +295,71 @@ fn daemon_start_error_log_shows_in_cli() {
 }
 
 // =============================================================================
+// Lock Contention Tests
+// =============================================================================
+
+/// Running ojd directly when a daemon is already running must not disrupt it.
+///
+/// Regression: a failed startup used to delete the socket and lock files
+/// belonging to the running daemon, making it unreachable.
+#[test]
+fn running_ojd_while_daemon_running_does_not_kill_it() {
+    let temp = Project::empty();
+    temp.oj().args(&["daemon", "start"]).passes();
+
+    // Verify daemon is running
+    temp.oj()
+        .args(&["daemon", "status"])
+        .passes()
+        .stdout_has("Status: running");
+
+    // Run ojd directly — should fail (lock held) but not disrupt anything
+    let ojd = ojd_binary();
+    let output = std::process::Command::new(&ojd)
+        .env("OJ_STATE_DIR", temp.state_path())
+        .output()
+        .expect("ojd should run");
+    assert!(
+        !output.status.success(),
+        "ojd should fail when daemon is already running"
+    );
+
+    // The original daemon must still be reachable
+    temp.oj()
+        .args(&["daemon", "status"])
+        .passes()
+        .stdout_has("Status: running");
+
+    // State files must still exist
+    assert!(
+        temp.state_path().join("daemon.sock").exists(),
+        "socket file must survive failed ojd"
+    );
+    assert!(
+        temp.state_path().join("daemon.pid").exists(),
+        "pid file must survive failed ojd"
+    );
+}
+
+/// Running ojd twice after the first daemon exits should work normally.
+/// This verifies the lock file is properly released when a daemon exits.
+#[test]
+fn ojd_starts_after_previous_daemon_stopped() {
+    let temp = Project::empty();
+
+    // Start and stop
+    temp.oj().args(&["daemon", "start"]).passes();
+    temp.oj().args(&["daemon", "stop"]).passes();
+
+    // Should be able to start again
+    temp.oj().args(&["daemon", "start"]).passes();
+    temp.oj()
+        .args(&["daemon", "status"])
+        .passes()
+        .stdout_has("Status: running");
+}
+
+// =============================================================================
 // Session Kill Tests
 // =============================================================================
 

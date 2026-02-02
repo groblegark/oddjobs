@@ -64,6 +64,9 @@ pub enum Request {
         /// Directory where the CLI was invoked (cwd), exposed as {invoke.dir}
         #[serde(default)]
         invoke_dir: PathBuf,
+        /// Project namespace
+        #[serde(default)]
+        namespace: String,
         /// Command name to execute
         command: String,
         /// Positional arguments
@@ -99,18 +102,30 @@ pub enum Request {
     /// Start a worker to process queue items
     WorkerStart {
         project_root: PathBuf,
+        #[serde(default)]
+        namespace: String,
         worker_name: String,
     },
 
     /// Wake a running worker to poll immediately
-    WorkerWake { worker_name: String },
+    WorkerWake {
+        worker_name: String,
+        #[serde(default)]
+        namespace: String,
+    },
 
     /// Stop a running worker
-    WorkerStop { worker_name: String },
+    WorkerStop {
+        worker_name: String,
+        #[serde(default)]
+        namespace: String,
+    },
 
     /// Push an item to a persisted queue
     QueuePush {
         project_root: PathBuf,
+        #[serde(default)]
+        namespace: String,
         queue_name: String,
         data: serde_json::Value,
     },
@@ -286,6 +301,8 @@ pub struct PipelineSummary {
     /// Most recent activity timestamp (from step history)
     #[serde(default)]
     pub updated_at_ms: u64,
+    #[serde(default)]
+    pub namespace: String,
 }
 
 /// Detailed pipeline information
@@ -304,6 +321,8 @@ pub struct PipelineDetail {
     pub steps: Vec<StepRecordDetail>,
     #[serde(default)]
     pub agents: Vec<AgentSummary>,
+    #[serde(default)]
+    pub namespace: String,
 }
 
 /// Record of a step execution for display
@@ -393,6 +412,8 @@ pub struct QueueItemSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkerSummary {
     pub name: String,
+    #[serde(default)]
+    pub namespace: String,
     pub queue: String,
     pub status: String,
     pub active: usize,

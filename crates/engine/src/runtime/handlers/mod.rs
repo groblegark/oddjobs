@@ -33,6 +33,7 @@ where
                 pipeline_name,
                 project_root,
                 invoke_dir,
+                namespace,
                 command,
                 args,
             } => {
@@ -42,6 +43,7 @@ where
                         pipeline_name,
                         project_root,
                         invoke_dir,
+                        namespace,
                         command,
                         args,
                     )
@@ -125,15 +127,16 @@ where
                 worker_name,
                 project_root,
                 runbook_hash,
+                namespace,
                 ..
             } => {
                 result_events.extend(
-                    self.handle_worker_started(worker_name, project_root, runbook_hash)
+                    self.handle_worker_started(worker_name, project_root, runbook_hash, namespace)
                         .await?,
                 );
             }
 
-            Event::WorkerWake { worker_name } => {
+            Event::WorkerWake { worker_name, .. } => {
                 result_events.extend(self.handle_worker_wake(worker_name).await?);
             }
 
@@ -143,7 +146,7 @@ where
                 result_events.extend(self.handle_worker_poll_complete(worker_name, items).await?);
             }
 
-            Event::WorkerStopped { worker_name } => {
+            Event::WorkerStopped { worker_name, .. } => {
                 result_events.extend(self.handle_worker_stopped(worker_name).await?);
             }
 
@@ -155,7 +158,11 @@ where
             }
 
             // Queue pushed -> wake workers watching this queue
-            Event::QueuePushed { queue_name, .. } => {
+            Event::QueuePushed {
+                queue_name,
+                namespace,
+                ..
+            } => {
                 let (worker_names, all_workers): (Vec<String>, Vec<String>) = {
                     let workers = self.worker_states.lock();
                     let all: Vec<String> = workers.keys().cloned().collect();
@@ -181,7 +188,10 @@ where
                     result_events.extend(
                         self.executor
                             .execute_all(vec![Effect::Emit {
-                                event: Event::WorkerWake { worker_name: name },
+                                event: Event::WorkerWake {
+                                    worker_name: name,
+                                    namespace: namespace.clone(),
+                                },
                             }])
                             .await?,
                     );

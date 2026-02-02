@@ -134,7 +134,9 @@ async fn run() -> Result<()> {
             use pipeline::PipelineCommand;
             match &args.command {
                 // Action: mutates pipeline state
-                PipelineCommand::Resume { .. } | PipelineCommand::Cancel { .. } => {
+                PipelineCommand::Resume { .. }
+                | PipelineCommand::Cancel { .. }
+                | PipelineCommand::Prune { .. } => {
                     let client = DaemonClient::for_action()?;
                     pipeline::handle(args.command, &client, format).await?
                 }

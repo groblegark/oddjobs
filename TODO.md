@@ -1,44 +1,34 @@
 # TODO
 
+In progress:
+  - fix(cli): oj pipeline wait Ctrl+C handling (agent working)
+
 Backlog (roughly priority-ordered):
 
 Core pipeline
   1. Worker poll interval: optional poll_interval on worker blocks for periodic checks
-  2. Worker concurrency > 1 (parallel/pool worker)
-  3. Merge pipeline: handle non-fast-forward push (rebase-before-push or retry)
+  2. Merge pipeline: handle non-fast-forward push (rebase-before-push or retry)
 
 Reliability
-  4. Cron: watchdog and janitor runbooks for stuck agents / stale resources
-  5. Default error handling for agent errors (rate limit → retry, no internet → retry,
+  3. Cron: watchdog and janitor runbooks for stuck agents / stale resources
+  4. Default error handling for agent errors (rate limit → retry, no internet → retry,
      out of credits → escalate, unauthorized → escalate). See design notes below.
 
 Human-in-the-loop
-  6. Status: quick status command showing active/escalated pipelines, queued merges,
+  5. Status: quick status command showing active/escalated pipelines, queued merges,
      active agents, enabled crons
-  7. Human In The Loop: CLI-first commands for handling escalation
-  8. Terminal: Dedicated fullscreen TUI for "watching" status and interactive inbox
-  9. Escalate on agent plan/question prompts instead of firing on_idle gate blindly
-      - Detect plan-mode approval prompts and AskUserQuestion in agent log watcher
-      - Emit distinct event (agent:prompt vs agent:idle) so gate doesn't fire
-      - Surface the prompt to human via escalation (oj pipeline show / inbox)
-
-Agent hooks
-  10. Consider checking both native hooks and agent log for on_idle/on_error detection
-
-Notifications
-  11. Agent notify config: emit on_start, on_done, on_fail for agent lifecycle events
-      - Pipeline notify is done; agent notify is parsed but not emitted in monitor.rs
+  6. Human In The Loop: CLI-first commands for handling escalation
+  7. Terminal: Dedicated fullscreen TUI for "watching" status and interactive inbox
 
 CLI polish
-  12. CLI color output: detect tty, respect COLOR/NO_COLOR env vars
+  8. CLI color output: detect tty, respect COLOR/NO_COLOR env vars
       - Copy color conventions from ../quench and ../wok
       - Colorize show, list, --help views and other human-facing output
       - Ask human for preferences on color scheme before implementing
-  13. Add `oj agent list`
 
 Multi-project
-  14. Shared queues: allow cross-project queue push (e.g. --project flag routing)
-  15. Remote daemon: coordinate jobs across multiple machines
+  9. Shared queues: allow cross-project queue push (e.g. --project flag routing)
+  10. Remote daemon: coordinate jobs across multiple machines
 
 ----
 
@@ -50,6 +40,8 @@ Key files:
   crates/runbook/src/find.rs      — runbook discovery (recursive scanner)
   crates/runbook/src/queue.rs     — QueueDef, QueueType, RetryConfig
   crates/engine/src/spawn.rs      — agent spawn, prompt interpolation
+  crates/engine/src/workspace.rs  — agent settings injection (Stop, Notification hooks)
+  crates/engine/src/monitor.rs    — MonitorState, PromptType, action effects
   crates/engine/src/runtime/handlers/worker.rs — worker lifecycle, dead letter
   crates/daemon/src/listener/     — request handlers (workers, queues, commands)
   crates/daemon/src/lifecycle.rs   — event processing, WAL persistence, state materialization
@@ -57,15 +49,6 @@ Key files:
 ----
 
 ## Design Notes
-
-### Agent Hooks
-
-1. **Consider checking both hooks and agent log for on_idle/on_error.**
-   Currently on_idle and on_error are detected from the agent session log by
-   oj's monitor. Agent tools (Claude, Gemini) also have native hook events
-   (Stop, Notification, etc.) that fire at the tool level before oj ever sees
-   the state change. We should consider whether on_idle/on_error detection
-   should use native hooks in addition to (or instead of) log-based monitoring.
 
 ### Default Error Handling
 
@@ -148,6 +131,20 @@ Landed:
   - feat(cli): oj pipeline show var truncation (--verbose for full values)
   - chore: update oddjobs docs for recent features
   - chore: update wok docs for recent features (CLAUDE.md, daemon crate, oj workspace section)
+  - feat(notify): route notifications through NotifyAdapter trait (testable with FakeNotify)
+  - feat(notify): agent lifecycle notifications (on_start, on_done, on_fail)
+  - feat(cli): oj agent list command with status/pipeline filters
+  - feat(cli): oj run with no args lists available commands from runbooks
+  - feat(engine): worker concurrency > 1 (parallel dispatch up to configured limit)
+  - feat(runbook): pipeline on_cancel step transition for cleanup on cancellation
+  - feat(engine): inject Claude Code Notification hooks for instant idle/prompt detection
+  - feat(engine): MonitorState::Prompting with on_prompt agent config (default: escalate)
+  - feat(runbook): pipeline name templates (slugified + nonced, 24-char max + stop words)
+  - fix(engine): shell interpolation escaping for special chars in local.title
+  - fix(runbook): var truncation specifiers (${var:0:60} syntax)
+  - chore(cli): dynamic column widths in pipeline/workspace/worker list commands
+  - chore(cli): show project name on oj run invocation
+  - fix(wok): finish sync architecture rewrite (CLI routes through daemon IPC in user-level mode)
 
 Workflow patterns that work:
   - oj run fix → agent fixes → submit pushes branch + queue push → merge worker
@@ -164,8 +161,5 @@ Workflow patterns that work:
   - Manual merge fallback: git fetch + merge when merge queue is stuck.
   - Multi-project: run pipelines across oddjobs, wok, quench simultaneously.
     Each project has its own namespace, workers, and queues.
-
-Known submit step issue:
-  - Submit step shell interpolation of ${var.instructions} (long text with special chars)
-    breaks commit messages and queue push. Locals + --var mitigate but don't fully solve;
-    the full instructions string still gets interpolated into the commit -m argument.
+  - Merge queue handles conflicts automatically via resolve agent.
+  - Worker concurrency > 1 landed but not yet tested in practice.

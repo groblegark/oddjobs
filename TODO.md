@@ -1,5 +1,10 @@
 # TODO
 
+In progress:
+  - feat(cli): oj pipeline show var truncation (merging)
+  - chore: update oddjobs docs for recent features (agent working)
+  - chore: update wok docs for recent features (agent working)
+
 Backlog (roughly priority-ordered):
 
 Core pipeline
@@ -35,15 +40,17 @@ CLI polish
       - Colorize show, list, --help views and other human-facing output
       - Ask human for preferences on color scheme before implementing
   13. Add `oj agent list`
-  14. `oj pipeline show` var truncation: cap var values at ~80 chars with `...`,
-      replace newlines with `\n`, add --verbose flag to show full values.
-      - When showing full values, the formatted values should be shown with added per-line indentation so that the output of values vs. vars is clearly laid out for quick scanning by the eye
+
+Multi-project
+  14. Shared queues: allow cross-project queue push (e.g. --project flag routing)
+  15. Remote daemon: coordinate jobs across multiple machines
 
 ----
 
 Key files:
-  .oj/runbooks/bugfix.hcl         — fix worker pipeline
+  .oj/runbooks/bug.hcl            — fix worker pipeline
   .oj/runbooks/build.hcl          — feature build pipeline
+  .oj/runbooks/chore.hcl          — chore worker pipeline
   .oj/runbooks/merge.hcl          — local merge queue
   crates/runbook/src/find.rs      — runbook discovery (recursive scanner)
   crates/runbook/src/queue.rs     — QueueDef, QueueType, RetryConfig
@@ -141,11 +148,14 @@ Landed:
   - feat(queue): dead letter semantics with retry = { attempts, cooldown }
   - feat(cli): oj queue retry to resurrect dead/failed items
   - chore: tech debt cleanup (namespace key consistency, plan artifact removal)
+  - chore(runbooks): add chore runbook to oddjobs, wok, quench
+  - chore(runbooks): rename bugfix.hcl → bug.hcl across projects
 
 Workflow patterns that work:
   - oj run fix → agent fixes → submit pushes branch + queue push → merge worker
     dispatches merge pipeline. Full loop works end-to-end now.
   - oj run build → plan agent → implement agent → submit → merge. Works end-to-end.
+  - oj run chore → agent works → submit → merge. Works end-to-end.
   - Submit steps use --var syntax to avoid shell escaping issues with titles
   - Pipeline locals {} reduce boilerplate (repo, branch, title defined once)
   - Cherry-pick from worktree branch when submit step fails (shell escaping, etc.)
@@ -154,6 +164,8 @@ Workflow patterns that work:
   - Parallel builds: kick off multiple oj run build concurrently, monitor with
     oj pipeline wait <id1> <id2> <id3> for streaming progress.
   - Manual merge fallback: git fetch + merge when merge queue is stuck.
+  - Multi-project: run pipelines across oddjobs, wok, quench simultaneously.
+    Each project has its own namespace, workers, and queues.
 
 Known submit step issue:
   - Submit step shell interpolation of ${var.instructions} (long text with special chars)

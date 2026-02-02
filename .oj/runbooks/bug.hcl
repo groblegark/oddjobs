@@ -1,6 +1,6 @@
 # Bugfix Runbook
 #
-# MVP worker pool: worker pulls bugs from wok → fix → verify → push
+# Worker pool: worker pulls bugs from wok → fix → verify → push
 #
 # Usage:
 #   oj run fix <description>        # File a bug and start the worker
@@ -32,6 +32,7 @@ pipeline "fix" {
   workspace = "ephemeral"
 
   locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "fix/${var.bug.id}-${workspace.nonce}"
     title  = "fix: ${var.bug.title}"
   }
@@ -45,11 +46,10 @@ pipeline "fix" {
   # Initialize workspace: worktree with shared build cache via .cargo/config.toml
   step "init" {
     run = <<-SHELL
-      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
-      git -C "$REPO" worktree add -b "${local.branch}" "${workspace.root}" HEAD
+      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
       mkdir -p .cargo
       echo "[build]" > .cargo/config.toml
-      echo "target-dir = \"$REPO/target\"" >> .cargo/config.toml
+      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
     SHELL
     on_done = { step = "fix" }
   }
@@ -61,10 +61,9 @@ pipeline "fix" {
 
   step "submit" {
     run = <<-SHELL
-      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
-      git -C "$REPO" push origin "${local.branch}"
+      git -C "${local.repo}" push origin "${local.branch}"
       oj queue push merges --var branch="${local.branch}" --var title="${local.title}"
     SHELL
     on_done = { step = "done" }

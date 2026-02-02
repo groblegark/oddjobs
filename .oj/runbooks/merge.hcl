@@ -2,8 +2,8 @@
 # Merges branches into main locally, with conflict resolution and testing.
 #
 # Usage:
+#   oj queue push merges --var branch="fix-123" --var title="fix: button color"
 #   oj queue push merges '{"branch": "fix-123", "title": "fix: button color"}'
-#   oj worker start merge
 
 queue "merges" {
   type     = "persisted"
@@ -23,6 +23,7 @@ pipeline "merge" {
   workspace = "ephemeral"
 
   locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "merge-${workspace.nonce}"
   }
 
@@ -34,12 +35,11 @@ pipeline "merge" {
 
   step "init" {
     run = <<-SHELL
-      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
-      git -C "$REPO" fetch origin ${var.mr.base} ${var.mr.branch}
-      git -C "$REPO" worktree add -b ${local.branch} "${workspace.root}" origin/${var.mr.base}
+      git -C "${local.repo}" fetch origin ${var.mr.base} ${var.mr.branch}
+      git -C "${local.repo}" worktree add -b ${local.branch} "${workspace.root}" origin/${var.mr.base}
       mkdir -p .cargo
       echo "[build]" > .cargo/config.toml
-      echo "target-dir = \"$REPO/target\"" >> .cargo/config.toml
+      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
     SHELL
     on_done = { step = "merge" }
   }
@@ -63,9 +63,8 @@ pipeline "merge" {
 
   step "push" {
     run = <<-SHELL
-      REPO=$(git -C "${invoke.dir}" rev-parse --show-toplevel)
-      git -C "$REPO" push origin ${local.branch}:${var.mr.base}
-      git -C "$REPO" push origin --delete ${var.mr.branch}
+      git -C "${local.repo}" push origin ${local.branch}:${var.mr.base}
+      git -C "${local.repo}" push origin --delete ${var.mr.branch}
     SHELL
   }
 }

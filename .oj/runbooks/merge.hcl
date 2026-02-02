@@ -21,6 +21,11 @@ pipeline "merge" {
   vars      = ["mr"]
   workspace = "ephemeral"
 
+  locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
+    branch = "merge-${workspace.nonce}"
+  }
+
   notify {
     on_start = "Merging: ${var.mr.title}"
     on_done  = "Merged: ${var.mr.title}"
@@ -29,12 +34,11 @@ pipeline "merge" {
 
   step "init" {
     run = <<-SHELL
-      REPO="$(git -C ${invoke.dir} rev-parse --show-toplevel)"
-      git -C "$REPO" fetch origin ${var.mr.base} ${var.mr.branch}
-      git -C "$REPO" worktree add -b merge-${workspace.nonce} "${workspace.root}" origin/${var.mr.base}
+      git -C "${local.repo}" fetch origin ${var.mr.base} ${var.mr.branch}
+      git -C "${local.repo}" worktree add -b ${local.branch} "${workspace.root}" origin/${var.mr.base}
       mkdir -p .cargo
       echo "[build]" > .cargo/config.toml
-      echo "target-dir = \"$REPO/target\"" >> .cargo/config.toml
+      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
     SHELL
     on_done = { step = "merge" }
   }
@@ -58,10 +62,8 @@ pipeline "merge" {
 
   step "push" {
     run = <<-SHELL
-      REPO="$(git -C ${invoke.dir} rev-parse --show-toplevel)"
-      BRANCH="$(git branch --show-current)"
-      git -C "$REPO" push origin "$BRANCH":${var.mr.base}
-      git -C "$REPO" push origin --delete ${var.mr.branch}
+      git -C "${local.repo}" push origin ${local.branch}:${var.mr.base}
+      git -C "${local.repo}" push origin --delete ${var.mr.branch}
     SHELL
   }
 }

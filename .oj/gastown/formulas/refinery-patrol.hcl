@@ -17,10 +17,13 @@ pipeline "refinery-patrol" {
   vars      = ["mr"]
   workspace = "ephemeral"
 
+  locals {
+    repo = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
+  }
+
   # Fetch branch and create worktree from the MR branch
   step "init" {
     run = <<-SHELL
-      REPO="$(git -C ${invoke.dir} rev-parse --show-toplevel)"
       MR_ID="${var.mr.id}"
 
       # Extract MR metadata from beads
@@ -36,8 +39,8 @@ pipeline "refinery-patrol" {
 
       # Fetch and create worktree from the MR branch (not base)
       # Gas Town flow: checkout feature → rebase onto main → ff-merge → push
-      git -C "$REPO" fetch origin "$BASE" "$BRANCH"
-      git -C "$REPO" worktree add -b "refinery-${workspace.nonce}" "${workspace.root}" "origin/$BRANCH"
+      git -C "${local.repo}" fetch origin "$BASE" "$BRANCH"
+      git -C "${local.repo}" worktree add -b "refinery-${workspace.nonce}" "${workspace.root}" "origin/$BRANCH"
 
       echo "$BRANCH" > .mr-branch
       echo "$BASE" > .mr-base
@@ -70,7 +73,6 @@ pipeline "refinery-patrol" {
   # Strict post-merge sequence: push → notify → close → cleanup
   step "push" {
     run = <<-SHELL
-      REPO="$(git -C ${invoke.dir} rev-parse --show-toplevel)"
       MR_ID="$(cat .mr-id)"
       BRANCH="$(cat .mr-branch)"
       BASE="$(cat .mr-base)"
@@ -78,7 +80,7 @@ pipeline "refinery-patrol" {
 
       # 1. Push to target branch
       MERGE_BRANCH="$(git branch --show-current)"
-      git -C "$REPO" push origin "$MERGE_BRANCH:$BASE"
+      git -C "${local.repo}" push origin "$MERGE_BRANCH:$BASE"
 
       # 2. Send MERGED mail to witness (REQUIRED before cleanup)
       bd create -t message \
@@ -90,7 +92,7 @@ pipeline "refinery-patrol" {
       bd close "$MR_ID" --reason "Merged to $BASE" 2>/dev/null || true
 
       # 4. Cleanup: delete polecat branch
-      git -C "$REPO" push origin --delete "$BRANCH" 2>/dev/null || true
+      git -C "${local.repo}" push origin --delete "$BRANCH" 2>/dev/null || true
 
       echo "Merged $BRANCH into $BASE. MR $MR_ID closed."
     SHELL

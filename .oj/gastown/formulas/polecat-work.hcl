@@ -16,22 +16,23 @@ pipeline "polecat-work" {
   vars      = ["bug"]
   workspace = "ephemeral"
 
+  locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
+    branch = "polecat/${var.bug.id}-${workspace.nonce}"
+  }
+
   # Initialize workspace (worktree from shared repo)
   step "init" {
     run = <<-SHELL
-      REPO="$(git -C ${invoke.dir} rev-parse --show-toplevel)"
-      BEAD_ID="${var.bug.id}"
-      BRANCH="polecat/$BEAD_ID-${workspace.nonce}"
-
-      git -C "$REPO" worktree add -b "$BRANCH" "${workspace.root}" HEAD
+      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
 
       # Store state for agent discovery
-      echo "$BEAD_ID" > .hook-bead
-      echo "$BRANCH" > .branch-name
+      echo "${var.bug.id}" > .hook-bead
+      echo "${local.branch}" > .branch-name
 
       # Hook the bead to this polecat
-      bd update "$BEAD_ID" --status in_progress \
-        --assignee "polecat/$BEAD_ID-${workspace.nonce}" 2>/dev/null || true
+      bd update "${var.bug.id}" --status in_progress \
+        --assignee "${local.branch}" 2>/dev/null || true
     SHELL
     on_done = { step = "work" }
   }
@@ -45,33 +46,28 @@ pipeline "polecat-work" {
   # Submit: push branch, create MR bead, send POLECAT_DONE mail
   step "submit" {
     run = <<-SHELL
-      REPO="$(git -C ${invoke.dir} rev-parse --show-toplevel)"
-      BEAD_ID="$(cat .hook-bead)"
-      BRANCH="$(cat .branch-name)"
-
       # Commit remaining work
       git add -A
       git diff --cached --quiet || git commit -m "feat: ${var.bug.title}"
 
       # Push branch to origin
-      git -C "$REPO" push origin "$BRANCH"
+      git -C "${local.repo}" push origin "${local.branch}"
 
       # Create merge-request bead (enters the refinery queue)
       MR_ID=$(bd create -t merge-request \
         --title "MR: ${var.bug.title}" \
-        --description "Branch: $BRANCH\nIssue: $BEAD_ID\nBase: main" \
-        --labels "branch:$BRANCH,issue:$BEAD_ID,base:main" \
+        --description "Branch: ${local.branch}\nIssue: ${var.bug.id}\nBase: main" \
+        --labels "branch:${local.branch},issue:${var.bug.id},base:main" \
         --json 2>/dev/null | jq -r '.id' 2>/dev/null || echo "mr-unknown")
 
       # Send POLECAT_DONE to witness (the mail protocol)
       bd create -t message \
         --title "POLECAT_DONE" \
-        --description "Exit: MERGED\nIssue: $BEAD_ID\nMR: $MR_ID\nBranch: $BRANCH" \
+        --description "Exit: MERGED\nIssue: ${var.bug.id}\nMR: $MR_ID\nBranch: ${local.branch}" \
         --labels "from:polecat,to:witness,msg-type:polecat-done" 2>/dev/null || true
 
       # Close the work bead
-      bd close "$BEAD_ID" --reason "Submitted MR $MR_ID" 2>/dev/null || true
-
+      bd close "${var.bug.id}" --reason "Submitted MR $MR_ID" 2>/dev/null || true
     SHELL
   }
 }

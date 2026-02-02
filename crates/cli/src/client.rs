@@ -620,6 +620,20 @@ impl DaemonClient {
         }
     }
 
+    /// Prune old terminal pipelines and their log files
+    pub async fn pipeline_prune(
+        &self,
+        all: bool,
+        dry_run: bool,
+    ) -> Result<(Vec<oj_daemon::PipelineEntry>, usize), ClientError> {
+        let request = Request::PipelinePrune { all, dry_run };
+        match self.send(&request).await? {
+            Response::PipelinesPruned { pruned, skipped } => Ok((pruned, skipped)),
+            Response::Error { message } => Err(ClientError::Rejected(message)),
+            _ => Err(ClientError::UnexpectedResponse),
+        }
+    }
+
     /// Prune old workspaces from terminal pipelines
     pub async fn workspace_prune(
         &self,

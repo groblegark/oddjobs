@@ -11,7 +11,7 @@ use oj_core::{AgentId, Event, PipelineId, SessionId, WorkspaceId};
 use oj_storage::MaterializedState;
 
 use crate::event_bus::EventBus;
-use crate::protocol::{Response, WorkspaceEntry};
+use crate::protocol::{PipelineEntry, Response, WorkspaceEntry};
 
 use super::ConnectionError;
 
@@ -266,6 +266,86 @@ pub(super) fn handle_agent_send(
             message: format!("Agent not found: {}", agent_id),
         }),
     }
+}
+
+/// Handle pipeline prune requests.
+///
+/// Removes terminal pipelines (failed/cancelled/done) from state and
+/// cleans up their log files. By default only prunes pipelines older
+/// than 24 hours; use `--all` to prune all terminal pipelines.
+pub(super) fn handle_pipeline_prune(
+    state: &Arc<Mutex<MaterializedState>>,
+    event_bus: &EventBus,
+    logs_path: &std::path::Path,
+    all: bool,
+    dry_run: bool,
+) -> Result<Response, ConnectionError> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let age_threshold_ms = 24 * 60 * 60 * 1000; // 24 hours in ms
+
+    let mut to_prune = Vec::new();
+    let mut skipped = 0usize;
+
+    {
+        let state_guard = state.lock();
+        for pipeline in state_guard.pipelines.values() {
+            if !pipeline.is_terminal() {
+                skipped += 1;
+                continue;
+            }
+
+            // Check age via step history (most recent activity)
+            if !all {
+                let created_at_ms = pipeline
+                    .step_history
+                    .first()
+                    .map(|r| r.started_at_ms)
+                    .unwrap_or(0);
+                if created_at_ms > 0 && now_ms.saturating_sub(created_at_ms) < age_threshold_ms {
+                    skipped += 1;
+                    continue;
+                }
+            }
+
+            to_prune.push(PipelineEntry {
+                id: pipeline.id.clone(),
+                name: pipeline.name.clone(),
+                step: pipeline.step.clone(),
+            });
+        }
+    }
+
+    if !dry_run {
+        for entry in &to_prune {
+            // Emit PipelineDeleted event to remove from state
+            let event = Event::PipelineDeleted {
+                id: PipelineId::new(entry.id.clone()),
+            };
+            event_bus
+                .send(event)
+                .map_err(|_| ConnectionError::WalError)?;
+
+            // Best-effort cleanup of pipeline log file
+            let log_file = logs_path.join(format!("{}.log", entry.id));
+            let _ = std::fs::remove_file(&log_file);
+
+            // Best-effort cleanup of agent log files for this pipeline's steps
+            // Agent logs are at logs_path/agent/<agent_id>.log
+            // The pipeline ID is used as agent_id for agent steps
+            let agent_log = logs_path.join("agent").join(format!("{}.log", entry.id));
+            let _ = std::fs::remove_file(&agent_log);
+            let agent_dir = logs_path.join("agent").join(&entry.id);
+            let _ = std::fs::remove_dir_all(&agent_dir);
+        }
+    }
+
+    Ok(Response::PipelinesPruned {
+        pruned: to_prune,
+        skipped,
+    })
 }
 
 /// Handle workspace prune requests.

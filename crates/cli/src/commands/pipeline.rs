@@ -87,6 +87,15 @@ pub enum PipelineCommand {
         /// Pipeline ID (supports prefix matching)
         id: String,
     },
+    /// Remove old terminal pipelines (failed/cancelled/done)
+    Prune {
+        /// Remove all terminal pipelines regardless of age
+        #[arg(long)]
+        all: bool,
+        /// Show what would be pruned without doing it
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Block until pipeline(s) reach a terminal state
     Wait {
         /// Pipeline IDs or names (prefix match)
@@ -508,6 +517,39 @@ pub async fn handle(
         PipelineCommand::Logs { id, follow, limit } => {
             let (log_path, content) = client.get_pipeline_logs(&id, limit).await?;
             display_log(&log_path, &content, follow, format, "pipeline", &id).await?;
+        }
+        PipelineCommand::Prune { all, dry_run } => {
+            let (pruned, skipped) = client.pipeline_prune(all, dry_run).await?;
+
+            match format {
+                OutputFormat::Text => {
+                    if dry_run {
+                        println!("Dry run — no changes made\n");
+                    }
+
+                    for entry in &pruned {
+                        let label = if dry_run { "Would prune" } else { "Pruned" };
+                        let short_id = &entry.id[..12.min(entry.id.len())];
+                        println!("{} {} ({}, {})", label, entry.name, short_id, entry.step);
+                    }
+
+                    let verb = if dry_run { "would be pruned" } else { "pruned" };
+                    println!(
+                        "\n{} pipeline(s) {}, {} skipped",
+                        pruned.len(),
+                        verb,
+                        skipped
+                    );
+                }
+                OutputFormat::Json => {
+                    let obj = serde_json::json!({
+                        "dry_run": dry_run,
+                        "pruned": pruned,
+                        "skipped": skipped,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                }
+            }
         }
         PipelineCommand::Wait { ids, all, timeout } => {
             super::pipeline_wait::handle(ids, all, timeout, client).await?;

@@ -91,6 +91,14 @@ pub enum Request {
         with_color: bool,
     },
 
+    /// Prune old terminal pipelines and their log files
+    PipelinePrune {
+        /// Prune all terminal pipelines regardless of age
+        all: bool,
+        /// Preview only -- don't actually delete
+        dry_run: bool,
+    },
+
     /// Prune old workspaces from terminal pipelines
     WorkspacePrune {
         /// Prune all terminal workspaces regardless of age
@@ -282,6 +290,12 @@ pub enum Response {
     /// Session pane snapshot
     SessionPeek { output: String },
 
+    /// Pipeline prune result
+    PipelinesPruned {
+        pruned: Vec<PipelineEntry>,
+        skipped: usize,
+    },
+
     /// Workspace prune result
     WorkspacesPruned {
         pruned: Vec<WorkspaceEntry>,
@@ -439,6 +453,14 @@ pub struct WorkspaceEntry {
     pub id: String,
     pub path: PathBuf,
     pub branch: Option<String>,
+}
+
+/// Pipeline entry for prune responses
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PipelineEntry {
+    pub id: String,
+    pub name: String,
+    pub step: String,
 }
 
 /// Summary of a queue item

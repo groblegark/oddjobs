@@ -121,3 +121,5 @@ Patterns that work:
   - Merge queue handles conflicts automatically via resolve agent.
   - Cherry-pick from worktree branch when a step fails, then make install + daemon restart.
   - Manual merge fallback: git fetch + merge when merge queue is stuck.
+  - Commit and push TODO/doc changes before kicking off agents — avoids merge conflicts
+    when agent branches diverge from main.

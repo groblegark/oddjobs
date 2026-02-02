@@ -2,6 +2,8 @@
 //!
 //! Verify `oj pipeline wait` works with single and multiple IDs.
 
+use std::process::{Command, Stdio};
+
 use crate::prelude::*;
 
 /// Runbook with two pipelines: one succeeds, one fails.
@@ -192,4 +194,65 @@ fn wait_all_mode_mixed_outcomes_exits_nonzero() {
         .args(&["pipeline", "wait", "--all", &succeed_id, &fail_id])
         .env("OJ_WAIT_POLL_MS", "10")
         .fails();
+}
+
+/// Runbook with a long-running pipeline for signal tests.
+const SLOW_RUNBOOK: &str = r#"
+[command.slow]
+run = { pipeline = "slow" }
+
+[pipeline.slow]
+[[pipeline.slow.step]]
+name = "wait_forever"
+run = "sleep 300"
+"#;
+
+#[test]
+fn wait_exits_on_sigint() {
+    let temp = Project::empty();
+    temp.git_init();
+    temp.file(".oj/runbooks/slow.toml", SLOW_RUNBOOK);
+    temp.oj().args(&["daemon", "start"]).passes();
+    temp.oj().args(&["run", "slow"]).passes();
+
+    // Wait for the pipeline to appear
+    let found = wait_for(SPEC_WAIT_MAX_MS, || {
+        temp.oj()
+            .args(&["pipeline", "list"])
+            .passes()
+            .stdout()
+            .contains("slow")
+    });
+    assert!(found, "pipeline should appear in list");
+
+    let id = extract_pipeline_id(&temp, "slow");
+
+    // Spawn `oj pipeline wait` in the background
+    let child = temp
+        .oj()
+        .args(&["pipeline", "wait", &id])
+        .env("OJ_WAIT_POLL_MS", "50")
+        .command()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("should spawn wait process");
+
+    // Give it a moment to start polling, then send SIGINT
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    Command::new("kill")
+        .args(["-2", &child.id().to_string()])
+        .status()
+        .expect("should send SIGINT");
+
+    let output = child.wait_with_output().expect("should collect output");
+    // 130 = 128 + SIGINT(2), the conventional exit code for Ctrl+C
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit with code 130 on SIGINT, got: {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr),
+    );
 }

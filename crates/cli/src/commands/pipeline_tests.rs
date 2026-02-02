@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use super::{
-    format_pipeline_list, format_var_value, parse_duration, print_step_progress, status_group,
-    StepTracker,
-};
+use super::super::pipeline_wait::{print_step_progress, StepTracker};
+use super::{format_pipeline_list, format_var_value, parse_duration, status_group};
 use oj_daemon::{PipelineDetail, PipelineSummary, StepRecordDetail};
 use std::collections::HashMap;
 use std::time::Duration;

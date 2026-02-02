@@ -5,13 +5,12 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::client::DaemonClient;
-use crate::exit_error::ExitError;
 use crate::output::{display_log, format_time_ago, should_use_color, OutputFormat};
 
 #[derive(Args)]
@@ -247,12 +246,6 @@ pub(crate) fn format_pipeline_list(out: &mut impl Write, pipelines: &[oj_daemon:
     }
 }
 
-enum PipelineOutcome {
-    Done,
-    Failed(String),
-    Cancelled,
-}
-
 pub async fn handle(
     command: PipelineCommand,
     client: &DaemonClient,
@@ -332,8 +325,10 @@ pub async fn handle(
                             println!();
                             println!("  Steps:");
                             for step in &p.steps {
-                                let duration =
-                                    format_duration(step.started_at_ms, step.finished_at_ms);
+                                let duration = super::pipeline_wait::format_duration(
+                                    step.started_at_ms,
+                                    step.finished_at_ms,
+                                );
                                 let status = match step.outcome.as_str() {
                                     "completed" => "completed".to_string(),
                                     "running" => "running".to_string(),
@@ -515,184 +510,11 @@ pub async fn handle(
             display_log(&log_path, &content, follow, format, "pipeline", &id).await?;
         }
         PipelineCommand::Wait { ids, all, timeout } => {
-            let timeout_dur = timeout.map(|s| parse_duration(&s)).transpose()?;
-            let poll_ms = std::env::var("OJ_WAIT_POLL_MS")
-                .ok()
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(1000);
-            let poll_interval = Duration::from_millis(poll_ms);
-            let start = Instant::now();
-
-            let mut finished: HashMap<String, PipelineOutcome> = HashMap::new();
-            let mut canonical_ids: HashMap<String, String> = HashMap::new();
-            let mut step_trackers: HashMap<String, StepTracker> = HashMap::new();
-            let show_prefix = ids.len() > 1;
-
-            loop {
-                for input_id in &ids {
-                    if finished.contains_key(input_id) {
-                        continue;
-                    }
-                    let detail = client.get_pipeline(input_id).await?;
-                    match detail {
-                        None => {
-                            return Err(ExitError::new(
-                                3,
-                                format!("Pipeline not found: {}", input_id),
-                            )
-                            .into());
-                        }
-                        Some(p) => {
-                            canonical_ids
-                                .entry(input_id.clone())
-                                .or_insert_with(|| p.id.clone());
-
-                            let tracker =
-                                step_trackers
-                                    .entry(input_id.clone())
-                                    .or_insert(StepTracker {
-                                        printed_count: 0,
-                                        printed_started: false,
-                                    });
-                            let mut stdout = std::io::stdout();
-                            print_step_progress(&p, tracker, show_prefix, &mut stdout);
-
-                            let outcome = match p.step.as_str() {
-                                "done" => Some(PipelineOutcome::Done),
-                                "failed" => Some(PipelineOutcome::Failed(
-                                    p.error.clone().unwrap_or_else(|| "unknown error".into()),
-                                )),
-                                "cancelled" => Some(PipelineOutcome::Cancelled),
-                                _ => None,
-                            };
-                            if let Some(outcome) = outcome {
-                                let short_id = &canonical_ids[input_id][..8];
-                                match &outcome {
-                                    PipelineOutcome::Done => {
-                                        println!("Pipeline {} ({}) completed", p.name, short_id);
-                                    }
-                                    PipelineOutcome::Failed(msg) => {
-                                        eprintln!(
-                                            "Pipeline {} ({}) failed: {}",
-                                            p.name, short_id, msg
-                                        );
-                                    }
-                                    PipelineOutcome::Cancelled => {
-                                        eprintln!(
-                                            "Pipeline {} ({}) was cancelled",
-                                            p.name, short_id
-                                        );
-                                    }
-                                }
-                                finished.insert(input_id.clone(), outcome);
-                            }
-                        }
-                    }
-                }
-
-                if all {
-                    if finished.len() == ids.len() {
-                        break;
-                    }
-                } else if !finished.is_empty() {
-                    break;
-                }
-
-                if let Some(t) = timeout_dur {
-                    if start.elapsed() >= t {
-                        return Err(ExitError::new(
-                            2,
-                            "Timeout waiting for pipeline(s)".to_string(),
-                        )
-                        .into());
-                    }
-                }
-
-                tokio::time::sleep(poll_interval).await;
-            }
-
-            let any_failed = finished
-                .values()
-                .any(|o| matches!(o, PipelineOutcome::Failed(_)));
-            let any_cancelled = finished
-                .values()
-                .any(|o| matches!(o, PipelineOutcome::Cancelled));
-            if any_failed {
-                return Err(ExitError::new(1, String::new()).into());
-            }
-            if any_cancelled {
-                return Err(ExitError::new(4, String::new()).into());
-            }
+            super::pipeline_wait::handle(ids, all, timeout, client).await?;
         }
     }
 
     Ok(())
-}
-
-/// Tracks step progress for a single pipeline during wait polling.
-struct StepTracker {
-    /// Number of steps we've already printed final transitions for.
-    printed_count: usize,
-    /// Whether we've printed a "started" line for the current (not-yet-final) step.
-    printed_started: bool,
-}
-
-/// Print step transitions that occurred since the last poll.
-fn print_step_progress(
-    detail: &oj_daemon::PipelineDetail,
-    tracker: &mut StepTracker,
-    show_pipeline_prefix: bool,
-    out: &mut impl std::io::Write,
-) {
-    let prefix = if show_pipeline_prefix {
-        format!("[{}] ", detail.name)
-    } else {
-        String::new()
-    };
-
-    for (i, step) in detail.steps.iter().enumerate() {
-        if i < tracker.printed_count {
-            continue;
-        }
-
-        let is_terminal = matches!(step.outcome.as_str(), "completed" | "failed");
-
-        if is_terminal {
-            // Print "started" for steps we haven't announced yet (skipped running state)
-            if i == tracker.printed_count && !tracker.printed_started {
-                // Step completed between polls without us seeing "running" — don't print started
-                // for instant steps, just print the final outcome directly.
-            }
-
-            let elapsed = format_duration(step.started_at_ms, step.finished_at_ms);
-            match step.outcome.as_str() {
-                "completed" => {
-                    let _ = writeln!(out, "{}{} completed ({})", prefix, step.name, elapsed);
-                }
-                "failed" => {
-                    let suffix = match &step.detail {
-                        Some(d) if !d.is_empty() => format!(" - {}", d),
-                        _ => String::new(),
-                    };
-                    let _ = writeln!(
-                        out,
-                        "{}{} failed ({}){}",
-                        prefix, step.name, elapsed, suffix
-                    );
-                }
-                _ => unreachable!(),
-            }
-            tracker.printed_count = i + 1;
-            tracker.printed_started = false;
-        } else if step.outcome == "running" && !tracker.printed_started {
-            let _ = writeln!(out, "{}{} started", prefix, step.name);
-            tracker.printed_started = true;
-        } else if step.outcome == "waiting" && !tracker.printed_started {
-            let reason = step.detail.as_deref().unwrap_or("waiting");
-            let _ = writeln!(out, "{}{} waiting ({})", prefix, step.name, reason);
-            tracker.printed_started = true;
-        }
-    }
 }
 
 /// Print follow-up commands for a pipeline.
@@ -702,23 +524,6 @@ pub(crate) fn print_pipeline_commands(short_id: &str) {
     println!("    oj pipeline logs {short_id} -f   # Follow logs");
     println!("    oj pipeline peek {short_id}      # Capture tmux pane");
     println!("    oj pipeline attach {short_id}    # Attach to tmux");
-}
-
-fn format_duration(started_ms: u64, finished_ms: Option<u64>) -> String {
-    let end = finished_ms.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    });
-    let elapsed_secs = (end.saturating_sub(started_ms)) / 1000;
-    if elapsed_secs < 60 {
-        format!("{}s", elapsed_secs)
-    } else if elapsed_secs < 3600 {
-        format!("{}m {}s", elapsed_secs / 60, elapsed_secs % 60)
-    } else {
-        format!("{}h {}m", elapsed_secs / 3600, (elapsed_secs % 3600) / 60)
-    }
 }
 
 fn format_agent_summary(agent: &oj_daemon::AgentSummary) -> String {

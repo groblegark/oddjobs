@@ -29,6 +29,7 @@ fn test_pipeline() -> Pipeline {
         action_attempts: HashMap::new(),
         agent_signal: None,
         namespace: String::new(),
+        cancelling: false,
     }
 }
 

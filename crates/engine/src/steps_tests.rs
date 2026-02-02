@@ -29,6 +29,7 @@ fn test_pipeline() -> Pipeline {
         action_attempts: HashMap::new(),
         agent_signal: None,
         namespace: String::new(),
+        cancelling: false,
     }
 }
 
@@ -145,5 +146,62 @@ fn cancellation_effects_kills_session_when_set() {
     assert!(
         has_session_deleted_event(&effects, "sess-agent-3"),
         "cancellation_effects must emit SessionDeleted when session_id is set"
+    );
+}
+
+#[test]
+fn cancellation_transition_effects_emits_step_failed_and_advance() {
+    let pipeline = test_pipeline();
+    let effects = cancellation_transition_effects(&pipeline, "cleanup");
+
+    // Should emit StepFailed with "cancelled" error
+    let has_step_failed = effects.iter().any(|e| {
+        matches!(
+            e,
+            Effect::Emit {
+                event: Event::StepFailed { step, error, .. }
+            } if step == "execute" && error == "cancelled"
+        )
+    });
+    assert!(
+        has_step_failed,
+        "cancellation_transition_effects must emit StepFailed with 'cancelled' error"
+    );
+
+    // Should emit PipelineAdvanced to the target step
+    let has_advanced = effects.iter().any(|e| {
+        matches!(
+            e,
+            Effect::Emit {
+                event: Event::PipelineAdvanced { step, .. }
+            } if step == "cleanup"
+        )
+    });
+    assert!(
+        has_advanced,
+        "cancellation_transition_effects must emit PipelineAdvanced to cleanup step"
+    );
+}
+
+#[test]
+fn cancellation_transition_effects_does_not_cancel_timers_or_kill_sessions() {
+    let mut pipeline = test_pipeline();
+    pipeline.session_id = Some("sess-agent-4".to_string());
+    let effects = cancellation_transition_effects(&pipeline, "cleanup");
+
+    // Should NOT cancel timers (runtime handles that separately)
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::CancelTimer { .. })),
+        "cancellation_transition_effects must not cancel timers"
+    );
+
+    // Should NOT kill sessions (runtime handles that separately)
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::KillSession { .. })),
+        "cancellation_transition_effects must not kill sessions"
     );
 }

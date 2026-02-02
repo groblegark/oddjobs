@@ -121,6 +121,9 @@ pub enum Event {
         vars: HashMap<String, String>,
     },
 
+    #[serde(rename = "pipeline:cancelling")]
+    PipelineCancelling { id: PipelineId },
+
     #[serde(rename = "pipeline:cancel")]
     PipelineCancel { id: PipelineId },
 
@@ -382,6 +385,7 @@ impl Event {
             Event::PipelineAdvanced { .. } => "pipeline:advanced",
             Event::PipelineUpdated { .. } => "pipeline:updated",
             Event::PipelineResume { .. } => "pipeline:resume",
+            Event::PipelineCancelling { .. } => "pipeline:cancelling",
             Event::PipelineCancel { .. } => "pipeline:cancel",
             Event::PipelineDeleted { .. } => "pipeline:deleted",
             Event::RunbookLoaded { .. } => "runbook:loaded",
@@ -456,6 +460,7 @@ impl Event {
             Event::PipelineAdvanced { id, step } => format!("{t} id={id} step={step}"),
             Event::PipelineUpdated { id, .. } => format!("{t} id={id}"),
             Event::PipelineResume { id, .. } => format!("{t} id={id}"),
+            Event::PipelineCancelling { id } => format!("{t} id={id}"),
             Event::PipelineCancel { id } => format!("{t} id={id}"),
             Event::PipelineDeleted { id } => format!("{t} id={id}"),
             Event::RunbookLoaded {
@@ -572,6 +577,7 @@ impl Event {
             | Event::PipelineAdvanced { id, .. }
             | Event::PipelineUpdated { id, .. }
             | Event::PipelineResume { id, .. }
+            | Event::PipelineCancelling { id, .. }
             | Event::PipelineCancel { id, .. }
             | Event::PipelineDeleted { id, .. } => Some(id),
             Event::WorkerItemDispatched { pipeline_id, .. } => Some(pipeline_id),

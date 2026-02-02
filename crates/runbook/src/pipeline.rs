@@ -124,6 +124,9 @@ pub struct StepDef {
     /// Step to go to on failure
     #[serde(default)]
     pub on_fail: Option<StepTransition>,
+    /// Step to route to when the pipeline is cancelled during this step
+    #[serde(default)]
+    pub on_cancel: Option<StepTransition>,
 }
 
 impl StepDef {
@@ -172,6 +175,9 @@ pub struct PipelineDef {
     /// Step to route to when a step fails (no step-level on_fail)
     #[serde(default)]
     pub on_fail: Option<StepTransition>,
+    /// Step to route to when the pipeline is cancelled (no step-level on_cancel)
+    #[serde(default)]
+    pub on_cancel: Option<StepTransition>,
     /// Local variables computed at pipeline creation time.
     /// Values are template strings evaluated once, available as ${local.*}.
     #[serde(default)]

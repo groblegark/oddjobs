@@ -367,6 +367,12 @@ impl MaterializedState {
                 }
             }
 
+            Event::PipelineCancelling { id } => {
+                if let Some(pipeline) = self.pipelines.get_mut(id.as_str()) {
+                    pipeline.cancelling = true;
+                }
+            }
+
             Event::PipelineDeleted { id } => {
                 self.pipelines.remove(id.as_str());
             }

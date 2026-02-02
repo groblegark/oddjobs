@@ -14,6 +14,7 @@ fn sample_pipeline() -> PipelineDef {
         workspace: None,
         on_done: None,
         on_fail: None,
+        on_cancel: None,
         notify: Default::default(),
         steps: vec![
             StepDef {
@@ -21,6 +22,7 @@ fn sample_pipeline() -> PipelineDef {
                 run: RunDirective::Shell("git worktree add".to_string()),
                 on_done: None,
                 on_fail: None,
+                on_cancel: None,
             },
             StepDef {
                 name: "plan".to_string(),
@@ -29,6 +31,7 @@ fn sample_pipeline() -> PipelineDef {
                 },
                 on_done: None,
                 on_fail: None,
+                on_cancel: None,
             },
             StepDef {
                 name: "execute".to_string(),
@@ -41,18 +44,21 @@ fn sample_pipeline() -> PipelineDef {
                 on_fail: Some(StepTransition {
                     step: "failed".to_string(),
                 }),
+                on_cancel: None,
             },
             StepDef {
                 name: "done".to_string(),
                 run: RunDirective::Shell("echo done".to_string()),
                 on_done: None,
                 on_fail: None,
+                on_cancel: None,
             },
             StepDef {
                 name: "failed".to_string(),
                 run: RunDirective::Shell("echo failed".to_string()),
                 on_done: None,
                 on_fail: None,
+                on_cancel: None,
             },
         ],
     }
@@ -390,4 +396,88 @@ run = "echo init"
     let runbook = parse_runbook(toml).unwrap();
     let pipeline = runbook.get_pipeline("simple").unwrap();
     assert!(pipeline.locals.is_empty());
+}
+
+#[test]
+fn parse_toml_pipeline_on_cancel() {
+    let toml = r#"
+[pipeline.deploy]
+vars  = ["name"]
+on_cancel = "cleanup"
+
+[[pipeline.deploy.step]]
+name = "init"
+run = "echo init"
+on_cancel = "teardown"
+
+[[pipeline.deploy.step]]
+name = "teardown"
+run = "echo teardown"
+
+[[pipeline.deploy.step]]
+name = "cleanup"
+run = "echo cleanup"
+"#;
+    let runbook = parse_runbook(toml).unwrap();
+    let pipeline = runbook.get_pipeline("deploy").unwrap();
+    assert_eq!(
+        pipeline.on_cancel.as_ref().map(|t| t.step_name()),
+        Some("cleanup")
+    );
+    let init = pipeline.get_step("init").unwrap();
+    assert_eq!(
+        init.on_cancel.as_ref().map(|t| t.step_name()),
+        Some("teardown")
+    );
+}
+
+#[test]
+fn parse_hcl_pipeline_on_cancel() {
+    let hcl = r#"
+pipeline "deploy" {
+    vars  = ["name"]
+    on_cancel = "cleanup"
+
+    step "init" {
+        run       = "echo init"
+        on_cancel = "teardown"
+    }
+
+    step "teardown" {
+        run = "echo teardown"
+    }
+
+    step "cleanup" {
+        run = "echo cleanup"
+    }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let pipeline = runbook.get_pipeline("deploy").unwrap();
+    assert_eq!(
+        pipeline.on_cancel.as_ref().map(|t| t.step_name()),
+        Some("cleanup")
+    );
+    let init = pipeline.get_step("init").unwrap();
+    assert_eq!(
+        init.on_cancel.as_ref().map(|t| t.step_name()),
+        Some("teardown")
+    );
+}
+
+#[test]
+fn parse_pipeline_without_on_cancel() {
+    let toml = r#"
+[pipeline.simple]
+vars  = ["name"]
+
+[[pipeline.simple.step]]
+name = "init"
+run = "echo init"
+"#;
+    let runbook = parse_runbook(toml).unwrap();
+    let pipeline = runbook.get_pipeline("simple").unwrap();
+    assert!(pipeline.on_cancel.is_none());
+    let init = pipeline.get_step("init").unwrap();
+    assert!(init.on_cancel.is_none());
 }

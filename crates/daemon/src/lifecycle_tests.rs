@@ -32,12 +32,14 @@ fn test_runbook() -> Runbook {
             workspace: None,
             on_done: None,
             on_fail: None,
+            on_cancel: None,
             notify: Default::default(),
             steps: vec![StepDef {
                 name: "only-step".to_string(),
                 run: RunDirective::Shell("echo done".to_string()),
                 on_done: None,
                 on_fail: None,
+                on_cancel: None,
             }],
         },
     );

@@ -231,6 +231,7 @@ where
             | Event::WorkspaceReady { .. }
             | Event::WorkspaceFailed { .. }
             | Event::WorkspaceDeleted { .. }
+            | Event::PipelineCancelling { .. }
             | Event::PipelineUpdated { .. }
             | Event::WorkerItemDispatched { .. }
             | Event::QueueItemRetry { .. }

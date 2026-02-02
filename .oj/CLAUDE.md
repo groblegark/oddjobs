@@ -58,6 +58,52 @@ agent "reviewer" {
 }
 ```
 
+## Key Patterns
+
+**Pipeline name templates** — give pipelines human-readable names derived from input:
+
+```hcl
+pipeline "build" {
+  name = "${var.name}"
+  # displays as "auth-a1b2c3d4" instead of "build-a1b2c3d4"
+}
+```
+
+**Locals** — define variables computed once at pipeline creation, available as `${local.*}`:
+
+```hcl
+pipeline "build" {
+  vars      = ["name", "instructions"]
+  workspace = "ephemeral"
+
+  locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
+    branch = "feature/${var.name}-${workspace.nonce}"
+    title  = "feat(${var.name}): ${var.instructions}"
+  }
+
+  step "init" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
+    SHELL
+  }
+}
+```
+
+The `local.repo` pattern resolves the main repository root, letting ephemeral workspace steps push branches and manage worktrees in the original repo.
+
+**Pipeline notifications** — desktop notifications on lifecycle events:
+
+```hcl
+pipeline "build" {
+  notify {
+    on_start = "Building: ${var.name}"
+    on_done  = "Build landed: ${var.name}"
+    on_fail  = "Build failed: ${var.name}"
+  }
+}
+```
+
 ## Best Practices
 
 **Shell scripts:**

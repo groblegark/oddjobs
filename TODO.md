@@ -30,13 +30,12 @@ Notifications
       - Pipeline notify is done; agent notify is parsed but not emitted in monitor.rs
 
 CLI polish
-  12. `oj daemon restart` (stop + start convenience command)
-  13. CLI color output: detect tty, respect COLOR/NO_COLOR env vars
+  12. CLI color output: detect tty, respect COLOR/NO_COLOR env vars
       - Copy color conventions from ../quench and ../wok
       - Colorize show, list, --help views and other human-facing output
       - Ask human for preferences on color scheme before implementing
-  14. Add `oj agent list`
-  15. `oj pipeline show` var truncation: cap var values at ~80 chars with `...`,
+  13. Add `oj agent list`
+  14. `oj pipeline show` var truncation: cap var values at ~80 chars with `...`,
       replace newlines with `\n`, add --verbose flag to show full values.
       - When showing full values, the formatted values should be shown with added per-line indentation so that the output of values vs. vars is clearly laid out for quick scanning by the eye
 
@@ -47,9 +46,9 @@ Key files:
   .oj/runbooks/build.hcl          — feature build pipeline
   .oj/runbooks/merge.hcl          — local merge queue
   crates/runbook/src/find.rs      — runbook discovery (recursive scanner)
-  crates/runbook/src/queue.rs     — QueueDef, QueueType
+  crates/runbook/src/queue.rs     — QueueDef, QueueType, RetryConfig
   crates/engine/src/spawn.rs      — agent spawn, prompt interpolation
-  crates/engine/src/runtime/handlers/worker.rs — worker lifecycle
+  crates/engine/src/runtime/handlers/worker.rs — worker lifecycle, dead letter
   crates/daemon/src/listener/     — request handlers (workers, queues, commands)
   crates/daemon/src/lifecycle.rs   — event processing, WAL persistence, state materialization
 
@@ -132,19 +131,16 @@ Landed:
   - fix(runbook): surface skipped runbook errors when command not found
   - fix(engine): drop stale agent watcher events after pipeline advances
   - fix(submit): use --var syntax in runbook submit steps to avoid shell escaping issues
-
-Observations:
-  - Full fix loop works: oj run fix → agent fixes → submit → merge worker dispatches
-  - Merge pipeline: init → merge → check → push (push fails on non-fast-forward if
-    main has moved; merge runbook needs rebase-before-push or retry logic)
-  - .cargo/config.toml approach for shared build cache works; no more symlink conflicts
-  - Agents entering plan mode trigger on_idle immediately due to watcher initial state
-    check bypassing idle timeout. Switched to nudge as workaround; proper fix is #9.
-  - Implement agent exits after minimal work when on_idle gate fires during first
-    thinking pause — gate passes because unused struct additions don't fail make check
-  - Shared target dir causes stale test binaries when worktrees compile into it;
-    fixed with runtime fallback in binary_path() but concurrent builds can still
-    overwrite each other's binaries mid-test
+  - feat(daemon): auto-start workers on persisted queue push
+  - feat(cli): oj agent send command for reliable agent messaging
+  - feat(cli): oj pipeline wait accepts multiple IDs (any/--all modes)
+  - feat(core): per-project namespace isolation (OJ_NAMESPACE env propagation)
+  - feat(cli): oj daemon restart convenience command
+  - feat(cli): oj pipeline wait streams step progress in real time
+  - feat(cli): oj queue drop to remove stale queue items
+  - feat(queue): dead letter semantics with retry = { attempts, cooldown }
+  - feat(cli): oj queue retry to resurrect dead/failed items
+  - chore: tech debt cleanup (namespace key consistency, plan artifact removal)
 
 Workflow patterns that work:
   - oj run fix → agent fixes → submit pushes branch + queue push → merge worker
@@ -155,6 +151,9 @@ Workflow patterns that work:
   - Cherry-pick from worktree branch when submit step fails (shell escaping, etc.)
   - Always make install + daemon restart after cherry-picking.
   - Clean up worktrees: oj workspace drop <id>
+  - Parallel builds: kick off multiple oj run build concurrently, monitor with
+    oj pipeline wait <id1> <id2> <id3> for streaming progress.
+  - Manual merge fallback: git fetch + merge when merge queue is stuck.
 
 Known submit step issue:
   - Submit step shell interpolation of ${var.instructions} (long text with special chars)

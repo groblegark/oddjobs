@@ -59,6 +59,15 @@ where
                 }
             }
 
+            Event::AgentInput { agent_id, input } => {
+                self.executor
+                    .execute(Effect::SendToAgent {
+                        agent_id: agent_id.clone(),
+                        input: input.clone(),
+                    })
+                    .await?;
+            }
+
             Event::AgentSignal {
                 agent_id,
                 kind,

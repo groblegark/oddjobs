@@ -558,6 +558,7 @@ impl MaterializedState {
             | Event::CommandRun { .. }
             | Event::TimerStart { .. }
             | Event::SessionInput { .. }
+            | Event::AgentInput { .. }
             | Event::PipelineResume { .. }
             | Event::PipelineCancel { .. }
             | Event::WorkspaceDrop { .. }

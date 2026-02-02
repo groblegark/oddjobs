@@ -35,6 +35,14 @@ impl SessionAdapter for NoOpSessionAdapter {
         Ok(())
     }
 
+    async fn send_literal(&self, _id: &str, _text: &str) -> Result<(), SessionError> {
+        Ok(())
+    }
+
+    async fn send_enter(&self, _id: &str) -> Result<(), SessionError> {
+        Ok(())
+    }
+
     async fn kill(&self, _id: &str) -> Result<(), SessionError> {
         Ok(())
     }

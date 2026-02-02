@@ -184,6 +184,10 @@ async fn handle_request(
             mutations::handle_session_send(state, event_bus, id, input)
         }
 
+        Request::AgentSend { agent_id, message } => {
+            mutations::handle_agent_send(state, event_bus, agent_id, message)
+        }
+
         Request::PipelineResume { id, message, vars } => {
             mutations::handle_pipeline_resume(event_bus, id, message, vars)
         }

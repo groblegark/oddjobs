@@ -163,10 +163,21 @@ async fn run() -> Result<()> {
             }
         }
 
-        // Query commands - read state, user-initiated
+        // Agent commands - mixed action/query
         Commands::Agent(args) => {
-            let client = DaemonClient::for_query()?;
-            agent::handle(args.command, &client, format).await?
+            use agent::AgentCommand;
+            match &args.command {
+                // Action: sends input to an agent
+                AgentCommand::Send { .. } => {
+                    let client = DaemonClient::for_action()?;
+                    agent::handle(args.command, &client, format).await?
+                }
+                // Query: reads agent state
+                _ => {
+                    let client = DaemonClient::for_query()?;
+                    agent::handle(args.command, &client, format).await?
+                }
+            }
         }
         Commands::Session(args) => {
             let client = DaemonClient::for_query()?;

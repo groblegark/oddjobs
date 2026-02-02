@@ -55,6 +55,10 @@ pub enum Event {
     #[serde(rename = "agent:gone")]
     AgentGone { agent_id: AgentId },
 
+    /// User-initiated input to an agent
+    #[serde(rename = "agent:input")]
+    AgentInput { agent_id: AgentId, input: String },
+
     #[serde(rename = "agent:signal")]
     AgentSignal {
         agent_id: AgentId,
@@ -319,6 +323,7 @@ impl Event {
             Event::AgentFailed { .. } => "agent:failed",
             Event::AgentExited { .. } => "agent:exited",
             Event::AgentGone { .. } => "agent:gone",
+            Event::AgentInput { .. } => "agent:input",
             Event::AgentSignal { .. } => "agent:signal",
             Event::CommandRun { .. } => "command:run",
             Event::PipelineCreated { .. } => "pipeline:created",
@@ -364,6 +369,7 @@ impl Event {
             | Event::AgentFailed { agent_id, .. }
             | Event::AgentExited { agent_id, .. }
             | Event::AgentGone { agent_id } => format!("{t} agent={agent_id}"),
+            Event::AgentInput { agent_id, .. } => format!("{t} agent={agent_id}"),
             Event::AgentSignal { agent_id, kind, .. } => {
                 format!("{t} id={agent_id} kind={kind:?}")
             }

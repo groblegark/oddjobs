@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use oj_core::{Event, PipelineId, SessionId, WorkspaceId};
+use oj_core::{AgentId, Event, PipelineId, SessionId, WorkspaceId};
 use oj_storage::MaterializedState;
 
 use crate::event_bus::EventBus;
@@ -209,6 +209,63 @@ pub(super) async fn handle_workspace_drop(
     }
 
     Ok(Response::WorkspacesDropped { dropped })
+}
+
+/// Handle an agent send request.
+///
+/// Resolves agent_id via:
+/// 1. Direct match on pipeline agent_id (from step_history)
+/// 2. Pipeline ID lookup → current step's agent_id
+/// 3. Prefix match on either
+pub(super) fn handle_agent_send(
+    state: &Arc<Mutex<MaterializedState>>,
+    event_bus: &EventBus,
+    agent_id: String,
+    message: String,
+) -> Result<Response, ConnectionError> {
+    let resolved_agent_id = {
+        let state_guard = state.lock();
+
+        // 1. Check if any pipeline has an agent with this exact ID or prefix
+        let mut found: Option<String> = None;
+        for pipeline in state_guard.pipelines.values() {
+            if let Some(record) = pipeline.step_history.last() {
+                if let Some(aid) = &record.agent_id {
+                    if aid == &agent_id || aid.starts_with(&agent_id) {
+                        found = Some(aid.clone());
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 2. If not found by agent_id, try as pipeline ID → active agent
+        if found.is_none() {
+            if let Some(pipeline) = state_guard.get_pipeline(&agent_id) {
+                if let Some(record) = pipeline.step_history.last() {
+                    found = record.agent_id.clone();
+                }
+            }
+        }
+
+        found
+    };
+
+    match resolved_agent_id {
+        Some(aid) => {
+            let event = Event::AgentInput {
+                agent_id: AgentId::new(aid),
+                input: message,
+            };
+            event_bus
+                .send(event)
+                .map_err(|_| ConnectionError::WalError)?;
+            Ok(Response::Ok)
+        }
+        None => Ok(Response::Error {
+            message: format!("Agent not found: {}", agent_id),
+        }),
+    }
 }
 
 /// Handle workspace prune requests.

@@ -113,6 +113,34 @@ impl SessionAdapter for TmuxAdapter {
         Ok(())
     }
 
+    async fn send_literal(&self, id: &str, text: &str) -> Result<(), SessionError> {
+        // -l = literal mode (no key name interpretation)
+        // -- = end of options (handles text starting with -)
+        let output = Command::new("tmux")
+            .args(["send-keys", "-t", id, "-l", "--", text])
+            .output()
+            .await
+            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+
+        if !output.status.success() {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+        Ok(())
+    }
+
+    async fn send_enter(&self, id: &str) -> Result<(), SessionError> {
+        let output = Command::new("tmux")
+            .args(["send-keys", "-t", id, "Enter"])
+            .output()
+            .await
+            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+
+        if !output.status.success() {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+        Ok(())
+    }
+
     async fn kill(&self, id: &str) -> Result<(), SessionError> {
         let output = Command::new("tmux")
             .arg("kill-session")

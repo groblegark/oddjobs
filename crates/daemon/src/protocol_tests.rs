@@ -170,6 +170,19 @@ fn encode_decode_workers_response() {
     assert_eq!(response, decoded);
 }
 
+#[test]
+fn encode_decode_roundtrip_agent_send() {
+    let request = Request::AgentSend {
+        agent_id: "abc-123".to_string(),
+        message: "hello agent".to_string(),
+    };
+
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+
+    assert_eq!(request, decoded);
+}
+
 #[tokio::test]
 async fn write_message_adds_length_prefix() {
     let data = b"test data";

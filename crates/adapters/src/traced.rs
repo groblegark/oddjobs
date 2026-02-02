@@ -71,6 +71,36 @@ impl<S: SessionAdapter> SessionAdapter for TracedSession<S> {
         result
     }
 
+    async fn send_literal(&self, id: &str, text: &str) -> Result<(), SessionError> {
+        let span = tracing::info_span!("session.send_literal", id);
+        let _guard = span.enter();
+
+        tracing::debug!(text_len = text.len(), "sending literal");
+        let result = self.inner.send_literal(id, text).await;
+
+        match &result {
+            Ok(()) => tracing::debug!("sent literal"),
+            Err(e) => tracing::error!(error = %e, "send_literal failed"),
+        }
+
+        result
+    }
+
+    async fn send_enter(&self, id: &str) -> Result<(), SessionError> {
+        let span = tracing::info_span!("session.send_enter", id);
+        let _guard = span.enter();
+
+        tracing::debug!("sending enter");
+        let result = self.inner.send_enter(id).await;
+
+        match &result {
+            Ok(()) => tracing::debug!("sent enter"),
+            Err(e) => tracing::error!(error = %e, "send_enter failed"),
+        }
+
+        result
+    }
+
     async fn kill(&self, id: &str) -> Result<(), SessionError> {
         let span = tracing::info_span!("session.kill", id);
         let _guard = span.enter();

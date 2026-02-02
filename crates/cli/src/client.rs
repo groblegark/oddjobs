@@ -399,6 +399,15 @@ impl DaemonClient {
         }
     }
 
+    /// Send a message to a running agent
+    pub async fn agent_send(&self, agent_id: &str, message: &str) -> Result<(), ClientError> {
+        let request = Request::AgentSend {
+            agent_id: agent_id.to_string(),
+            message: message.to_string(),
+        };
+        self.send_simple(&request).await
+    }
+
     /// Send input to a session
     pub async fn session_send(&self, id: &str, input: &str) -> Result<(), ClientError> {
         let request = Request::SessionSend {

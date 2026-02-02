@@ -45,6 +45,12 @@ pub trait SessionAdapter: Clone + Send + Sync + 'static {
     /// Send input to a session
     async fn send(&self, id: &str, input: &str) -> Result<(), SessionError>;
 
+    /// Send literal text to a session (no key interpretation)
+    async fn send_literal(&self, id: &str, text: &str) -> Result<(), SessionError>;
+
+    /// Send the Enter key to a session
+    async fn send_enter(&self, id: &str) -> Result<(), SessionError>;
+
     /// Kill a session
     async fn kill(&self, id: &str) -> Result<(), SessionError>;
 

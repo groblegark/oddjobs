@@ -41,6 +41,9 @@ pub enum Request {
     /// Send input to a session
     SessionSend { id: String, input: String },
 
+    /// Send input to an agent
+    AgentSend { agent_id: String, message: String },
+
     /// Resume monitoring for an escalated pipeline
     PipelineResume {
         id: String,

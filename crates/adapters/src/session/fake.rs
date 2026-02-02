@@ -24,6 +24,13 @@ pub enum SessionCall {
         id: String,
         input: String,
     },
+    SendLiteral {
+        id: String,
+        text: String,
+    },
+    SendEnter {
+        id: String,
+    },
     Kill {
         id: String,
     },
@@ -176,6 +183,35 @@ impl SessionAdapter for FakeSessionAdapter {
             id: id.to_string(),
             input: input.to_string(),
         });
+
+        if !inner.sessions.contains_key(id) {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+
+        Ok(())
+    }
+
+    async fn send_literal(&self, id: &str, text: &str) -> Result<(), SessionError> {
+        let mut inner = self.inner.lock();
+
+        inner.calls.push(SessionCall::SendLiteral {
+            id: id.to_string(),
+            text: text.to_string(),
+        });
+
+        if !inner.sessions.contains_key(id) {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+
+        Ok(())
+    }
+
+    async fn send_enter(&self, id: &str) -> Result<(), SessionError> {
+        let mut inner = self.inner.lock();
+
+        inner
+            .calls
+            .push(SessionCall::SendEnter { id: id.to_string() });
 
         if !inner.sessions.contains_key(id) {
             return Err(SessionError::NotFound(id.to_string()));

@@ -538,8 +538,14 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
                 .ok_or_else(|| AgentError::NotFound(agent_id.to_string()))?
         };
 
+        // Send literal text first, then Enter separately for reliability
         self.sessions
-            .send(&session_id, input)
+            .send_literal(&session_id, input)
+            .await
+            .map_err(|e| AgentError::SendFailed(e.to_string()))?;
+
+        self.sessions
+            .send_enter(&session_id)
             .await
             .map_err(|e| AgentError::SendFailed(e.to_string()))
     }

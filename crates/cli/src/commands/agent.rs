@@ -25,6 +25,13 @@ pub struct AgentArgs {
 
 #[derive(Subcommand)]
 pub enum AgentCommand {
+    /// Send a message to a running agent
+    Send {
+        /// Agent ID or pipeline ID (or prefix)
+        agent_id: String,
+        /// Message to send
+        message: String,
+    },
     /// View agent activity log
     Logs {
         /// Pipeline ID (or prefix)
@@ -84,6 +91,10 @@ pub async fn handle(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
+        AgentCommand::Send { agent_id, message } => {
+            client.agent_send(&agent_id, &message).await?;
+            println!("Sent to agent {}", agent_id);
+        }
         AgentCommand::Logs {
             id,
             step,

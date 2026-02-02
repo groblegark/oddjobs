@@ -150,7 +150,7 @@ An AI agent invocation -- runs a recognized agent command in a monitored tmux se
 | `claude` | `ClaudeAgentAdapter` |
 | `claudeless` | `ClaudeAgentAdapter` |
 
-Both commands route through the same adapter. See [Claude Code](../03-architecture/CLAUDE_CODE.md) for integration details.
+Both commands route through the same adapter. See [Claude Code](../arch/06-adapter-claude.md) for integration details.
 
 ```hcl
 agent "resolver" {

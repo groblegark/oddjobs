@@ -2,7 +2,7 @@
 
 The `oj` command is a thin client that communicates with the `ojd` daemon. Most commands send events or queries over a Unix socket; the daemon owns the event loop and state.
 
-See [Daemon Architecture](../03-architecture/01-daemon.md) for details on the process split.
+See [Daemon Architecture](../arch/01-daemon.md) for details on the process split.
 
 ## Project Structure
 

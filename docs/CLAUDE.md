@@ -11,7 +11,7 @@ docs/
 │   ├── EVENTS.md             # Event types and subscriptions
 │   └── DESKTOP.md            # Desktop notifications and integration
 │
-├── architecture/             # Implementation
+├── arch/                     # Implementation
 │   ├── 00-overview.md        # Functional core, layers, key decisions
 │   ├── 01-daemon.md          # Daemon process architecture
 │   ├── 02-effects.md         # Effect types

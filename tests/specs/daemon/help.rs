@@ -48,7 +48,10 @@ fn ojd_help_shows_usage() {
     let output = ojd().arg("--help").output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("USAGE:"), "expected USAGE section, got: {stdout}");
+    assert!(
+        stdout.contains("USAGE:"),
+        "expected USAGE section, got: {stdout}"
+    );
     assert!(stdout.contains("--help"), "expected --help in output");
     assert!(stdout.contains("--version"), "expected --version in output");
 }
@@ -58,7 +61,10 @@ fn ojd_short_help_shows_usage() {
     let output = ojd().arg("-h").output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("USAGE:"), "expected USAGE section, got: {stdout}");
+    assert!(
+        stdout.contains("USAGE:"),
+        "expected USAGE section, got: {stdout}"
+    );
 }
 
 #[test]
@@ -66,7 +72,10 @@ fn ojd_help_subcommand_shows_usage() {
     let output = ojd().arg("help").output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("USAGE:"), "expected USAGE section, got: {stdout}");
+    assert!(
+        stdout.contains("USAGE:"),
+        "expected USAGE section, got: {stdout}"
+    );
 }
 
 #[test]

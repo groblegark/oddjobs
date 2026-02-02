@@ -16,6 +16,7 @@ use oj_storage::MaterializedState;
 use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
+use super::workers::hash_runbook;
 use super::ConnectionError;
 
 /// Handle a QueuePush request.
@@ -110,8 +111,8 @@ pub(super) fn handle_queue_push(
         .send(event)
         .map_err(|_| ConnectionError::WalError)?;
 
-    // Wake workers attached to this queue
-    wake_attached_workers(queue_name, &runbook, event_bus, state)?;
+    // Wake workers attached to this queue (auto-starting stopped workers)
+    wake_attached_workers(project_root, queue_name, &runbook, event_bus, state)?;
 
     Ok(Response::QueuePushed {
         queue_name: queue_name.to_string(),
@@ -119,8 +120,14 @@ pub(super) fn handle_queue_push(
     })
 }
 
-/// Wake running workers that are attached to the given queue.
+/// Wake or auto-start workers that are attached to the given queue.
+///
+/// For workers already running, emits `WorkerWake`. For workers that are
+/// stopped or never started, emits `RunbookLoaded` + `WorkerStarted` (the
+/// same events `handle_worker_start()` produces), effectively auto-starting
+/// the worker on queue push.
 fn wake_attached_workers(
+    project_root: &Path,
     queue_name: &str,
     runbook: &oj_runbook::Runbook,
     event_bus: &EventBus,
@@ -134,29 +141,59 @@ fn wake_attached_workers(
         .map(|(name, _)| name.as_str())
         .collect();
 
-    // Check which of those workers are currently running and wake them
-    let state = state.lock();
     for name in &worker_names {
-        if let Some(record) = state.workers.get(*name) {
+        let is_running = {
+            let state = state.lock();
+            state
+                .workers
+                .get(*name)
+                .map(|r| r.status == "running")
+                .unwrap_or(false)
+        };
+
+        if is_running {
+            // Existing behavior: wake the running worker
             tracing::info!(
                 queue = queue_name,
                 worker = *name,
-                status = record.status.as_str(),
-                "wake_attached_workers: found worker"
+                "waking running worker on queue push"
             );
-            if record.status == "running" {
-                let event = Event::WorkerWake {
-                    worker_name: (*name).to_string(),
-                };
-                event_bus
-                    .send(event)
-                    .map_err(|_| ConnectionError::WalError)?;
-            }
+            let event = Event::WorkerWake {
+                worker_name: (*name).to_string(),
+            };
+            event_bus
+                .send(event)
+                .map_err(|_| ConnectionError::WalError)?;
         } else {
-            tracing::warn!(
+            // Auto-start: emit RunbookLoaded + WorkerStarted (same as handle_worker_start)
+            let Some(worker_def) = runbook.get_worker(name) else {
+                continue;
+            };
+            let (runbook_json, runbook_hash) =
+                hash_runbook(runbook).map_err(ConnectionError::Internal)?;
+
+            event_bus
+                .send(Event::RunbookLoaded {
+                    hash: runbook_hash.clone(),
+                    version: 1,
+                    runbook: runbook_json,
+                })
+                .map_err(|_| ConnectionError::WalError)?;
+
+            event_bus
+                .send(Event::WorkerStarted {
+                    worker_name: (*name).to_string(),
+                    project_root: project_root.to_path_buf(),
+                    runbook_hash,
+                    queue_name: worker_def.source.queue.clone(),
+                    concurrency: worker_def.concurrency,
+                })
+                .map_err(|_| ConnectionError::WalError)?;
+
+            tracing::info!(
                 queue = queue_name,
                 worker = *name,
-                "wake_attached_workers: worker not found in state"
+                "auto-started worker on queue push"
             );
         }
     }
@@ -170,6 +207,10 @@ fn wake_attached_workers(
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "queues_tests.rs"]
+mod tests;
 
 /// Load a runbook that contains the given queue name.
 fn load_runbook_for_queue(

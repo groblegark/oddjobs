@@ -48,6 +48,9 @@ pub enum ConnectionError {
 
     #[error("WAL error")]
     WalError,
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 impl Listener {

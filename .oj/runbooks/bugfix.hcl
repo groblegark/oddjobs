@@ -64,7 +64,6 @@ pipeline "fix" {
       git diff --cached --quiet || git commit -m "${local.title}"
       git -C "${local.repo}" push origin "${local.branch}"
       oj queue push merges --var branch="${local.branch}" --var title="${local.title}"
-      oj worker start merge
     SHELL
     on_done = { step = "done" }
   }

@@ -871,7 +871,11 @@ async fn locals_interpolate_workspace_variables() {
     let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
 
-    let branch = pipeline.vars.get("local.branch").cloned().unwrap_or_default();
+    let branch = pipeline
+        .vars
+        .get("local.branch")
+        .cloned()
+        .unwrap_or_default();
     assert!(
         branch.starts_with("feature/auth-"),
         "local.branch should start with 'feature/auth-', got: {branch}"

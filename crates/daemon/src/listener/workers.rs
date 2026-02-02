@@ -59,26 +59,9 @@ pub(super) fn handle_worker_start(
     }
 
     // Serialize and hash the runbook for WAL storage
-    let runbook_json = match serde_json::to_value(&runbook) {
-        Ok(v) => v,
-        Err(e) => {
-            return Ok(Response::Error {
-                message: format!("failed to serialize runbook: {}", e),
-            })
-        }
-    };
-    let runbook_hash = {
-        use sha2::{Digest, Sha256};
-        let canonical = match serde_json::to_string(&runbook_json) {
-            Ok(s) => s,
-            Err(e) => {
-                return Ok(Response::Error {
-                    message: format!("failed to serialize runbook: {}", e),
-                })
-            }
-        };
-        let digest = Sha256::digest(canonical.as_bytes());
-        format!("{:x}", digest)
+    let (runbook_json, runbook_hash) = match hash_runbook(&runbook) {
+        Ok(result) => result,
+        Err(msg) => return Ok(Response::Error { message: msg }),
     };
 
     // Emit RunbookLoaded for WAL persistence
@@ -128,6 +111,20 @@ pub(super) fn handle_worker_stop(
 #[cfg(test)]
 #[path = "workers_tests.rs"]
 mod tests;
+
+/// Serialize a runbook to JSON and compute its SHA256 hash.
+/// Returns (runbook_json, hash_hex).
+pub(super) fn hash_runbook(
+    runbook: &oj_runbook::Runbook,
+) -> Result<(serde_json::Value, String), String> {
+    let runbook_json =
+        serde_json::to_value(runbook).map_err(|e| format!("failed to serialize runbook: {}", e))?;
+    let canonical = serde_json::to_string(&runbook_json)
+        .map_err(|e| format!("failed to serialize runbook: {}", e))?;
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(canonical.as_bytes());
+    Ok((runbook_json, format!("{:x}", digest)))
+}
 
 /// Load a runbook that contains the given worker name.
 fn load_runbook_for_worker(

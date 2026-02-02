@@ -14,6 +14,7 @@ mod find;
 mod parser;
 mod pipeline;
 mod queue;
+mod slug;
 mod template;
 mod worker;
 
@@ -29,5 +30,6 @@ pub use find::{find_runbook_by_command, find_runbook_by_queue, find_runbook_by_w
 pub use parser::{parse_runbook, parse_runbook_with_format, Format, ParseError, Runbook};
 pub use pipeline::{NotifyConfig, PipelineDef, StepDef, StepTransition, WorkspaceMode};
 pub use queue::{QueueDef, QueueType};
+pub use slug::{pipeline_display_name, slugify};
 pub use template::{escape_for_shell, interpolate, interpolate_shell};
 pub use worker::{WorkerDef, WorkerHandler, WorkerSource};

@@ -36,6 +36,9 @@ CLI polish
       - Colorize show, list, --help views and other human-facing output
       - Ask human for preferences on color scheme before implementing
   14. Add `oj agent list`
+  15. `oj pipeline show` var truncation: cap var values at ~80 chars with `...`,
+      replace newlines with `\n`, add --verbose flag to show full values.
+      - When showing full values, the formatted values should be shown with added per-line indentation so that the output of values vs. vars is clearly laid out for quick scanning by the eye
 
 ----
 

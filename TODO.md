@@ -1,10 +1,5 @@
 # TODO
 
-In progress:
-  - feat(cli): oj pipeline show var truncation (merging)
-  - chore: update oddjobs docs for recent features (agent working)
-  - chore: update wok docs for recent features (agent working)
-
 Backlog (roughly priority-ordered):
 
 Core pipeline
@@ -150,6 +145,9 @@ Landed:
   - chore: tech debt cleanup (namespace key consistency, plan artifact removal)
   - chore(runbooks): add chore runbook to oddjobs, wok, quench
   - chore(runbooks): rename bugfix.hcl → bug.hcl across projects
+  - feat(cli): oj pipeline show var truncation (--verbose for full values)
+  - chore: update oddjobs docs for recent features
+  - chore: update wok docs for recent features (CLAUDE.md, daemon crate, oj workspace section)
 
 Workflow patterns that work:
   - oj run fix → agent fixes → submit pushes branch + queue push → merge worker

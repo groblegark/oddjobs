@@ -63,9 +63,12 @@ pipeline "merge" {
 
   step "push" {
     run = <<-SHELL
+      git -C "${local.repo}" fetch origin ${var.mr.base}
+      git rebase origin/${var.mr.base}
       git -C "${local.repo}" push origin ${local.branch}:${var.mr.base}
       git -C "${local.repo}" push origin --delete ${var.mr.branch}
     SHELL
+    on_fail = { step = "check" }
   }
 }
 

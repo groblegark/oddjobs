@@ -54,7 +54,7 @@ pub fn escape_for_shell(s: &str) -> String {
 ///
 /// Unknown template variables are left as-is.
 pub fn interpolate(template: &str, vars: &HashMap<String, String>) -> String {
-    interpolate_inner(template, vars, false)
+    interpolate_inner(template, vars, false, &[])
 }
 
 /// Interpolate `${name}` placeholders with shell-safe escaping.
@@ -64,10 +64,29 @@ pub fn interpolate(template: &str, vars: &HashMap<String, String>) -> String {
 /// Use this for shell commands; use [`interpolate`] for prompts and
 /// other non-shell contexts.
 pub fn interpolate_shell(template: &str, vars: &HashMap<String, String>) -> String {
-    interpolate_inner(template, vars, true)
+    interpolate_inner(template, vars, true, &[])
 }
 
-fn interpolate_inner(template: &str, vars: &HashMap<String, String>, shell_escape: bool) -> String {
+/// Interpolate with shell-safe escaping, but skip escaping for trusted keys.
+///
+/// Values whose key starts with one of `trusted_prefixes` are substituted
+/// without escaping — they come from the runbook definition (locals,
+/// workspace, invoke) and may contain intentional shell syntax like `$(...)`.
+/// All other values are escaped normally.
+pub fn interpolate_shell_trusted(
+    template: &str,
+    vars: &HashMap<String, String>,
+    trusted_prefixes: &[&str],
+) -> String {
+    interpolate_inner(template, vars, true, trusted_prefixes)
+}
+
+fn interpolate_inner(
+    template: &str,
+    vars: &HashMap<String, String>,
+    shell_escape: bool,
+    trusted_prefixes: &[&str],
+) -> String {
     // First expand ${VAR:-default} patterns from environment
     let result = ENV_PATTERN
         .replace_all(template, |caps: &regex::Captures| {
@@ -82,7 +101,14 @@ fn interpolate_inner(template: &str, vars: &HashMap<String, String>, shell_escap
         .replace_all(&result, |caps: &regex::Captures| {
             let name = &caps[1];
             match vars.get(name) {
-                Some(val) if shell_escape => escape_for_shell(val),
+                Some(val) if shell_escape => {
+                    let is_trusted = trusted_prefixes.iter().any(|p| name.starts_with(p));
+                    if is_trusted {
+                        val.clone()
+                    } else {
+                        escape_for_shell(val)
+                    }
+                }
                 Some(val) => val.clone(),
                 None => caps[0].to_string(),
             }

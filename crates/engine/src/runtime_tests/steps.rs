@@ -887,11 +887,11 @@ async fn locals_interpolate_workspace_variables() {
     );
 }
 
-/// Locals containing shell syntax are stored literally at pipeline creation time.
+/// Locals containing shell syntax are stored literally at pipeline creation time,
+/// and substituted without escaping into shell steps (trusted prefix).
 ///
-/// Note: `interpolate_shell` will escape `$` in these values at step execution,
-/// so runbooks should use inline shell variables (e.g. `REPO=$(...)`) instead of
-/// storing shell expressions in locals.
+/// The `interpolate_shell_trusted` function in the template module handles the
+/// unescaped substitution — see template_tests for interpolation-level coverage.
 const RUNBOOK_LOCALS_SHELL_SUBST: &str = r#"
 [command.build]
 args = "<name>"

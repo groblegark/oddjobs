@@ -4,7 +4,10 @@
 #
 # Usage:
 #   oj run fix <description>        # File a bug and start the worker
-#   oj worker start fix             # Start worker
+#
+# Usage (Manual):
+#   wok new bug "description"       # File a bug manually
+#   oj worker start fix             # Start the worker
 
 command "fix" {
   args = "<description>"

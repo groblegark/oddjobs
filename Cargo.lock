@@ -1116,6 +1116,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "dirs",
+ "mac-notification-sys",
  "notify",
  "notify-rust",
  "oj-core",

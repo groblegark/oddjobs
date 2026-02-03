@@ -31,6 +31,8 @@ mod daemon_lifecycle;
 mod daemon_logs;
 #[path = "specs/daemon/pipeline_queue.rs"]
 mod daemon_pipeline_queue;
+#[path = "specs/daemon/step_fallback.rs"]
+mod daemon_step_fallback;
 #[path = "specs/daemon/timers.rs"]
 mod daemon_timers;
 

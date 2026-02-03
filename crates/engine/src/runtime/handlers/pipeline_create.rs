@@ -131,6 +131,7 @@ where
         // Evaluate locals: interpolate each value with current vars, then add as local.*
         // Build a lookup map that includes var.*-prefixed keys so templates like
         // ${var.name} resolve (the vars map stores raw keys like "name").
+        // Shell expressions $(...) are eagerly evaluated so locals become plain data.
         if !pipeline_def.locals.is_empty() {
             let mut lookup: HashMap<String, String> = vars
                 .iter()
@@ -141,6 +142,38 @@ where
                 .collect();
             for (key, template) in &pipeline_def.locals {
                 let value = oj_runbook::interpolate(template, &lookup);
+
+                // Eagerly evaluate shell expressions — $(cmd) becomes plain data
+                let value = if value.contains("$(") {
+                    let cwd = vars
+                        .get("invoke.dir")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                    let output = tokio::process::Command::new("bash")
+                        .arg("-c")
+                        .arg(format!("printf '%s' {}", value))
+                        .current_dir(&cwd)
+                        .output()
+                        .await
+                        .map_err(|e| {
+                            RuntimeError::ShellError(format!(
+                                "failed to evaluate local.{}: {}",
+                                key, e
+                            ))
+                        })?;
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        return Err(RuntimeError::ShellError(format!(
+                            "local.{} evaluation failed: {}",
+                            key,
+                            stderr.trim()
+                        )));
+                    }
+                    String::from_utf8_lossy(&output.stdout).to_string()
+                } else {
+                    value
+                };
+
                 lookup.insert(format!("local.{}", key), value.clone());
                 vars.insert(format!("local.{}", key), value);
             }

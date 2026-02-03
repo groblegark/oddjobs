@@ -76,11 +76,7 @@ where
                     }
                 }
 
-                let command = oj_runbook::interpolate_shell_trusted(
-                    cmd,
-                    &vars,
-                    &["local.", "workspace.", "invoke."],
-                );
+                let command = oj_runbook::interpolate_shell(cmd, &vars);
                 self.logger.append(
                     pipeline_id.as_str(),
                     step_name,

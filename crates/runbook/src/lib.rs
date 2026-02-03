@@ -35,5 +35,5 @@ pub use parser::{parse_runbook, parse_runbook_with_format, Format, ParseError, R
 pub use pipeline::{NotifyConfig, PipelineDef, StepDef, StepTransition, WorkspaceMode};
 pub use queue::{QueueDef, QueueType};
 pub use slug::{pipeline_display_name, slugify};
-pub use template::{escape_for_shell, interpolate, interpolate_shell, interpolate_shell_trusted};
+pub use template::{escape_for_shell, interpolate, interpolate_shell};
 pub use worker::{WorkerDef, WorkerHandler, WorkerSource};

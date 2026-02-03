@@ -887,11 +887,8 @@ async fn locals_interpolate_workspace_variables() {
     );
 }
 
-/// Locals containing shell syntax are stored literally at pipeline creation time,
-/// and substituted without escaping into shell steps (trusted prefix).
-///
-/// The `interpolate_shell_trusted` function in the template module handles the
-/// unescaped substitution — see template_tests for interpolation-level coverage.
+/// Locals containing shell expressions $(...) are eagerly evaluated at pipeline
+/// creation time. The output of the shell command is stored as plain data.
 const RUNBOOK_LOCALS_SHELL_SUBST: &str = r#"
 [command.build]
 args = "<name>"
@@ -909,7 +906,7 @@ run = "echo ${local.repo}"
 "#;
 
 #[tokio::test]
-async fn locals_preserve_shell_syntax_in_stored_value() {
+async fn locals_eagerly_evaluate_shell_expressions() {
     let ctx = setup_with_runbook(RUNBOOK_LOCALS_SHELL_SUBST).await;
 
     ctx.runtime
@@ -928,10 +925,10 @@ async fn locals_preserve_shell_syntax_in_stored_value() {
     let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
 
-    // Shell $() is stored literally by `interpolate` (non-shell) at pipeline creation
+    // After eager evaluation, $(echo /some/repo) should be resolved
     assert_eq!(
         pipeline.vars.get("local.repo").map(String::as_str),
-        Some("$(echo /some/repo)"),
-        "Shell command substitution should be preserved in locals"
+        Some("/some/repo"),
+        "Shell command substitution should be eagerly evaluated in locals"
     );
 }

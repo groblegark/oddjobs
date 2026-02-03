@@ -33,4 +33,6 @@ pub enum RuntimeError {
     InvalidRequest(String),
     #[error("worker not found: {0}")]
     WorkerNotFound(String),
+    #[error("shell error: {0}")]
+    ShellError(String),
 }

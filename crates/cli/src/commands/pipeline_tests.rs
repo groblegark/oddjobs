@@ -49,6 +49,7 @@ fn sort_order_most_recently_updated_first() {
             created_at_ms: 1000,
             updated_at_ms: 5000,
             namespace: String::new(),
+            retry_count: 0,
         },
         PipelineSummary {
             id: "failed-1".into(),
@@ -59,6 +60,7 @@ fn sort_order_most_recently_updated_first() {
             created_at_ms: 2000,
             updated_at_ms: 2000,
             namespace: String::new(),
+            retry_count: 0,
         },
         PipelineSummary {
             id: "active-1".into(),
@@ -69,6 +71,7 @@ fn sort_order_most_recently_updated_first() {
             created_at_ms: 3000,
             updated_at_ms: 3000,
             namespace: String::new(),
+            retry_count: 0,
         },
     ];
 
@@ -91,6 +94,7 @@ fn sort_order_most_recent_updated_first_within_same_status() {
             created_at_ms: 1000,
             updated_at_ms: 1000,
             namespace: String::new(),
+            retry_count: 0,
         },
         PipelineSummary {
             id: "new".into(),
@@ -101,6 +105,7 @@ fn sort_order_most_recent_updated_first_within_same_status() {
             created_at_ms: 5000,
             updated_at_ms: 5000,
             namespace: String::new(),
+            retry_count: 0,
         },
     ];
 
@@ -346,6 +351,7 @@ fn make_summary(id: &str, name: &str, kind: &str, step: &str, status: &str) -> P
         created_at_ms: 0,
         updated_at_ms: 0,
         namespace: String::new(),
+        retry_count: 0,
     }
 }
 
@@ -418,4 +424,36 @@ fn list_no_project_when_all_empty_namespace() {
     format_pipeline_list(&mut buf, &pipelines);
     let out = output_string(&buf);
     assert!(!out.contains("PROJECT"));
+}
+
+#[test]
+fn list_no_retries_column_when_all_zero() {
+    let pipelines = vec![make_summary(
+        "abcdef123456",
+        "build-a",
+        "build",
+        "plan",
+        "Running",
+    )];
+    let mut buf = Vec::new();
+    format_pipeline_list(&mut buf, &pipelines);
+    let out = output_string(&buf);
+    assert!(!out.contains("RETRIES"));
+}
+
+#[test]
+fn list_retries_column_shown_when_nonzero() {
+    let mut p1 = make_summary("abcdef123456", "build-a", "build", "plan", "Running");
+    p1.retry_count = 3;
+    let p2 = make_summary("999999999999", "build-b", "build", "test", "Running");
+    let pipelines = vec![p1, p2];
+    let mut buf = Vec::new();
+    format_pipeline_list(&mut buf, &pipelines);
+    let out = output_string(&buf);
+    let lines: Vec<&str> = out.lines().collect();
+
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("RETRIES"));
+    assert!(lines[1].contains("3"));
+    assert!(lines[2].contains("0"));
 }

@@ -82,6 +82,7 @@ fn pipeline_summary_serialization() {
         created_at_ms: 1700000000000,
         updated_at_ms: 1700000001000,
         namespace: String::new(),
+        retry_count: 0,
     };
 
     let response = Response::Pipelines {

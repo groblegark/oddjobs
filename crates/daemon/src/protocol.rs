@@ -452,6 +452,8 @@ pub struct PipelineSummary {
     pub updated_at_ms: u64,
     #[serde(default)]
     pub namespace: String,
+    #[serde(default)]
+    pub retry_count: u32,
 }
 
 /// Detailed pipeline information
@@ -482,10 +484,8 @@ pub struct StepRecordDetail {
     pub finished_at_ms: Option<u64>,
     pub outcome: String,
     pub detail: Option<String>,
-    /// Agent ID that ran this step (if any)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// Agent name from the runbook definition (if any)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
 }

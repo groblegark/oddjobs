@@ -62,6 +62,7 @@ fn make_pipeline(
         action_attempts: HashMap::new(),
         agent_signal: None,
         cancelling: false,
+        total_retries: 0,
     }
 }
 

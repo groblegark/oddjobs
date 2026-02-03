@@ -168,6 +168,9 @@ pub(crate) fn format_pipeline_list(out: &mut impl Write, pipelines: &[oj_daemon:
         pipelines.iter().map(|p| p.namespace.as_str()).collect();
     let show_project = namespaces.len() > 1 || namespaces.iter().any(|n| !n.is_empty());
 
+    // Show RETRIES column only when any pipeline has retries
+    let show_retries = pipelines.iter().any(|p| p.retry_count > 0);
+
     // Pre-compute display values and column widths from data
     let rows: Vec<_> = pipelines
         .iter()
@@ -208,6 +211,7 @@ pub(crate) fn format_pipeline_list(out: &mut impl Write, pipelines: &[oj_daemon:
         .max()
         .unwrap_or(0)
         .max(7);
+    let w_retries = 7; // width of "RETRIES"
 
     if show_project {
         let w_proj = rows
@@ -216,16 +220,44 @@ pub(crate) fn format_pipeline_list(out: &mut impl Write, pipelines: &[oj_daemon:
             .max()
             .unwrap_or(0)
             .max(7);
+        if show_retries {
+            let _ = writeln!(
+                out,
+                "{:<w_id$} {:<w_proj$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} {:<w_retries$} STATUS",
+                "ID", "PROJECT", "NAME", "KIND", "STEP", "UPDATED", "RETRIES",
+            );
+            for (id, p, updated) in &rows {
+                let _ = writeln!(
+                    out,
+                    "{:<w_id$} {:<w_proj$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} {:<w_retries$} {}",
+                    id, p.namespace, p.name, p.kind, p.step, updated, p.retry_count, p.step_status,
+                );
+            }
+        } else {
+            let _ = writeln!(
+                out,
+                "{:<w_id$} {:<w_proj$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} STATUS",
+                "ID", "PROJECT", "NAME", "KIND", "STEP", "UPDATED",
+            );
+            for (id, p, updated) in &rows {
+                let _ = writeln!(
+                    out,
+                    "{:<w_id$} {:<w_proj$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} {}",
+                    id, p.namespace, p.name, p.kind, p.step, updated, p.step_status,
+                );
+            }
+        }
+    } else if show_retries {
         let _ = writeln!(
             out,
-            "{:<w_id$} {:<w_proj$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} STATUS",
-            "ID", "PROJECT", "NAME", "KIND", "STEP", "UPDATED",
+            "{:<w_id$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} {:<w_retries$} STATUS",
+            "ID", "NAME", "KIND", "STEP", "UPDATED", "RETRIES",
         );
         for (id, p, updated) in &rows {
             let _ = writeln!(
                 out,
-                "{:<w_id$} {:<w_proj$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} {}",
-                id, p.namespace, p.name, p.kind, p.step, updated, p.step_status,
+                "{:<w_id$} {:<w_name$} {:<w_kind$} {:<w_step$} {:<w_updated$} {:<w_retries$} {}",
+                id, p.name, p.kind, p.step, updated, p.retry_count, p.step_status,
             );
         }
     } else {

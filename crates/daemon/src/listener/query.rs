@@ -63,6 +63,7 @@ pub(super) fn handle_query(
                         created_at_ms: p.step_history.first().map(|r| r.started_at_ms).unwrap_or(0),
                         updated_at_ms,
                         namespace: p.namespace.clone(),
+                        retry_count: p.total_retries,
                     }
                 })
                 .collect();

@@ -88,6 +88,7 @@ pub(super) fn append_orphan_summaries(
             created_at_ms: updated_at_ms,
             updated_at_ms,
             namespace: bc.project.clone(),
+            retry_count: 0,
         });
     }
 }

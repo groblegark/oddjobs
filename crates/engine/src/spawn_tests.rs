@@ -32,6 +32,7 @@ fn test_pipeline() -> Pipeline {
         agent_signal: None,
         namespace: String::new(),
         cancelling: false,
+        total_retries: 0,
     }
 }
 

@@ -169,6 +169,10 @@ pub struct Pipeline {
     /// True when running an on_cancel cleanup step. Prevents re-cancellation.
     #[serde(default)]
     pub cancelling: bool,
+    /// Cumulative retry count across all steps (incremented each time an action
+    /// is re-attempted, i.e. when attempt count > 1).
+    #[serde(default)]
+    pub total_retries: u32,
 }
 
 /// Build the string key for action_attempts: "trigger:chain_pos".
@@ -211,6 +215,7 @@ impl Pipeline {
             action_attempts: HashMap::new(),
             agent_signal: None,
             cancelling: false,
+            total_retries: 0,
         }
     }
 
@@ -287,6 +292,9 @@ impl Pipeline {
         let key = action_key(trigger, chain_pos);
         let count = self.action_attempts.entry(key).or_insert(0);
         *count += 1;
+        if *count > 1 {
+            self.total_retries += 1;
+        }
         *count
     }
 

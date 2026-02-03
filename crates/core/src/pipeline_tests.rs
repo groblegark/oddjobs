@@ -220,3 +220,55 @@ fn pipeline_serde_round_trip_with_action_attempts() {
     assert_eq!(restored.get_action_attempt("on_fail", 1), 1);
     assert_eq!(restored.get_action_attempt("unknown", 0), 0);
 }
+
+#[test]
+fn pipeline_total_retries_starts_zero() {
+    let clock = FakeClock::new();
+    let pipeline = Pipeline::new(test_config("pipe-1"), &clock);
+    assert_eq!(pipeline.total_retries, 0);
+}
+
+#[test]
+fn pipeline_total_retries_increments_on_retry() {
+    let clock = FakeClock::new();
+    let mut pipeline = Pipeline::new(test_config("pipe-1"), &clock);
+
+    // First attempt for each trigger does not count as a retry
+    pipeline.increment_action_attempt("idle", 0);
+    assert_eq!(pipeline.total_retries, 0);
+
+    pipeline.increment_action_attempt("exit", 0);
+    assert_eq!(pipeline.total_retries, 0);
+
+    // Second attempt counts as a retry
+    pipeline.increment_action_attempt("idle", 0);
+    assert_eq!(pipeline.total_retries, 1);
+
+    // Third attempt counts as another retry
+    pipeline.increment_action_attempt("idle", 0);
+    assert_eq!(pipeline.total_retries, 2);
+}
+
+#[test]
+fn pipeline_total_retries_persists_across_step_reset() {
+    let clock = FakeClock::new();
+    let mut pipeline = Pipeline::new(test_config("pipe-1"), &clock);
+
+    // Accumulate some retries
+    pipeline.increment_action_attempt("idle", 0);
+    pipeline.increment_action_attempt("idle", 0); // retry
+    pipeline.increment_action_attempt("idle", 0); // retry
+    assert_eq!(pipeline.total_retries, 2);
+
+    // Reset action_attempts (as happens on step transition)
+    pipeline.reset_action_attempts();
+    assert!(pipeline.action_attempts.is_empty());
+
+    // total_retries is preserved
+    assert_eq!(pipeline.total_retries, 2);
+
+    // New step retries continue to accumulate
+    pipeline.increment_action_attempt("idle", 0);
+    pipeline.increment_action_attempt("idle", 0); // retry
+    assert_eq!(pipeline.total_retries, 3);
+}

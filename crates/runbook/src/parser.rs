@@ -168,6 +168,50 @@ const CLAUDE_MULTI_VALUE_OPTIONS: &[&str] = &[
     "tools",
 ];
 
+/// Namespaces that are only available in pipeline context, not in command.run.
+///
+/// Each entry maps from the invalid namespace to a suggestion for the user.
+const PIPELINE_ONLY_NAMESPACES: &[(&str, &str)] = &[
+    ("var.", "use ${args.<name>} to reference command arguments"),
+    (
+        "input.",
+        "use ${args.<name>} to reference command arguments",
+    ),
+    ("local.", "${local.*} is only available in pipeline steps"),
+    ("step.", "${step.*} is only available in pipeline steps"),
+];
+
+/// Validate that a command.run shell directive does not use pipeline-only
+/// template namespaces like `${var.*}` (which should be `${args.*}`).
+fn validate_command_template_refs(command: &str, location: &str) -> Result<(), ParseError> {
+    for cap in crate::template::VAR_PATTERN.captures_iter(command) {
+        let var_name = &cap[1];
+        for &(prefix, hint) in PIPELINE_ONLY_NAMESPACES {
+            if var_name.starts_with(prefix) {
+                return Err(ParseError::InvalidFormat {
+                    location: location.to_string(),
+                    message: format!(
+                        "template reference ${{{}}} is not available in command.run; {}",
+                        var_name, hint,
+                    ),
+                });
+            }
+        }
+        // Also reject ${workspace.*} (dotted), since command context only has ${workspace}
+        if var_name.starts_with("workspace.") {
+            return Err(ParseError::InvalidFormat {
+                location: location.to_string(),
+                message: format!(
+                    "template reference ${{{}}} is not available in command.run; \
+                     commands have ${{workspace}} (the execution path), not ${{workspace.*}}",
+                    var_name,
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Validate a shell command string, returning an error with context on failure.
 ///
 /// Template variables like `${name}` are replaced with placeholder strings before
@@ -345,7 +389,9 @@ pub fn parse_runbook_with_format(content: &str, format: Format) -> Result<Runboo
     // 4. Validation — shell command syntax and agent command checks
     for (name, cmd) in &runbook.commands {
         if let RunDirective::Shell(ref shell_cmd) = cmd.run {
-            validate_shell_command(shell_cmd, &format!("command.{}.run", name))?;
+            let location = format!("command.{}.run", name);
+            validate_shell_command(shell_cmd, &location)?;
+            validate_command_template_refs(shell_cmd, &location)?;
         }
     }
 

@@ -112,46 +112,12 @@ async fn command_shell_directive_interpolates_args_namespace() {
     );
 }
 
-/// Runbook with a command that uses input.* namespace (should NOT interpolate for commands)
-const RUNBOOK_SHELL_INPUTS_NAMESPACE: &str = r#"
-[command.file_bug]
-args = "<description>"
-run = "test '${input.description}' = 'button broken'"
-
-[pipeline.build]
-input  = ["name"]
-
-[[pipeline.build.step]]
-name = "init"
-run = "echo init"
-"#;
-
-#[tokio::test]
-async fn command_shell_directive_does_not_interpolate_inputs_namespace() {
-    let mut ctx = setup_with_runbook(RUNBOOK_SHELL_INPUTS_NAMESPACE).await;
-
-    ctx.runtime
-        .handle_event(command_event(
-            "pipe-1",
-            "build",
-            "file_bug",
-            [("description".to_string(), "button broken".to_string())]
-                .into_iter()
-                .collect(),
-            &ctx.project_root,
-        ))
-        .await
-        .unwrap();
-
-    // The shell command uses ${input.description} which should NOT be interpolated
-    // for command args (only ${args.*} is valid). The literal `${input.description}`
-    // won't match `button broken`, so the test command exits non-zero.
-    let event = ctx.event_rx.recv().await.unwrap();
-    assert!(
-        matches!(event, Event::ShellExited { exit_code, .. } if exit_code != 0),
-        "expected non-zero exit (input.* should not interpolate), got: {event:?}"
-    );
-}
+/// Runbook with a command that uses input.* namespace is now rejected at parse time.
+/// The parser validates that command.run does not use pipeline-only namespaces.
+/// See crates/runbook/src/parser_tests for parse-time validation tests.
+///
+/// Previously this was a runtime test that checked ${input.*} wasn't interpolated;
+/// now the runbook parser rejects it outright with a helpful error message.
 
 /// Runbook with a command that uses agent run directive
 const RUNBOOK_AGENT_COMMAND: &str = r#"

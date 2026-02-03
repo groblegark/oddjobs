@@ -273,28 +273,11 @@ async fn orphans(format: OutputFormat) -> Result<()> {
                 );
             }
 
-            println!("\nInvestigation commands:");
-            for o in &orphans {
-                let short_id = if o.pipeline_id.len() > 8 {
-                    &o.pipeline_id[..8]
-                } else {
-                    &o.pipeline_id
-                };
-                println!(
-                    "  oj pipeline peek {}     # View last tmux output",
-                    short_id
-                );
-                println!(
-                    "  oj pipeline attach {}   # Attach to tmux session",
-                    short_id
-                );
-                println!("  oj pipeline logs {}     # View pipeline log", short_id);
-            }
-
-            if !orphans.is_empty() {
-                println!("\nTo dismiss an orphan after investigation:");
-                println!("  oj daemon dismiss-orphan <id>");
-            }
+            println!("\nCommands (replace <id> with an orphan ID above):");
+            println!("  oj pipeline peek <id>          # View last tmux output");
+            println!("  oj pipeline attach <id>        # Attach to tmux session");
+            println!("  oj pipeline logs <id>          # View pipeline log");
+            println!("  oj daemon dismiss-orphan <id>  # Dismiss after investigation");
         }
         OutputFormat::Json => {
             let obj = serde_json::json!({ "orphans": orphans });

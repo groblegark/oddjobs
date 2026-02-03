@@ -105,6 +105,9 @@ pub async fn tail_file(path: &std::path::Path) -> anyhow::Result<()> {
     let watch_dir = path_buf.parent().unwrap_or(&path_buf);
     watcher.watch(watch_dir, RecursiveMode::NonRecursive)?;
 
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+
     loop {
         // Read any new lines
         let mut line = String::new();
@@ -116,7 +119,7 @@ pub async fn tail_file(path: &std::path::Path) -> anyhow::Result<()> {
         // Wait for file modification (or ctrl-c)
         tokio::select! {
             _ = rx.recv() => {}
-            _ = tokio::signal::ctrl_c() => break,
+            _ = &mut ctrl_c => break,
         }
     }
 

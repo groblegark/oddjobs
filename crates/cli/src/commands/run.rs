@@ -229,9 +229,12 @@ async fn dispatch_to_daemon(
     let deadline = Instant::now() + Duration::from_millis(wait_ms);
     let mut started = false;
 
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = &mut ctrl_c => {
                 break;
             }
             _ = tokio::time::sleep(poll_interval) => {

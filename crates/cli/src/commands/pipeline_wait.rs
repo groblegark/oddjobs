@@ -46,6 +46,11 @@ pub async fn handle(
     let mut step_trackers: HashMap<String, StepTracker> = HashMap::new();
     let show_prefix = ids.len() > 1;
 
+    // Pin ctrl_c outside the loop so signals received between iterations
+    // (e.g. during get_pipeline) are not lost when the future is re-created.
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+
     loop {
         for input_id in &ids {
             if finished.contains_key(input_id) {
@@ -116,7 +121,7 @@ pub async fn handle(
         }
 
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = &mut ctrl_c => {
                 return Err(ExitError::new(130, String::new()).into());
             }
             _ = tokio::time::sleep(poll_interval) => {}

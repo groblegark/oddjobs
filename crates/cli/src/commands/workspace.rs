@@ -289,9 +289,12 @@ async fn poll_workspace_removal(client: &DaemonClient, ids: &[&str]) {
 
     println!("\nWaiting for removal... (Ctrl+C to skip)");
 
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = &mut ctrl_c => {
                 break;
             }
             _ = tokio::time::sleep(poll_interval) => {

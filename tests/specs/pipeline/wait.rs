@@ -228,7 +228,7 @@ fn wait_exits_on_sigint() {
     let id = extract_pipeline_id(&temp, "slow");
 
     // Spawn `oj pipeline wait` in the background
-    let child = temp
+    let mut child = temp
         .oj()
         .args(&["pipeline", "wait", &id])
         .env("OJ_WAIT_POLL_MS", "50")
@@ -238,16 +238,93 @@ fn wait_exits_on_sigint() {
         .spawn()
         .expect("should spawn wait process");
 
-    // Give it a moment to start polling, then send SIGINT
+    let child_pid = child.id().to_string();
+
+    // Wait for the process to start polling, then send SIGINT
+    let started = wait_for(SPEC_WAIT_MAX_MS, || {
+        // Process is alive and has had time to enter its poll loop
+        child.try_wait().expect("try_wait failed").is_none()
+    });
+    assert!(started, "wait process should be running");
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     Command::new("kill")
-        .args(["-2", &child.id().to_string()])
+        .args(["-2", &child_pid])
         .status()
         .expect("should send SIGINT");
 
+    // Wait for exit with a safety timeout (don't hang for 5 minutes)
+    let exited = wait_for(SPEC_WAIT_MAX_MS, || {
+        child.try_wait().expect("try_wait failed").is_some()
+    });
+    assert!(exited, "wait process should exit after SIGINT");
+
     let output = child.wait_with_output().expect("should collect output");
     // 130 = 128 + SIGINT(2), the conventional exit code for Ctrl+C
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit with code 130 on SIGINT, got: {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+/// Regression test: SIGINT sent while the wait process is mid-poll (between
+/// select! iterations) must not be lost.  Previously, ctrl_c() was created
+/// fresh inside select! each iteration, so signals arriving outside select!
+/// (e.g. during get_pipeline) were silently dropped.
+#[test]
+fn wait_sigint_during_poll_is_not_lost() {
+    let temp = Project::empty();
+    temp.git_init();
+    temp.file(".oj/runbooks/slow.toml", SLOW_RUNBOOK);
+    temp.oj().args(&["daemon", "start"]).passes();
+    temp.oj().args(&["run", "slow"]).passes();
+
+    let found = wait_for(SPEC_WAIT_MAX_MS, || {
+        temp.oj()
+            .args(&["pipeline", "list"])
+            .passes()
+            .stdout()
+            .contains("slow")
+    });
+    assert!(found, "pipeline should appear in list");
+
+    let id = extract_pipeline_id(&temp, "slow");
+
+    // Use a long poll interval so the process spends more time in the
+    // get_pipeline call (between select! iterations) than in select! itself.
+    let mut child = temp
+        .oj()
+        .args(&["pipeline", "wait", &id])
+        .env("OJ_WAIT_POLL_MS", "500")
+        .command()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("should spawn wait process");
+
+    let child_pid = child.id().to_string();
+
+    // Let the process complete at least one poll cycle so it's mid-iteration
+    // when SIGINT arrives (not in the initial setup).
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    Command::new("kill")
+        .args(["-2", &child_pid])
+        .status()
+        .expect("should send SIGINT");
+
+    let exited = wait_for(SPEC_WAIT_MAX_MS, || {
+        child.try_wait().expect("try_wait failed").is_some()
+    });
+    assert!(
+        exited,
+        "wait process should exit after SIGINT (signal must not be lost between poll iterations)"
+    );
+
+    let output = child.wait_with_output().expect("should collect output");
     assert_eq!(
         output.status.code(),
         Some(130),

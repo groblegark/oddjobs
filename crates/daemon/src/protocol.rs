@@ -12,6 +12,12 @@ use oj_core::{AgentSignalKind, Event};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
+#[path = "protocol_status.rs"]
+mod status;
+pub use status::{
+    AgentStatusEntry, NamespaceStatus, OrphanAgent, OrphanSummary, PipelineStatusEntry, QueueStatus,
+};
+
 /// Request from CLI to daemon
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -562,73 +568,6 @@ pub struct WorkerSummary {
     /// Most recent activity timestamp (from active pipelines)
     #[serde(default)]
     pub updated_at_ms: u64,
-}
-
-/// Per-namespace status summary
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct NamespaceStatus {
-    pub namespace: String,
-    /// Non-terminal pipelines (Running/Pending status)
-    pub active_pipelines: Vec<PipelineStatusEntry>,
-    /// Pipelines in Waiting status (escalated to human)
-    pub escalated_pipelines: Vec<PipelineStatusEntry>,
-    /// Workers and their status
-    pub workers: Vec<WorkerSummary>,
-    /// Queue depths: (queue_name, pending_count, active_count, dead_count)
-    pub queues: Vec<QueueStatus>,
-    /// Currently running agents
-    pub active_agents: Vec<AgentStatusEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PipelineStatusEntry {
-    pub id: String,
-    pub name: String,
-    pub kind: String,
-    pub step: String,
-    pub step_status: String,
-    /// Duration since pipeline started (ms)
-    pub elapsed_ms: u64,
-    /// Reason pipeline is waiting (from StepOutcome::Waiting)
-    pub waiting_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct QueueStatus {
-    pub name: String,
-    pub pending: usize,
-    pub active: usize,
-    pub dead: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentStatusEntry {
-    pub agent_id: String,
-    pub pipeline_name: String,
-    pub step_name: String,
-    pub status: String,
-}
-
-/// Summary of an orphaned pipeline detected from a breadcrumb file
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct OrphanSummary {
-    pub pipeline_id: String,
-    pub project: String,
-    pub kind: String,
-    pub name: String,
-    pub current_step: String,
-    pub step_status: String,
-    pub workspace_root: Option<PathBuf>,
-    pub agents: Vec<OrphanAgent>,
-    pub updated_at: String,
-}
-
-/// Agent info from an orphaned pipeline's breadcrumb
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct OrphanAgent {
-    pub agent_id: String,
-    pub session_name: Option<String>,
-    pub log_path: PathBuf,
 }
 
 /// Protocol errors

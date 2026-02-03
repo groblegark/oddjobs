@@ -11,12 +11,18 @@ use tempfile::tempdir;
 use oj_core::{Pipeline, StepOutcome, StepRecord, StepStatus};
 use oj_storage::{MaterializedState, QueueItem, QueueItemStatus, WorkerRecord};
 
+use oj_engine::breadcrumb::Breadcrumb;
+
 use crate::protocol::{Query, Response};
 
 use super::handle_query;
 
 fn empty_state() -> Arc<Mutex<MaterializedState>> {
     Arc::new(Mutex::new(MaterializedState::default()))
+}
+
+fn empty_orphans() -> Arc<Mutex<Vec<Breadcrumb>>> {
+    Arc::new(Mutex::new(Vec::new()))
 }
 
 fn make_pipeline(
@@ -90,7 +96,13 @@ fn status_overview_empty_state() {
     let temp = tempdir().unwrap();
     let start = Instant::now();
 
-    let response = handle_query(Query::StatusOverview, &state, temp.path(), start);
+    let response = handle_query(
+        Query::StatusOverview,
+        &state,
+        &empty_orphans(),
+        temp.path(),
+        start,
+    );
     match response {
         Response::StatusOverview {
             uptime_secs: _,
@@ -138,7 +150,13 @@ fn status_overview_groups_by_namespace() {
         );
     }
 
-    let response = handle_query(Query::StatusOverview, &state, temp.path(), start);
+    let response = handle_query(
+        Query::StatusOverview,
+        &state,
+        &empty_orphans(),
+        temp.path(),
+        start,
+    );
     match response {
         Response::StatusOverview { namespaces, .. } => {
             assert_eq!(namespaces.len(), 2);
@@ -192,7 +210,13 @@ fn status_overview_separates_escalated() {
         );
     }
 
-    let response = handle_query(Query::StatusOverview, &state, temp.path(), start);
+    let response = handle_query(
+        Query::StatusOverview,
+        &state,
+        &empty_orphans(),
+        temp.path(),
+        start,
+    );
     match response {
         Response::StatusOverview { namespaces, .. } => {
             assert_eq!(namespaces.len(), 1);
@@ -249,7 +273,13 @@ fn status_overview_excludes_terminal() {
         );
     }
 
-    let response = handle_query(Query::StatusOverview, &state, temp.path(), start);
+    let response = handle_query(
+        Query::StatusOverview,
+        &state,
+        &empty_orphans(),
+        temp.path(),
+        start,
+    );
     match response {
         Response::StatusOverview { namespaces, .. } => {
             assert_eq!(namespaces.len(), 1);
@@ -284,7 +314,13 @@ fn status_overview_includes_workers_and_queues() {
         );
     }
 
-    let response = handle_query(Query::StatusOverview, &state, temp.path(), start);
+    let response = handle_query(
+        Query::StatusOverview,
+        &state,
+        &empty_orphans(),
+        temp.path(),
+        start,
+    );
     match response {
         Response::StatusOverview { namespaces, .. } => {
             assert_eq!(namespaces.len(), 1);
@@ -329,7 +365,13 @@ fn status_overview_includes_active_agents() {
         );
     }
 
-    let response = handle_query(Query::StatusOverview, &state, temp.path(), start);
+    let response = handle_query(
+        Query::StatusOverview,
+        &state,
+        &empty_orphans(),
+        temp.path(),
+        start,
+    );
     match response {
         Response::StatusOverview { namespaces, .. } => {
             assert_eq!(namespaces.len(), 1);

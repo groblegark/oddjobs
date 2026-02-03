@@ -175,9 +175,9 @@ async fn handle_request(
             Ok(Response::Ok)
         }
 
-        Request::Query { query } => {
-            Ok(query::handle_query(query, state, orphans, logs_path, start_time))
-        }
+        Request::Query { query } => Ok(query::handle_query(
+            query, state, orphans, logs_path, start_time,
+        )),
 
         Request::Shutdown { kill } => {
             if kill {

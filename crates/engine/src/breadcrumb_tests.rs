@@ -170,6 +170,7 @@ fn write_captures_agents_from_history() {
             finished_at_ms: Some(2000),
             outcome: StepOutcome::Completed,
             agent_id: Some("p-001-build".to_string()),
+            agent_name: None,
         },
         oj_core::StepRecord {
             name: "test".to_string(),
@@ -177,6 +178,7 @@ fn write_captures_agents_from_history() {
             finished_at_ms: None,
             outcome: StepOutcome::Running,
             agent_id: Some("p-001-test".to_string()),
+            agent_name: None,
         },
     ];
     pipeline.step = "test".to_string();

@@ -453,3 +453,108 @@ fn collect_all_commands_single_line_comment_used_as_description() {
     let commands = collect_all_commands(tmp.path()).unwrap();
     assert_eq!(commands[0].1.description.as_deref(), Some("Simple command"));
 }
+
+// ============================================================================
+// collect_all_workers / collect_all_crons tests
+// ============================================================================
+
+const CRON_RUNBOOK: &str = r#"
+cron "daily-backup" {
+  interval = "24h"
+  run      = { pipeline = "backup" }
+}
+
+pipeline "backup" {
+  step "run" {
+    run = "echo backup"
+  }
+}
+"#;
+
+const WORKER_RUNBOOK_B: &str = r#"
+queue "issues" {
+  type = "external"
+  list = "echo []"
+  take = "echo ok"
+}
+
+worker "triager" {
+  source  = { queue = "issues" }
+  handler = { pipeline = "triage" }
+}
+
+pipeline "triage" {
+  step "run" {
+    run = "echo triage"
+  }
+}
+"#;
+
+#[test]
+fn collect_all_workers_multiple_files() {
+    let tmp = TempDir::new().unwrap();
+    write_hcl(tmp.path(), "build.hcl", WORKER_RUNBOOK);
+    write_hcl(tmp.path(), "triage.hcl", WORKER_RUNBOOK_B);
+
+    let workers = collect_all_workers(tmp.path()).unwrap();
+    let names: Vec<&str> = workers.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, vec!["builder", "triager"]);
+}
+
+#[test]
+fn collect_all_workers_empty_dir() {
+    let tmp = TempDir::new().unwrap();
+    let workers = collect_all_workers(tmp.path()).unwrap();
+    assert!(workers.is_empty());
+}
+
+#[test]
+fn collect_all_workers_missing_dir() {
+    let workers = collect_all_workers(Path::new("/nonexistent")).unwrap();
+    assert!(workers.is_empty());
+}
+
+#[test]
+fn collect_all_workers_skips_invalid() {
+    let tmp = TempDir::new().unwrap();
+    write_hcl(tmp.path(), "bad.hcl", "not valid HCL {{{}}}");
+    write_hcl(tmp.path(), "build.hcl", WORKER_RUNBOOK);
+
+    let workers = collect_all_workers(tmp.path()).unwrap();
+    assert_eq!(workers.len(), 1);
+    assert_eq!(workers[0].0, "builder");
+}
+
+#[test]
+fn collect_all_crons_from_runbook() {
+    let tmp = TempDir::new().unwrap();
+    write_hcl(tmp.path(), "cron.hcl", CRON_RUNBOOK);
+
+    let crons = collect_all_crons(tmp.path()).unwrap();
+    assert_eq!(crons.len(), 1);
+    assert_eq!(crons[0].0, "daily-backup");
+}
+
+#[test]
+fn collect_all_crons_empty_dir() {
+    let tmp = TempDir::new().unwrap();
+    let crons = collect_all_crons(tmp.path()).unwrap();
+    assert!(crons.is_empty());
+}
+
+#[test]
+fn collect_all_crons_missing_dir() {
+    let crons = collect_all_crons(Path::new("/nonexistent")).unwrap();
+    assert!(crons.is_empty());
+}
+
+#[test]
+fn collect_all_crons_skips_invalid() {
+    let tmp = TempDir::new().unwrap();
+    write_hcl(tmp.path(), "bad.hcl", "not valid HCL {{{}}}");
+    write_hcl(tmp.path(), "cron.hcl", CRON_RUNBOOK);
+
+    let crons = collect_all_crons(tmp.path()).unwrap();
+    assert_eq!(crons.len(), 1);
+    assert_eq!(crons[0].0, "daily-backup");
+}

@@ -14,6 +14,7 @@ use oj_storage::MaterializedState;
 use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
+use super::suggest;
 use super::workers::hash_runbook;
 use super::ConnectionError;
 
@@ -27,11 +28,23 @@ pub(super) fn handle_cron_start(
     namespace: &str,
     cron_name: &str,
     event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
 ) -> Result<Response, ConnectionError> {
     // Load runbook to validate cron exists
     let runbook = match load_runbook_for_cron(project_root, cron_name) {
         Ok(rb) => rb,
-        Err(e) => return Ok(Response::Error { message: e }),
+        Err(e) => {
+            let hint = suggest_for_cron(
+                Some(project_root),
+                cron_name,
+                namespace,
+                "oj cron start",
+                state,
+            );
+            return Ok(Response::Error {
+                message: format!("{}{}", e, hint),
+            });
+        }
     };
 
     // Validate cron definition exists
@@ -104,7 +117,26 @@ pub(super) fn handle_cron_stop(
     cron_name: &str,
     namespace: &str,
     event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
+    project_root: Option<&Path>,
 ) -> Result<Response, ConnectionError> {
+    // Check if cron exists in state
+    let scoped = if namespace.is_empty() {
+        cron_name.to_string()
+    } else {
+        format!("{}/{}", namespace, cron_name)
+    };
+    let exists = {
+        let state = state.lock();
+        state.crons.contains_key(&scoped)
+    };
+    if !exists {
+        let hint = suggest_for_cron(project_root, cron_name, namespace, "oj cron stop", state);
+        return Ok(Response::Error {
+            message: format!("unknown cron: {}{}", cron_name, hint),
+        });
+    }
+
     let event = Event::CronStopped {
         cron_name: cron_name.to_string(),
         namespace: namespace.to_string(),
@@ -123,12 +155,23 @@ pub(super) async fn handle_cron_once(
     namespace: &str,
     cron_name: &str,
     event_bus: &EventBus,
-    _state: &Arc<Mutex<MaterializedState>>,
+    state: &Arc<Mutex<MaterializedState>>,
 ) -> Result<Response, ConnectionError> {
     // Load runbook to validate cron exists
     let runbook = match load_runbook_for_cron(project_root, cron_name) {
         Ok(rb) => rb,
-        Err(e) => return Ok(Response::Error { message: e }),
+        Err(e) => {
+            let hint = suggest_for_cron(
+                Some(project_root),
+                cron_name,
+                namespace,
+                "oj cron once",
+                state,
+            );
+            return Ok(Response::Error {
+                message: format!("{}{}", e, hint),
+            });
+        }
     };
 
     // Validate cron definition exists
@@ -215,4 +258,50 @@ fn load_runbook_for_cron(
     oj_runbook::find_runbook_by_cron(&runbook_dir, cron_name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("no runbook found containing cron '{}'", cron_name))
+}
+
+/// Generate a "did you mean" suggestion for a cron name.
+fn suggest_for_cron(
+    project_root: Option<&Path>,
+    cron_name: &str,
+    namespace: &str,
+    command_prefix: &str,
+    state: &Arc<Mutex<MaterializedState>>,
+) -> String {
+    // 1. Collect all cron names from runbooks (if project_root available)
+    if let Some(root) = project_root {
+        let runbook_dir = root.join(".oj/runbooks");
+        let all_crons = oj_runbook::collect_all_crons(&runbook_dir).unwrap_or_default();
+        let candidates: Vec<&str> = all_crons.iter().map(|(name, _)| name.as_str()).collect();
+
+        let similar = suggest::find_similar(cron_name, &candidates);
+        if !similar.is_empty() {
+            return suggest::format_suggestion(&similar);
+        }
+    }
+
+    // 2. Try suggestions from daemon state (active/stopped crons in current namespace)
+    {
+        let state = state.lock();
+        let state_candidates: Vec<&str> = state
+            .crons
+            .values()
+            .filter(|c| c.namespace == namespace)
+            .map(|c| c.name.as_str())
+            .collect();
+        let similar = suggest::find_similar(cron_name, &state_candidates);
+        if !similar.is_empty() {
+            return suggest::format_suggestion(&similar);
+        }
+    }
+
+    // 3. Check for wrong project (cross-namespace)
+    let state = state.lock();
+    if let Some(other_ns) =
+        suggest::find_in_other_namespaces(suggest::ResourceType::Cron, cron_name, namespace, &state)
+    {
+        return suggest::format_cross_project_suggestion(command_prefix, cron_name, &other_ns);
+    }
+
+    String::new()
 }

@@ -13,6 +13,7 @@ mod decisions;
 mod mutations;
 mod query;
 mod queues;
+mod suggest;
 mod tmux;
 mod workers;
 
@@ -288,7 +289,9 @@ async fn handle_request(
             project_root,
             namespace,
             worker_name,
-        } => workers::handle_worker_start(&project_root, &namespace, &worker_name, event_bus),
+        } => {
+            workers::handle_worker_start(&project_root, &namespace, &worker_name, event_bus, state)
+        }
 
         Request::WorkerWake {
             worker_name,
@@ -309,18 +312,32 @@ async fn handle_request(
         Request::WorkerStop {
             worker_name,
             namespace,
-        } => workers::handle_worker_stop(&worker_name, &namespace, event_bus),
+            project_root,
+        } => workers::handle_worker_stop(
+            &worker_name,
+            &namespace,
+            event_bus,
+            state,
+            project_root.as_deref(),
+        ),
 
         Request::CronStart {
             project_root,
             namespace,
             cron_name,
-        } => crons::handle_cron_start(&project_root, &namespace, &cron_name, event_bus),
+        } => crons::handle_cron_start(&project_root, &namespace, &cron_name, event_bus, state),
 
         Request::CronStop {
             cron_name,
             namespace,
-        } => crons::handle_cron_stop(&cron_name, &namespace, event_bus),
+            project_root,
+        } => crons::handle_cron_stop(
+            &cron_name,
+            &namespace,
+            event_bus,
+            state,
+            project_root.as_deref(),
+        ),
 
         Request::CronOnce {
             project_root,

@@ -310,6 +310,7 @@ pub async fn handle(
                 query: Query::ListQueueItems {
                     queue_name: queue.clone(),
                     namespace: effective_namespace,
+                    project_root: Some(project_root.to_path_buf()),
                 },
             };
             match client.send(&request).await? {

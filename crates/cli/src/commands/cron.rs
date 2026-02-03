@@ -111,6 +111,7 @@ pub async fn handle(
             let request = Request::CronStop {
                 cron_name: name.clone(),
                 namespace: effective_namespace,
+                project_root: Some(project_root.to_path_buf()),
             };
             match client.send(&request).await? {
                 Response::Ok => {
@@ -159,7 +160,9 @@ pub async fn handle(
             let _effective_namespace = project
                 .or_else(|| std::env::var("OJ_NAMESPACE").ok())
                 .unwrap_or_else(|| namespace.to_string());
-            let (log_path, content) = client.get_cron_logs(&name, limit).await?;
+            let (log_path, content) = client
+                .get_cron_logs(&name, limit, Some(project_root))
+                .await?;
             display_log(&log_path, &content, follow, format, "cron", &name).await?;
         }
         CronCommand::Prune { all, dry_run } => {

@@ -4,12 +4,17 @@
 //! Worker request handlers.
 
 use std::path::Path;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use oj_core::Event;
+use oj_storage::MaterializedState;
 
 use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
+use super::suggest;
 use super::ConnectionError;
 
 /// Handle a WorkerStart request.
@@ -22,11 +27,23 @@ pub(super) fn handle_worker_start(
     namespace: &str,
     worker_name: &str,
     event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
 ) -> Result<Response, ConnectionError> {
     // Load runbook to validate worker exists
     let runbook = match load_runbook_for_worker(project_root, worker_name) {
         Ok(rb) => rb,
-        Err(e) => return Ok(Response::Error { message: e }),
+        Err(e) => {
+            let hint = suggest_for_worker(
+                Some(project_root),
+                worker_name,
+                namespace,
+                "oj worker start",
+                state,
+            );
+            return Ok(Response::Error {
+                message: format!("{}{}", e, hint),
+            });
+        }
     };
 
     // Validate worker definition exists
@@ -99,7 +116,32 @@ pub(super) fn handle_worker_stop(
     worker_name: &str,
     namespace: &str,
     event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
+    project_root: Option<&Path>,
 ) -> Result<Response, ConnectionError> {
+    // Check if worker exists in state
+    let scoped = if namespace.is_empty() {
+        worker_name.to_string()
+    } else {
+        format!("{}/{}", namespace, worker_name)
+    };
+    let exists = {
+        let state = state.lock();
+        state.workers.contains_key(&scoped)
+    };
+    if !exists {
+        let hint = suggest_for_worker(
+            project_root,
+            worker_name,
+            namespace,
+            "oj worker stop",
+            state,
+        );
+        return Ok(Response::Error {
+            message: format!("unknown worker: {}{}", worker_name, hint),
+        });
+    }
+
     let event = Event::WorkerStopped {
         worker_name: worker_name.to_string(),
         namespace: namespace.to_string(),
@@ -139,4 +181,53 @@ fn load_runbook_for_worker(
     oj_runbook::find_runbook_by_worker(&runbook_dir, worker_name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("no runbook found containing worker '{}'", worker_name))
+}
+
+/// Generate a "did you mean" suggestion for a worker name.
+fn suggest_for_worker(
+    project_root: Option<&Path>,
+    worker_name: &str,
+    namespace: &str,
+    command_prefix: &str,
+    state: &Arc<Mutex<MaterializedState>>,
+) -> String {
+    // 1. Collect all worker names from runbooks (if project_root available)
+    if let Some(root) = project_root {
+        let runbook_dir = root.join(".oj/runbooks");
+        let all_workers = oj_runbook::collect_all_workers(&runbook_dir).unwrap_or_default();
+        let candidates: Vec<&str> = all_workers.iter().map(|(name, _)| name.as_str()).collect();
+
+        let similar = suggest::find_similar(worker_name, &candidates);
+        if !similar.is_empty() {
+            return suggest::format_suggestion(&similar);
+        }
+    }
+
+    // 2. Try suggestions from daemon state (active/stopped workers in current namespace)
+    {
+        let state = state.lock();
+        let state_candidates: Vec<&str> = state
+            .workers
+            .values()
+            .filter(|w| w.namespace == namespace)
+            .map(|w| w.name.as_str())
+            .collect();
+        let similar = suggest::find_similar(worker_name, &state_candidates);
+        if !similar.is_empty() {
+            return suggest::format_suggestion(&similar);
+        }
+    }
+
+    // 3. Check for wrong project (cross-namespace)
+    let state = state.lock();
+    if let Some(other_ns) = suggest::find_in_other_namespaces(
+        suggest::ResourceType::Worker,
+        worker_name,
+        namespace,
+        &state,
+    ) {
+        return suggest::format_cross_project_suggestion(command_prefix, worker_name, &other_ns);
+    }
+
+    String::new()
 }

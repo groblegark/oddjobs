@@ -424,6 +424,7 @@ pub(super) fn handle_query(
         Query::ListQueueItems {
             queue_name,
             namespace,
+            project_root,
         } => {
             // Use scoped key: namespace/queue_name (matching storage::state::scoped_key)
             let key = if namespace.is_empty() {
@@ -431,11 +432,10 @@ pub(super) fn handle_query(
             } else {
                 format!("{}/{}", namespace, queue_name)
             };
-            let items = state
-                .queue_items
-                .get(&key)
-                .map(|queue_items| {
-                    queue_items
+
+            match state.queue_items.get(&key) {
+                Some(queue_items) => {
+                    let items = queue_items
                         .iter()
                         .map(|item| QueueItemSummary {
                             id: item.id.clone(),
@@ -445,10 +445,85 @@ pub(super) fn handle_query(
                             pushed_at_epoch_ms: item.pushed_at_epoch_ms,
                             failure_count: item.failure_count,
                         })
-                        .collect()
-                })
-                .unwrap_or_default();
-            Response::QueueItems { items }
+                        .collect();
+                    Response::QueueItems { items }
+                }
+                None => {
+                    // Queue not in state — check if it exists in runbooks
+                    let in_runbook = project_root.as_ref().is_some_and(|root| {
+                        oj_runbook::find_runbook_by_queue(&root.join(".oj/runbooks"), &queue_name)
+                            .ok()
+                            .flatten()
+                            .is_some()
+                    });
+                    if in_runbook {
+                        // Queue exists but has no items yet
+                        Response::QueueItems { items: vec![] }
+                    } else {
+                        // Queue truly not found — suggest
+                        let mut candidates: Vec<String> = state
+                            .queue_items
+                            .keys()
+                            .filter_map(|k| {
+                                let (ns, name) = query_queues::parse_scoped_key(k);
+                                if ns == namespace {
+                                    Some(name)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        // Also check runbook definitions
+                        if let Some(ref root) = project_root {
+                            let runbook_queues =
+                                oj_runbook::collect_all_queues(&root.join(".oj/runbooks"))
+                                    .unwrap_or_default();
+                            for (name, _) in runbook_queues {
+                                if !candidates.contains(&name) {
+                                    candidates.push(name);
+                                }
+                            }
+                        }
+
+                        use super::suggest;
+                        let candidate_refs: Vec<&str> =
+                            candidates.iter().map(|s| s.as_str()).collect();
+                        let similar = suggest::find_similar(&queue_name, &candidate_refs);
+                        let hint = suggest::format_suggestion(&similar);
+
+                        // Cross-namespace check
+                        let cross_hint = if hint.is_empty() {
+                            suggest::find_in_other_namespaces(
+                                suggest::ResourceType::Queue,
+                                &queue_name,
+                                &namespace,
+                                &state,
+                            )
+                            .map(|ns| {
+                                suggest::format_cross_project_suggestion(
+                                    "oj queue items",
+                                    &queue_name,
+                                    &ns,
+                                )
+                            })
+                            .unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+
+                        let combined_hint = if !hint.is_empty() { hint } else { cross_hint };
+
+                        if combined_hint.is_empty() {
+                            // No suggestions — return empty items (backwards compatible)
+                            Response::QueueItems { items: vec![] }
+                        } else {
+                            Response::Error {
+                                message: format!("unknown queue: {}{}", queue_name, combined_hint),
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Query::GetAgentSignal { agent_id } => {
@@ -572,6 +647,7 @@ pub(super) fn handle_query(
             name,
             namespace,
             lines,
+            project_root,
         } => {
             use oj_engine::log_paths::worker_log_path;
 
@@ -582,8 +658,81 @@ pub(super) fn handle_query(
             };
 
             let log_path = worker_log_path(logs_path, &scoped_name);
-            let content = read_log_file(&log_path, lines);
-            Response::WorkerLogs { log_path, content }
+
+            // If log exists, return it (worker was active at some point)
+            if log_path.exists() {
+                let content = read_log_file(&log_path, lines);
+                return Response::WorkerLogs { log_path, content };
+            }
+
+            // Log doesn't exist — check if worker is known
+            let in_state = state.workers.contains_key(&scoped_name);
+            let in_runbook = project_root.as_ref().is_some_and(|root| {
+                oj_runbook::find_runbook_by_worker(&root.join(".oj/runbooks"), &name)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            });
+
+            if in_state || in_runbook {
+                // Worker exists but no logs yet
+                Response::WorkerLogs {
+                    log_path,
+                    content: String::new(),
+                }
+            } else {
+                // Worker not found — suggest
+                use super::suggest;
+                let mut candidates: Vec<String> = state
+                    .workers
+                    .values()
+                    .filter(|w| w.namespace == namespace)
+                    .map(|w| w.name.clone())
+                    .collect();
+                if let Some(ref root) = project_root {
+                    let runbook_workers =
+                        oj_runbook::collect_all_workers(&root.join(".oj/runbooks"))
+                            .unwrap_or_default();
+                    for (wname, _) in runbook_workers {
+                        if !candidates.contains(&wname) {
+                            candidates.push(wname);
+                        }
+                    }
+                }
+
+                let candidate_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+                let similar = suggest::find_similar(&name, &candidate_refs);
+                let hint = suggest::format_suggestion(&similar);
+
+                let cross_hint = if hint.is_empty() {
+                    suggest::find_in_other_namespaces(
+                        suggest::ResourceType::Worker,
+                        &name,
+                        &namespace,
+                        &state,
+                    )
+                    .map(|ns| {
+                        suggest::format_cross_project_suggestion("oj worker logs", &name, &ns)
+                    })
+                    .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
+                let combined_hint = if !hint.is_empty() { hint } else { cross_hint };
+
+                if combined_hint.is_empty() {
+                    // No suggestions — return empty log (backwards compatible)
+                    Response::WorkerLogs {
+                        log_path,
+                        content: String::new(),
+                    }
+                } else {
+                    Response::Error {
+                        message: format!("unknown worker: {}{}", name, combined_hint),
+                    }
+                }
+            }
         }
 
         Query::ListWorkers => {
@@ -617,23 +766,79 @@ pub(super) fn handle_query(
             Response::Workers { workers }
         }
 
-        Query::GetCronLogs { name, lines } => {
+        Query::GetCronLogs {
+            name,
+            lines,
+            project_root,
+        } => {
             use oj_engine::log_paths::cron_log_path;
 
             let log_path = cron_log_path(logs_path, &name);
-            let content = match std::fs::read_to_string(&log_path) {
-                Ok(text) => {
-                    if lines > 0 {
-                        let all_lines: Vec<&str> = text.lines().collect();
-                        let start = all_lines.len().saturating_sub(lines);
-                        all_lines[start..].join("\n")
-                    } else {
-                        text
+
+            // If log exists, return it
+            if log_path.exists() {
+                let content = read_log_file(&log_path, lines);
+                return Response::CronLogs { log_path, content };
+            }
+
+            // Log doesn't exist — check if cron is known
+            let in_state = state.crons.values().any(|c| c.name == name);
+            let in_runbook = project_root.as_ref().is_some_and(|root| {
+                oj_runbook::find_runbook_by_cron(&root.join(".oj/runbooks"), &name)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            });
+
+            if in_state || in_runbook {
+                Response::CronLogs {
+                    log_path,
+                    content: String::new(),
+                }
+            } else {
+                use super::suggest;
+                let mut candidates: Vec<String> =
+                    state.crons.values().map(|c| c.name.clone()).collect();
+                if let Some(ref root) = project_root {
+                    let runbook_crons = oj_runbook::collect_all_crons(&root.join(".oj/runbooks"))
+                        .unwrap_or_default();
+                    for (cname, _) in runbook_crons {
+                        if !candidates.contains(&cname) {
+                            candidates.push(cname);
+                        }
                     }
                 }
-                Err(_) => String::new(),
-            };
-            Response::CronLogs { log_path, content }
+
+                let candidate_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+                let similar = suggest::find_similar(&name, &candidate_refs);
+                let hint = suggest::format_suggestion(&similar);
+
+                let cross_hint = if hint.is_empty() {
+                    suggest::find_in_other_namespaces(
+                        suggest::ResourceType::Cron,
+                        &name,
+                        "",
+                        &state,
+                    )
+                    .map(|ns| suggest::format_cross_project_suggestion("oj cron logs", &name, &ns))
+                    .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
+                let combined_hint = if !hint.is_empty() { hint } else { cross_hint };
+
+                if combined_hint.is_empty() {
+                    Response::CronLogs {
+                        log_path,
+                        content: String::new(),
+                    }
+                } else {
+                    Response::Error {
+                        message: format!("unknown cron: {}{}", name, combined_hint),
+                    }
+                }
+            }
         }
 
         Query::ListCrons => {

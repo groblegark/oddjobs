@@ -210,6 +210,72 @@ pub fn collect_all_queues(runbook_dir: &Path) -> Result<Vec<(String, crate::Queu
     Ok(queues)
 }
 
+/// Scan `.oj/runbooks/` and collect all worker definitions.
+/// Returns a sorted vec of (worker_name, WorkerDef) pairs.
+/// Skips runbooks that fail to parse (logs warnings).
+pub fn collect_all_workers(
+    runbook_dir: &Path,
+) -> Result<Vec<(String, crate::WorkerDef)>, FindError> {
+    if !runbook_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let files = collect_runbook_files(runbook_dir)?;
+    let mut workers = Vec::new();
+    for (path, format) in files {
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "skipping unreadable runbook");
+                continue;
+            }
+        };
+        let runbook = match parse_runbook_with_format(&content, format) {
+            Ok(rb) => rb,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "skipping invalid runbook");
+                continue;
+            }
+        };
+        for (name, worker) in runbook.workers {
+            workers.push((name, worker));
+        }
+    }
+    workers.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(workers)
+}
+
+/// Scan `.oj/runbooks/` and collect all cron definitions.
+/// Returns a sorted vec of (cron_name, CronDef) pairs.
+/// Skips runbooks that fail to parse (logs warnings).
+pub fn collect_all_crons(runbook_dir: &Path) -> Result<Vec<(String, crate::CronDef)>, FindError> {
+    if !runbook_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let files = collect_runbook_files(runbook_dir)?;
+    let mut crons = Vec::new();
+    for (path, format) in files {
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "skipping unreadable runbook");
+                continue;
+            }
+        };
+        let runbook = match parse_runbook_with_format(&content, format) {
+            Ok(rb) => rb,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "skipping invalid runbook");
+                continue;
+            }
+        };
+        for (name, cron) in runbook.crons {
+            crons.push((name, cron));
+        }
+    }
+    crons.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(crons)
+}
+
 /// Validate all runbooks in a directory for cross-file conflicts.
 ///
 /// Returns errors for any entity name defined in multiple files within the same

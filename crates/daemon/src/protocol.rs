@@ -165,6 +165,8 @@ pub enum Request {
         worker_name: String,
         #[serde(default)]
         namespace: String,
+        #[serde(default)]
+        project_root: Option<PathBuf>,
     },
 
     /// Start a cron timer
@@ -180,6 +182,8 @@ pub enum Request {
         cron_name: String,
         #[serde(default)]
         namespace: String,
+        #[serde(default)]
+        project_root: Option<PathBuf>,
     },
 
     /// Prune stopped crons from daemon state
@@ -279,6 +283,8 @@ pub enum Query {
         queue_name: String,
         #[serde(default)]
         namespace: String,
+        #[serde(default)]
+        project_root: Option<PathBuf>,
     },
     /// Get detailed info for a single agent by ID (or prefix)
     GetAgent {
@@ -300,6 +306,8 @@ pub enum Query {
         namespace: String,
         /// Number of most recent lines to return (0 = all)
         lines: usize,
+        #[serde(default)]
+        project_root: Option<PathBuf>,
     },
     /// List all workers and their status
     ListWorkers,
@@ -311,6 +319,8 @@ pub enum Query {
         name: String,
         /// Number of most recent lines to return (0 = all)
         lines: usize,
+        #[serde(default)]
+        project_root: Option<PathBuf>,
     },
     /// Get a cross-project status overview
     StatusOverview,

@@ -16,6 +16,7 @@ use oj_storage::MaterializedState;
 use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
+use super::suggest;
 use super::workers::hash_runbook;
 use super::ConnectionError;
 
@@ -31,7 +32,13 @@ pub(super) fn handle_queue_push(
     // Load runbook containing the queue
     let runbook = match load_runbook_for_queue(project_root, queue_name) {
         Ok(rb) => rb,
-        Err(e) => return Ok(Response::Error { message: e }),
+        Err(e) => {
+            let hint =
+                suggest_for_queue(project_root, queue_name, namespace, "oj queue push", state);
+            return Ok(Response::Error {
+                message: format!("{}{}", e, hint),
+            });
+        }
     };
 
     // Validate queue exists
@@ -291,7 +298,13 @@ pub(super) fn handle_queue_drop(
     // Load runbook containing the queue
     let runbook = match load_runbook_for_queue(project_root, queue_name) {
         Ok(rb) => rb,
-        Err(e) => return Ok(Response::Error { message: e }),
+        Err(e) => {
+            let hint =
+                suggest_for_queue(project_root, queue_name, namespace, "oj queue drop", state);
+            return Ok(Response::Error {
+                message: format!("{}{}", e, hint),
+            });
+        }
     };
 
     // Validate queue exists
@@ -345,7 +358,13 @@ pub(super) fn handle_queue_retry(
     // Load runbook containing the queue
     let runbook = match load_runbook_for_queue(project_root, queue_name) {
         Ok(rb) => rb,
-        Err(e) => return Ok(Response::Error { message: e }),
+        Err(e) => {
+            let hint =
+                suggest_for_queue(project_root, queue_name, namespace, "oj queue retry", state);
+            return Ok(Response::Error {
+                message: format!("{}{}", e, hint),
+            });
+        }
     };
 
     // Validate queue exists
@@ -435,4 +454,37 @@ fn load_runbook_for_queue(
     oj_runbook::find_runbook_by_queue(&runbook_dir, queue_name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("no runbook found containing queue '{}'", queue_name))
+}
+
+/// Generate a "did you mean" suggestion for a queue name.
+fn suggest_for_queue(
+    project_root: &Path,
+    queue_name: &str,
+    namespace: &str,
+    command_prefix: &str,
+    state: &Arc<Mutex<MaterializedState>>,
+) -> String {
+    // 1. Collect all queue names from runbooks
+    let runbook_dir = project_root.join(".oj/runbooks");
+    let all_queues = oj_runbook::collect_all_queues(&runbook_dir).unwrap_or_default();
+    let candidates: Vec<&str> = all_queues.iter().map(|(name, _)| name.as_str()).collect();
+
+    // 2. Check for typo (fuzzy match)
+    let similar = suggest::find_similar(queue_name, &candidates);
+    if !similar.is_empty() {
+        return suggest::format_suggestion(&similar);
+    }
+
+    // 3. Check for wrong project (cross-namespace)
+    let state = state.lock();
+    if let Some(other_ns) = suggest::find_in_other_namespaces(
+        suggest::ResourceType::Queue,
+        queue_name,
+        namespace,
+        &state,
+    ) {
+        return suggest::format_cross_project_suggestion(command_prefix, queue_name, &other_ns);
+    }
+
+    String::new()
 }

@@ -111,6 +111,7 @@ pub async fn handle(
             let request = Request::WorkerStop {
                 worker_name: name.clone(),
                 namespace: effective_namespace,
+                project_root: Some(project_root.to_path_buf()),
             };
             match client.send(&request).await? {
                 Response::Ok => {
@@ -135,7 +136,7 @@ pub async fn handle(
                 .unwrap_or_else(|| namespace.to_string());
 
             let (log_path, content) = client
-                .get_worker_logs(&name, &effective_namespace, limit)
+                .get_worker_logs(&name, &effective_namespace, limit, Some(project_root))
                 .await?;
             display_log(&log_path, &content, follow, format, "worker", &name).await?;
         }

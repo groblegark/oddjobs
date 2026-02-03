@@ -5,6 +5,8 @@
 
 #[path = "query_orphans.rs"]
 mod query_orphans;
+#[path = "query_queues.rs"]
+mod query_queues;
 
 #[path = "query_projects.rs"]
 mod query_projects;
@@ -23,8 +25,8 @@ use oj_engine::breadcrumb::Breadcrumb;
 
 use crate::protocol::{
     AgentStatusEntry, AgentSummary, CronSummary, NamespaceStatus, PipelineDetail,
-    PipelineStatusEntry, PipelineSummary, Query, QueueItemSummary, QueueStatus, QueueSummary,
-    Response, SessionSummary, StepRecordDetail, WorkerSummary, WorkspaceDetail, WorkspaceSummary,
+    PipelineStatusEntry, PipelineSummary, Query, QueueItemSummary, QueueStatus, Response,
+    SessionSummary, StepRecordDetail, WorkerSummary, WorkspaceDetail, WorkspaceSummary,
 };
 
 /// Handle query requests (read-only state access).
@@ -286,47 +288,7 @@ pub(super) fn handle_query(
         Query::ListQueues {
             project_root,
             namespace,
-        } => {
-            let runbook_dir = project_root.join(".oj/runbooks");
-            let queue_defs = oj_runbook::collect_all_queues(&runbook_dir).unwrap_or_default();
-
-            let queues = queue_defs
-                .into_iter()
-                .map(|(name, def)| {
-                    let key = if namespace.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{}/{}", namespace, name)
-                    };
-                    let item_count = state
-                        .queue_items
-                        .get(&key)
-                        .map(|items| items.len())
-                        .unwrap_or(0);
-
-                    let workers: Vec<String> = state
-                        .workers
-                        .values()
-                        .filter(|w| w.queue_name == name && w.namespace == namespace)
-                        .map(|w| w.name.clone())
-                        .collect();
-
-                    let queue_type = match def.queue_type {
-                        oj_runbook::QueueType::External => "external",
-                        oj_runbook::QueueType::Persisted => "persisted",
-                    };
-
-                    QueueSummary {
-                        name,
-                        queue_type: queue_type.to_string(),
-                        item_count,
-                        workers,
-                    }
-                })
-                .collect();
-
-            Response::Queues { queues }
-        }
+        } => query_queues::list_queues(&state, &project_root, &namespace),
 
         Query::ListQueueItems {
             queue_name,
@@ -573,14 +535,7 @@ pub(super) fn handle_query(
             // Collect queue stats grouped by namespace
             let mut ns_queues: BTreeMap<String, Vec<QueueStatus>> = BTreeMap::new();
             for (scoped_key, items) in &state.queue_items {
-                let (ns, queue_name) = if let Some(pos) = scoped_key.find('/') {
-                    (
-                        scoped_key[..pos].to_string(),
-                        scoped_key[pos + 1..].to_string(),
-                    )
-                } else {
-                    (String::new(), scoped_key.clone())
-                };
+                let (ns, queue_name) = query_queues::parse_scoped_key(scoped_key);
 
                 let mut pending = 0;
                 let mut active = 0;

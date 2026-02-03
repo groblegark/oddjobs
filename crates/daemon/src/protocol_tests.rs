@@ -312,6 +312,7 @@ fn encode_decode_queues_response() {
     let response = Response::Queues {
         queues: vec![QueueSummary {
             name: "tasks".to_string(),
+            namespace: "myproject".to_string(),
             queue_type: "persisted".to_string(),
             item_count: 5,
             workers: vec!["fixer".to_string()],

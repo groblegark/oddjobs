@@ -588,11 +588,10 @@ pub struct QueueItemSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QueueSummary {
     pub name: String,
-    /// "persisted" or "external"
+    #[serde(default)]
+    pub namespace: String,
     pub queue_type: String,
-    /// Number of items (persisted queues only; 0 for external)
     pub item_count: usize,
-    /// Workers attached to this queue
     pub workers: Vec<String>,
 }
 

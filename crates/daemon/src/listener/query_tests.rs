@@ -839,3 +839,57 @@ fn list_projects_excludes_terminal_pipelines() {
         other => panic!("unexpected response: {:?}", other),
     }
 }
+
+#[test]
+fn list_queues_shows_all_namespaces() {
+    let state = empty_state();
+    let temp = tempdir().unwrap();
+    let start = Instant::now();
+
+    // Add queue items across different namespaces
+    {
+        let mut s = state.lock();
+        s.queue_items.insert(
+            "project-a/tasks".to_string(),
+            vec![make_queue_item("i1", QueueItemStatus::Pending)],
+        );
+        s.queue_items.insert(
+            "project-b/jobs".to_string(),
+            vec![
+                make_queue_item("i2", QueueItemStatus::Pending),
+                make_queue_item("i3", QueueItemStatus::Active),
+            ],
+        );
+        s.workers.insert(
+            "project-b/worker1".to_string(),
+            make_worker("worker1", "project-b", "jobs", 1),
+        );
+    }
+
+    let response = handle_query(
+        Query::ListQueues {
+            project_root: temp.path().to_path_buf(),
+            namespace: "project-a".to_string(),
+        },
+        &state,
+        &empty_orphans(),
+        temp.path(),
+        start,
+    );
+
+    match response {
+        Response::Queues { queues } => {
+            assert_eq!(queues.len(), 2, "should show queues from all namespaces");
+
+            let qa = queues.iter().find(|q| q.name == "tasks").unwrap();
+            assert_eq!(qa.namespace, "project-a");
+            assert_eq!(qa.item_count, 1);
+
+            let qb = queues.iter().find(|q| q.name == "jobs").unwrap();
+            assert_eq!(qb.namespace, "project-b");
+            assert_eq!(qb.item_count, 2);
+            assert_eq!(qb.workers, vec!["worker1".to_string()]);
+        }
+        other => panic!("unexpected response: {:?}", other),
+    }
+}

@@ -252,9 +252,14 @@ pub async fn handle(
                                 } else {
                                     q.workers.join(", ")
                                 };
+                                let ns_label = if q.namespace.is_empty() {
+                                    "(no project)".to_string()
+                                } else {
+                                    q.namespace.clone()
+                                };
                                 println!(
-                                    "{}\t{}\titems={}\tworkers={}",
-                                    q.name, q.queue_type, q.item_count, workers_str,
+                                    "{}\t{}\t{}\titems={}\tworkers={}",
+                                    ns_label, q.name, q.queue_type, q.item_count, workers_str,
                                 );
                             }
                         }

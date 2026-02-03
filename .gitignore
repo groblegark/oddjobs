@@ -2,7 +2,6 @@
 .wok/
 .quench/
 target/
-.cargo/config.toml
 coverage/
 
 # Downloaded BATS testing libraries (run scripts/spec to auto-install)

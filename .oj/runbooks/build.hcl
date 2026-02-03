@@ -1,5 +1,11 @@
 # Plan and implement a feature, then submit to the merge queue.
 #
+# Prereq: configure sccache in .cargo/config.toml so worktrees get fast
+# builds without sharing a target-dir (which causes cache poisoning):
+#
+#   [build]
+#   rustc-wrapper = "sccache"
+#
 # Examples:
 #   oj run build auth "Add user authentication with JWT tokens"
 #   oj run build dark-mode "Implement dark mode theme" --base develop
@@ -30,13 +36,9 @@ pipeline "build" {
     on_fail  = "Build failed: ${var.name}"
   }
 
-  # Initialize workspace: worktree with shared build cache via .cargo/config.toml
   step "init" {
     run = <<-SHELL
       git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
-      mkdir -p .cargo
-      echo "[build]" > .cargo/config.toml
-      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
       mkdir -p plans
     SHELL
     on_done = { step = "plan" }

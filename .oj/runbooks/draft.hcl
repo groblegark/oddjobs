@@ -95,9 +95,6 @@ pipeline "draft" {
   step "init" {
     run = <<-SHELL
       git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
-      mkdir -p .cargo
-      echo "[build]" > .cargo/config.toml
-      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
       mkdir -p plans
     SHELL
     on_done = { step = "plan" }
@@ -151,9 +148,6 @@ pipeline "draft-rebase" {
       test -n "${local.branch}" || { echo "No draft matching '${var.name}'"; exit 1; }
       git -C "${local.repo}" fetch origin ${var.base} ${local.branch}
       git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" origin/${local.branch}
-      mkdir -p .cargo
-      echo "[build]" > .cargo/config.toml
-      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
     SHELL
     on_done = { step = "rebase" }
   }
@@ -205,9 +199,6 @@ pipeline "draft-refine" {
       test -n "${local.branch}" || { echo "No draft matching '${var.name}'"; exit 1; }
       git -C "${local.repo}" fetch origin ${local.branch}
       git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" origin/${local.branch}
-      mkdir -p .cargo
-      echo "[build]" > .cargo/config.toml
-      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
     SHELL
     on_done = { step = "refine" }
   }

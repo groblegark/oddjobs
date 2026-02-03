@@ -21,6 +21,8 @@ mod cli_run;
 mod project_setup;
 
 // daemon/
+#[path = "specs/daemon/crons.rs"]
+mod daemon_crons;
 #[path = "specs/daemon/help.rs"]
 mod daemon_help;
 #[path = "specs/daemon/lifecycle.rs"]

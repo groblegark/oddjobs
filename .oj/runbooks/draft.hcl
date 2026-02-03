@@ -40,6 +40,7 @@ command "draft-refine" {
   run  = { pipeline = "draft-refine" }
 }
 
+
 # List open draft branches, or close one.
 #
 # Examples:
@@ -224,6 +225,7 @@ pipeline "draft-refine" {
   }
 }
 
+
 # ------------------------------------------------------------------------------
 # Agents
 # ------------------------------------------------------------------------------
@@ -323,6 +325,7 @@ agent "refiner" {
     Keep changes focused on the instructions. Don't refactor unrelated code.
   PROMPT
 }
+
 
 agent "draft-resolver" {
   run      = "claude --model opus --dangerously-skip-permissions"

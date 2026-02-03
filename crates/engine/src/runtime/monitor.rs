@@ -105,10 +105,10 @@ where
             .ok_or_else(|| RuntimeError::AgentNotFound(agent_name.to_string()))?;
         let execution_dir = self.execution_dir(&pipeline);
 
+        let ctx = crate::spawn::SpawnContext::from_pipeline(&pipeline, pipeline_id);
         let mut effects = crate::spawn::build_spawn_effects(
             agent_def,
-            &pipeline,
-            pipeline_id,
+            &ctx,
             agent_name,
             input,
             &execution_dir,
@@ -556,6 +556,16 @@ where
                     }
                 }
             }
+            // Standalone agent run effects should not be routed here
+            ActionEffects::CompleteAgentRun
+            | ActionEffects::FailAgentRun { .. }
+            | ActionEffects::EscalateAgentRun { .. } => {
+                tracing::error!(
+                    pipeline_id = %pipeline.id,
+                    "standalone agent action effect routed to pipeline handler"
+                );
+                Ok(vec![])
+            }
         }
     }
 
@@ -619,6 +629,17 @@ where
         kind: AgentSignalKind,
         message: Option<String>,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Check standalone agent runs first
+        let maybe_run_id = { self.agent_runs.lock().get(agent_id).cloned() };
+        if let Some(agent_run_id) = maybe_run_id {
+            let agent_run = self.lock_state(|s| s.agent_runs.get(agent_run_id.as_str()).cloned());
+            if let Some(agent_run) = agent_run {
+                return self
+                    .handle_standalone_agent_done(agent_id, &agent_run, kind, message)
+                    .await;
+            }
+        }
+
         let Some(pipeline_id_str) = self.agent_pipelines.lock().get(agent_id).cloned() else {
             tracing::warn!(agent_id = %agent_id, "agent:signal for unknown agent");
             return Ok(vec![]);

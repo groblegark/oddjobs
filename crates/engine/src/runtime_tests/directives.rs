@@ -138,7 +138,7 @@ run = "echo init"
 "#;
 
 #[tokio::test]
-async fn command_with_agent_directive_errors() {
+async fn command_with_agent_directive_spawns_standalone_agent() {
     let ctx = setup_with_runbook(RUNBOOK_AGENT_COMMAND).await;
 
     let result = ctx
@@ -154,9 +154,20 @@ async fn command_with_agent_directive_errors() {
         ))
         .await;
 
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("agent"));
+    assert!(
+        result.is_ok(),
+        "agent directive should succeed: {:?}",
+        result.err()
+    );
+    let events = result.unwrap();
+    // Should produce at least RunbookLoaded and AgentRunCreated events
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::AgentRunCreated { .. })),
+        "expected AgentRunCreated event, got: {:?}",
+        events
+    );
 }
 
 /// Runbook with a step that uses pipeline run directive

@@ -403,6 +403,12 @@ pub enum Response {
         pipeline_name: String,
     },
 
+    /// Standalone agent run started successfully
+    AgentRunStarted {
+        agent_run_id: String,
+        agent_name: String,
+    },
+
     /// Workspace(s) deleted
     WorkspacesDropped { dropped: Vec<WorkspaceEntry> },
 

@@ -171,10 +171,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if reconcile_ctx.pipeline_count > 0
         || reconcile_ctx.worker_count > 0
         || reconcile_ctx.cron_count > 0
+        || reconcile_ctx.agent_run_count > 0
     {
         info!(
-            "spawning background reconciliation for {} pipelines, {} workers, {} crons",
-            reconcile_ctx.pipeline_count, reconcile_ctx.worker_count, reconcile_ctx.cron_count
+            "spawning background reconciliation for {} pipelines, {} workers, {} crons, {} agent_runs",
+            reconcile_ctx.pipeline_count, reconcile_ctx.worker_count, reconcile_ctx.cron_count, reconcile_ctx.agent_run_count
         );
         tokio::spawn(async move {
             lifecycle::reconcile_state(

@@ -177,13 +177,23 @@ pub async fn handle(
                                 Some(ns) if !ns.is_empty() => ns,
                                 _ => "(no project)",
                             };
+                            let pipeline_col = if a.pipeline_id.is_empty() {
+                                "-"
+                            } else {
+                                truncate(&a.pipeline_id, 8)
+                            };
+                            let step_col = if a.step_name.is_empty() {
+                                "-"
+                            } else {
+                                truncate(&a.step_name, 16)
+                            };
                             println!(
                                 "{:<8} {:<16} {:<16} {:<8} {:<16} {:<10} {:>5} {:>5} {:>4}",
                                 truncate(&a.agent_id, 8),
                                 truncate(name, 16),
                                 truncate(project, 16),
-                                truncate(&a.pipeline_id, 8),
-                                truncate(&a.step_name, 16),
+                                pipeline_col,
+                                step_col,
                                 truncate(&a.status, 10),
                                 a.files_read,
                                 a.files_written,
@@ -213,8 +223,12 @@ pub async fn handle(
                                 println!("  Project: {}", ns);
                             }
                         }
-                        println!("  Pipeline: {} ({})", a.pipeline_id, a.pipeline_name);
-                        println!("  Step: {}", a.step_name);
+                        if a.pipeline_id.is_empty() {
+                            println!("  Source: standalone");
+                        } else {
+                            println!("  Pipeline: {} ({})", a.pipeline_id, a.pipeline_name);
+                            println!("  Step: {}", a.step_name);
+                        }
                         println!("  Status: {}", a.status);
 
                         println!();

@@ -9,6 +9,7 @@
 //! oj-core: Core library for the Odd Jobs (oj) CLI tool
 
 pub mod agent;
+pub mod agent_run;
 pub mod clock;
 pub mod decision;
 pub mod effect;
@@ -23,6 +24,7 @@ pub mod worker;
 pub mod workspace;
 
 pub use agent::{AgentError, AgentId, AgentState};
+pub use agent_run::{AgentRun, AgentRunId, AgentRunStatus};
 pub use clock::{Clock, FakeClock, SystemClock};
 pub use decision::{Decision, DecisionId, DecisionOption, DecisionSource};
 pub use effect::Effect;

@@ -24,6 +24,38 @@ where
         agent_id: &oj_core::AgentId,
         state: &oj_core::AgentState,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Check standalone agent runs first
+        let maybe_run_id = { self.agent_runs.lock().get(agent_id).cloned() };
+        if let Some(agent_run_id) = maybe_run_id {
+            let agent_run = self.lock_state(|s| s.agent_runs.get(agent_run_id.as_str()).cloned());
+            if let Some(agent_run) = agent_run {
+                if agent_run.status.is_terminal() {
+                    return Ok(vec![]);
+                }
+                // Verify the agent_id matches
+                if agent_run.agent_id.as_deref() != Some(agent_id.as_str()) {
+                    tracing::debug!(
+                        agent_id = %agent_id,
+                        agent_run_id = %agent_run.id,
+                        "dropping stale standalone agent event (agent_id mismatch)"
+                    );
+                    return Ok(vec![]);
+                }
+                let runbook = self.cached_runbook(&agent_run.runbook_hash)?;
+                let agent_def = runbook
+                    .get_agent(&agent_run.agent_name)
+                    .ok_or_else(|| RuntimeError::AgentNotFound(agent_run.agent_name.clone()))?
+                    .clone();
+                return self
+                    .handle_standalone_monitor_state(
+                        &agent_run,
+                        &agent_def,
+                        MonitorState::from_agent_state(state),
+                    )
+                    .await;
+            }
+        }
+
         // Look up pipeline ID for this agent
         let Some(pipeline_id) = self.agent_pipelines.lock().get(agent_id).cloned() else {
             tracing::warn!(agent_id = %agent_id, "received AgentStateChanged for unknown agent");
@@ -71,6 +103,32 @@ where
         &self,
         agent_id: &AgentId,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Check standalone agent runs first
+        let maybe_run_id = { self.agent_runs.lock().get(agent_id).cloned() };
+        if let Some(agent_run_id) = maybe_run_id {
+            let agent_run = self.lock_state(|s| s.agent_runs.get(agent_run_id.as_str()).cloned());
+            if let Some(agent_run) = agent_run {
+                if agent_run.status.is_terminal() || agent_run.agent_signal.is_some() {
+                    return Ok(vec![]);
+                }
+                if agent_run.agent_id.as_deref() != Some(agent_id.as_str()) {
+                    return Ok(vec![]);
+                }
+                let runbook = self.cached_runbook(&agent_run.runbook_hash)?;
+                let agent_def = runbook
+                    .get_agent(&agent_run.agent_name)
+                    .ok_or_else(|| RuntimeError::AgentNotFound(agent_run.agent_name.clone()))?
+                    .clone();
+                return self
+                    .handle_standalone_monitor_state(
+                        &agent_run,
+                        &agent_def,
+                        MonitorState::WaitingForInput,
+                    )
+                    .await;
+            }
+        }
+
         let Some(pipeline_id) = self.agent_pipelines.lock().get(agent_id).cloned() else {
             tracing::debug!(agent_id = %agent_id, "agent:idle for unknown agent");
             return Ok(vec![]);
@@ -110,6 +168,34 @@ where
         agent_id: &AgentId,
         prompt_type: &PromptType,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Check standalone agent runs first
+        let maybe_run_id = { self.agent_runs.lock().get(agent_id).cloned() };
+        if let Some(agent_run_id) = maybe_run_id {
+            let agent_run = self.lock_state(|s| s.agent_runs.get(agent_run_id.as_str()).cloned());
+            if let Some(agent_run) = agent_run {
+                if agent_run.status.is_terminal() || agent_run.agent_signal.is_some() {
+                    return Ok(vec![]);
+                }
+                if agent_run.agent_id.as_deref() != Some(agent_id.as_str()) {
+                    return Ok(vec![]);
+                }
+                let runbook = self.cached_runbook(&agent_run.runbook_hash)?;
+                let agent_def = runbook
+                    .get_agent(&agent_run.agent_name)
+                    .ok_or_else(|| RuntimeError::AgentNotFound(agent_run.agent_name.clone()))?
+                    .clone();
+                return self
+                    .handle_standalone_monitor_state(
+                        &agent_run,
+                        &agent_def,
+                        MonitorState::Prompting {
+                            prompt_type: prompt_type.clone(),
+                        },
+                    )
+                    .await;
+            }
+        }
+
         let Some(pipeline_id) = self.agent_pipelines.lock().get(agent_id).cloned() else {
             tracing::debug!(agent_id = %agent_id, "agent:prompt for unknown agent");
             return Ok(vec![]);

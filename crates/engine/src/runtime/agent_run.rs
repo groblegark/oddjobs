@@ -1,0 +1,630 @@
+// SPDX-License-Identifier: BUSL-1.1
+// Copyright (c) 2026 Alfred Jean LLC
+
+//! Standalone agent run lifecycle handling
+
+use super::Runtime;
+use crate::error::RuntimeError;
+use crate::monitor::{self, ActionEffects, MonitorState};
+use oj_adapters::agent::find_session_log;
+use oj_adapters::{AgentAdapter, AgentReconnectConfig, NotifyAdapter, SessionAdapter};
+use oj_core::{
+    AgentId, AgentRun, AgentRunId, AgentRunStatus, AgentSignalKind, Clock, Effect, Event,
+    PipelineId, SessionId, TimerId,
+};
+use oj_runbook::AgentDef;
+use std::collections::HashMap;
+use std::path::Path;
+
+impl<S, A, N, C> Runtime<S, A, N, C>
+where
+    S: SessionAdapter,
+    A: AgentAdapter,
+    N: NotifyAdapter,
+    C: Clock,
+{
+    /// Spawn a standalone agent for a command run.
+    ///
+    /// Builds spawn effects using the agent definition, registers the agent→run
+    /// mapping, and executes the effects. Returns events produced.
+    pub(crate) async fn spawn_standalone_agent(
+        &self,
+        agent_run_id: &AgentRunId,
+        agent_def: &AgentDef,
+        agent_name: &str,
+        input: &HashMap<String, String>,
+        cwd: &Path,
+        namespace: &str,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        // Build a SpawnContext for standalone agent
+        let sentinel_pipeline_id = PipelineId::new("");
+        let ctx = crate::spawn::SpawnContext {
+            pipeline_id: &sentinel_pipeline_id,
+            agent_run_id: Some(agent_run_id),
+            name: agent_name,
+            namespace,
+        };
+
+        let effects = crate::spawn::build_spawn_effects(
+            agent_def,
+            &ctx,
+            agent_name,
+            input,
+            cwd,
+            &self.state_dir,
+        )?;
+
+        // Extract agent_id from SpawnAgent effect
+        let agent_id = effects.iter().find_map(|e| match e {
+            Effect::SpawnAgent { agent_id, .. } => Some(agent_id.clone()),
+            _ => None,
+        });
+
+        // Register agent → agent_run mapping
+        if let Some(ref aid) = agent_id {
+            self.agent_runs
+                .lock()
+                .insert(aid.clone(), agent_run_id.clone());
+        }
+
+        let mut result_events = self.executor.execute_all(effects).await?;
+
+        // Emit AgentRunStarted event if we have an agent_id
+        if let Some(ref aid) = agent_id {
+            let started_event = Event::AgentRunStarted {
+                id: agent_run_id.clone(),
+                agent_id: aid.clone(),
+            };
+            if let Some(ev) = self
+                .executor
+                .execute(Effect::Emit {
+                    event: started_event,
+                })
+                .await?
+            {
+                result_events.push(ev);
+            }
+        }
+
+        // Emit agent on_start notification if configured
+        // Build a temporary AgentRun for notification context
+        if let Some(effect) = agent_def.notify.on_start.as_ref().map(|template| {
+            let mut vars: HashMap<String, String> = input
+                .iter()
+                .map(|(k, v)| (format!("var.{}", k), v.clone()))
+                .collect();
+            vars.insert("agent_run_id".to_string(), agent_run_id.to_string());
+            vars.insert("name".to_string(), agent_name.to_string());
+            vars.insert("agent".to_string(), agent_def.name.clone());
+            let message = oj_runbook::NotifyConfig::render(template, &vars);
+            Effect::Notify {
+                title: agent_def.name.clone(),
+                message,
+            }
+        }) {
+            if let Some(ev) = self.executor.execute(effect).await? {
+                result_events.push(ev);
+            }
+        }
+
+        Ok(result_events)
+    }
+
+    /// Handle lifecycle state change for a standalone agent.
+    pub(crate) async fn handle_standalone_monitor_state(
+        &self,
+        agent_run: &AgentRun,
+        agent_def: &AgentDef,
+        state: MonitorState,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let (action_config, trigger) = match state {
+            MonitorState::Working => return Ok(vec![]),
+            MonitorState::WaitingForInput => {
+                tracing::info!(agent_run_id = %agent_run.id, "standalone agent idle (on_idle)");
+                (&agent_def.on_idle, "idle")
+            }
+            MonitorState::Prompting { ref prompt_type } => {
+                tracing::info!(
+                    agent_run_id = %agent_run.id,
+                    prompt_type = ?prompt_type,
+                    "standalone agent prompting (on_prompt)"
+                );
+                (&agent_def.on_prompt, "prompt")
+            }
+            MonitorState::Failed {
+                ref message,
+                ref error_type,
+            } => {
+                tracing::error!(agent_run_id = %agent_run.id, error = %message, "standalone agent error");
+                let error_action = agent_def.on_error.action_for(error_type.as_ref());
+                return self
+                    .execute_standalone_action_with_attempts(
+                        agent_run,
+                        agent_def,
+                        &error_action,
+                        message,
+                        0,
+                    )
+                    .await;
+            }
+            MonitorState::Exited => {
+                tracing::info!(agent_run_id = %agent_run.id, "standalone agent process exited");
+                self.copy_standalone_agent_session_log(agent_run);
+                (&agent_def.on_dead, "exit")
+            }
+            MonitorState::Gone => {
+                tracing::info!(agent_run_id = %agent_run.id, "standalone agent session ended");
+                self.copy_standalone_agent_session_log(agent_run);
+                (&agent_def.on_dead, "exit")
+            }
+        };
+
+        self.execute_standalone_action_with_attempts(
+            agent_run,
+            agent_def,
+            action_config,
+            trigger,
+            0,
+        )
+        .await
+    }
+
+    /// Execute an action with attempt tracking for standalone agent runs.
+    pub(crate) async fn execute_standalone_action_with_attempts(
+        &self,
+        agent_run: &AgentRun,
+        agent_def: &AgentDef,
+        action_config: &oj_runbook::ActionConfig,
+        trigger: &str,
+        chain_pos: usize,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let attempts = action_config.attempts();
+        let agent_run_id = AgentRunId::new(&agent_run.id);
+
+        // Increment attempt count
+        let attempt_num = self.lock_state_mut(|state| {
+            state
+                .agent_runs
+                .get_mut(agent_run_id.as_str())
+                .map(|ar| ar.increment_action_attempt(trigger, chain_pos))
+                .unwrap_or(1)
+        });
+
+        tracing::debug!(
+            agent_run_id = %agent_run.id,
+            trigger,
+            chain_pos,
+            attempt_num,
+            max_attempts = ?attempts,
+            "checking standalone action attempts"
+        );
+
+        // Check if attempts exhausted
+        if attempts.is_exhausted(attempt_num - 1) {
+            tracing::info!(
+                agent_run_id = %agent_run.id,
+                trigger,
+                attempts = attempt_num - 1,
+                "attempts exhausted, escalating standalone agent"
+            );
+            let escalate_config =
+                oj_runbook::ActionConfig::simple(oj_runbook::AgentAction::Escalate);
+            return self
+                .execute_standalone_action_effects(
+                    agent_run,
+                    agent_def,
+                    monitor::build_action_effects_for_agent_run(
+                        agent_run,
+                        agent_def,
+                        &escalate_config,
+                        &format!("{}_exhausted", trigger),
+                        &agent_run.vars,
+                    )?,
+                )
+                .await;
+        }
+
+        // Check if cooldown needed
+        if attempt_num > 1 {
+            if let Some(cooldown_str) = action_config.cooldown() {
+                let duration = monitor::parse_duration(cooldown_str).map_err(|e| {
+                    RuntimeError::InvalidRequest(format!(
+                        "invalid cooldown '{}': {}",
+                        cooldown_str, e
+                    ))
+                })?;
+                let timer_id = TimerId::cooldown_agent_run(&agent_run_id, trigger, chain_pos);
+
+                tracing::info!(
+                    agent_run_id = %agent_run.id,
+                    trigger,
+                    attempt = attempt_num,
+                    cooldown = ?duration,
+                    "scheduling cooldown before standalone retry"
+                );
+
+                self.executor
+                    .execute(Effect::SetTimer {
+                        id: timer_id,
+                        duration,
+                    })
+                    .await?;
+
+                return Ok(vec![]);
+            }
+        }
+
+        // Execute the action
+        self.execute_standalone_action_effects(
+            agent_run,
+            agent_def,
+            monitor::build_action_effects_for_agent_run(
+                agent_run,
+                agent_def,
+                action_config,
+                trigger,
+                &agent_run.vars,
+            )?,
+        )
+        .await
+    }
+
+    /// Execute action effects for a standalone agent run.
+    pub(crate) async fn execute_standalone_action_effects(
+        &self,
+        agent_run: &AgentRun,
+        agent_def: &AgentDef,
+        effects: ActionEffects,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let agent_run_id = AgentRunId::new(&agent_run.id);
+
+        match effects {
+            ActionEffects::Nudge { effects } => Ok(self.executor.execute_all(effects).await?),
+            ActionEffects::CompleteAgentRun => {
+                // Emit on_done notification
+                if let Some(effect) = monitor::build_agent_run_notify_effect(
+                    agent_run,
+                    agent_def,
+                    agent_def.notify.on_done.as_ref(),
+                ) {
+                    self.executor.execute(effect).await?;
+                }
+
+                let events = vec![
+                    Effect::Emit {
+                        event: Event::AgentRunStatusChanged {
+                            id: agent_run_id.clone(),
+                            status: AgentRunStatus::Completed,
+                            reason: None,
+                        },
+                    },
+                    Effect::CancelTimer {
+                        id: TimerId::liveness_agent_run(&agent_run_id),
+                    },
+                ];
+                Ok(self.executor.execute_all(events).await?)
+            }
+            ActionEffects::FailAgentRun { error } => {
+                // Emit on_fail notification
+                let mut fail_run = agent_run.clone();
+                fail_run.error = Some(error.clone());
+                if let Some(effect) = monitor::build_agent_run_notify_effect(
+                    &fail_run,
+                    agent_def,
+                    agent_def.notify.on_fail.as_ref(),
+                ) {
+                    self.executor.execute(effect).await?;
+                }
+
+                let events = vec![
+                    Effect::Emit {
+                        event: Event::AgentRunStatusChanged {
+                            id: agent_run_id.clone(),
+                            status: AgentRunStatus::Failed,
+                            reason: Some(error),
+                        },
+                    },
+                    Effect::CancelTimer {
+                        id: TimerId::liveness_agent_run(&agent_run_id),
+                    },
+                ];
+                Ok(self.executor.execute_all(events).await?)
+            }
+            ActionEffects::Recover {
+                kill_session,
+                agent_name,
+                input,
+            } => {
+                // Kill old session if present
+                if let Some(sid) = kill_session {
+                    let _ = self
+                        .executor
+                        .execute(Effect::KillSession {
+                            session_id: SessionId::new(sid),
+                        })
+                        .await;
+                }
+                // Re-spawn agent in same directory
+                self.spawn_standalone_agent(
+                    &agent_run_id,
+                    agent_def,
+                    &agent_name,
+                    &input,
+                    &agent_run.cwd,
+                    &agent_run.namespace,
+                )
+                .await
+            }
+            ActionEffects::EscalateAgentRun { effects } => {
+                Ok(self.executor.execute_all(effects).await?)
+            }
+            ActionEffects::Gate { command } => {
+                // Interpolate command
+                let mut vars: HashMap<String, String> = agent_run
+                    .vars
+                    .iter()
+                    .map(|(k, v)| (format!("var.{}", k), v.clone()))
+                    .collect();
+                vars.insert("agent_run_id".to_string(), agent_run_id.to_string());
+                vars.insert("name".to_string(), agent_run.command_name.clone());
+                vars.insert("workspace".to_string(), agent_run.cwd.display().to_string());
+
+                let command = oj_runbook::interpolate_shell(&command, &vars);
+
+                tracing::info!(
+                    agent_run_id = %agent_run.id,
+                    gate = %command,
+                    cwd = %agent_run.cwd.display(),
+                    "running gate command for standalone agent"
+                );
+
+                match self.run_standalone_gate_command(agent_run, &command).await {
+                    Ok(()) => {
+                        // Gate passed — complete
+                        if let Some(effect) = monitor::build_agent_run_notify_effect(
+                            agent_run,
+                            agent_def,
+                            agent_def.notify.on_done.as_ref(),
+                        ) {
+                            self.executor.execute(effect).await?;
+                        }
+                        let events = vec![
+                            Effect::Emit {
+                                event: Event::AgentRunStatusChanged {
+                                    id: agent_run_id.clone(),
+                                    status: AgentRunStatus::Completed,
+                                    reason: None,
+                                },
+                            },
+                            Effect::CancelTimer {
+                                id: TimerId::liveness_agent_run(&agent_run_id),
+                            },
+                        ];
+                        Ok(self.executor.execute_all(events).await?)
+                    }
+                    Err(gate_error) => {
+                        // Gate failed — escalate
+                        let escalate_config =
+                            oj_runbook::ActionConfig::simple(oj_runbook::AgentAction::Escalate);
+                        let escalate_effects = monitor::build_action_effects_for_agent_run(
+                            agent_run,
+                            agent_def,
+                            &escalate_config,
+                            "gate_failed",
+                            &agent_run.vars,
+                        )?;
+                        match escalate_effects {
+                            ActionEffects::EscalateAgentRun { effects } => {
+                                let effects: Vec<_> = effects
+                                    .into_iter()
+                                    .map(|effect| match effect {
+                                        Effect::Emit {
+                                            event: Event::AgentRunStatusChanged { id, status, .. },
+                                        } => Effect::Emit {
+                                            event: Event::AgentRunStatusChanged {
+                                                id,
+                                                status,
+                                                reason: Some(gate_error.clone()),
+                                            },
+                                        },
+                                        other => other,
+                                    })
+                                    .collect();
+                                Ok(self.executor.execute_all(effects).await?)
+                            }
+                            _ => unreachable!("escalate always produces EscalateAgentRun"),
+                        }
+                    }
+                }
+            }
+            // Pipeline-specific effects should not be routed here
+            ActionEffects::AdvancePipeline
+            | ActionEffects::FailPipeline { .. }
+            | ActionEffects::Escalate { .. } => {
+                tracing::error!(
+                    agent_run_id = %agent_run.id,
+                    "pipeline action effect routed to standalone agent handler"
+                );
+                Ok(vec![])
+            }
+        }
+    }
+
+    /// Run a gate command for a standalone agent.
+    async fn run_standalone_gate_command(
+        &self,
+        agent_run: &AgentRun,
+        command: &str,
+    ) -> Result<(), String> {
+        tracing::info!(
+            agent_run_id = %agent_run.id,
+            gate = %command,
+            cwd = %agent_run.cwd.display(),
+            "running standalone gate command"
+        );
+
+        match tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .current_dir(&agent_run.cwd)
+            .output()
+            .await
+        {
+            Ok(output) if output.status.success() => Ok(()),
+            Ok(output) => {
+                let exit_code = output.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stderr_trimmed = stderr.trim();
+                let error = if stderr_trimmed.is_empty() {
+                    format!("gate `{}` failed (exit {})", command, exit_code)
+                } else {
+                    format!(
+                        "gate `{}` failed (exit {}): {}",
+                        command, exit_code, stderr_trimmed
+                    )
+                };
+                Err(error)
+            }
+            Err(e) => Err(format!("gate `{}` execution error: {}", command, e)),
+        }
+    }
+
+    /// Copy standalone agent session log on exit.
+    fn copy_standalone_agent_session_log(&self, agent_run: &AgentRun) {
+        let agent_id = match &agent_run.agent_id {
+            Some(id) => id,
+            None => return,
+        };
+
+        if let Some(source) = find_session_log(&agent_run.cwd, agent_id) {
+            self.logger.copy_session_log(agent_id, &source);
+        }
+    }
+
+    /// Handle agent:signal event for a standalone agent.
+    pub(crate) async fn handle_standalone_agent_done(
+        &self,
+        _agent_id: &AgentId,
+        agent_run: &AgentRun,
+        kind: AgentSignalKind,
+        message: Option<String>,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let agent_run_id = AgentRunId::new(&agent_run.id);
+
+        if agent_run.status.is_terminal() {
+            return Ok(vec![]);
+        }
+
+        match kind {
+            AgentSignalKind::Complete => {
+                tracing::info!(agent_run_id = %agent_run.id, "standalone agent:signal complete");
+
+                // Emit on_done notification
+                if let Ok(runbook) = self.cached_runbook(&agent_run.runbook_hash) {
+                    if let Some(agent_def) = runbook.get_agent(&agent_run.agent_name) {
+                        if let Some(effect) = monitor::build_agent_run_notify_effect(
+                            agent_run,
+                            agent_def,
+                            agent_def.notify.on_done.as_ref(),
+                        ) {
+                            self.executor.execute(effect).await?;
+                        }
+                    }
+                }
+
+                let events = vec![
+                    Effect::Emit {
+                        event: Event::AgentRunStatusChanged {
+                            id: agent_run_id.clone(),
+                            status: AgentRunStatus::Completed,
+                            reason: None,
+                        },
+                    },
+                    Effect::CancelTimer {
+                        id: TimerId::liveness_agent_run(&agent_run_id),
+                    },
+                ];
+                Ok(self.executor.execute_all(events).await?)
+            }
+            AgentSignalKind::Escalate => {
+                let msg = message.as_deref().unwrap_or("Agent requested escalation");
+                tracing::info!(
+                    agent_run_id = %agent_run.id,
+                    message = msg,
+                    "standalone agent:signal escalate"
+                );
+                let events = vec![
+                    Effect::Notify {
+                        title: agent_run.command_name.clone(),
+                        message: msg.to_string(),
+                    },
+                    Effect::Emit {
+                        event: Event::AgentRunStatusChanged {
+                            id: agent_run_id.clone(),
+                            status: AgentRunStatus::Escalated,
+                            reason: Some(msg.to_string()),
+                        },
+                    },
+                    Effect::CancelTimer {
+                        id: TimerId::liveness_agent_run(&agent_run_id),
+                    },
+                    Effect::CancelTimer {
+                        id: TimerId::exit_deferred_agent_run(&agent_run_id),
+                    },
+                ];
+                Ok(self.executor.execute_all(events).await?)
+            }
+        }
+    }
+
+    /// Reconnect monitoring for a standalone agent that survived a daemon restart.
+    pub async fn recover_standalone_agent(&self, agent_run: &AgentRun) -> Result<(), RuntimeError> {
+        let agent_id_str = agent_run.agent_id.as_ref().ok_or_else(|| {
+            RuntimeError::InvalidRequest(format!("agent_run {} has no agent_id", agent_run.id))
+        })?;
+        let agent_id = AgentId::new(agent_id_str);
+        let agent_run_id = AgentRunId::new(&agent_run.id);
+
+        let session_id = agent_run.session_id.as_ref().ok_or_else(|| {
+            RuntimeError::InvalidRequest(format!("agent_run {} has no session_id", agent_run.id))
+        })?;
+
+        // Register agent → agent_run mapping
+        self.agent_runs
+            .lock()
+            .insert(agent_id.clone(), agent_run_id.clone());
+
+        // Extract process_name
+        let process_name = self
+            .cached_runbook(&agent_run.runbook_hash)
+            .ok()
+            .and_then(|rb| {
+                rb.get_agent(&agent_run.agent_name)
+                    .map(|def| oj_adapters::extract_process_name(&def.run))
+            })
+            .unwrap_or_else(|| "claude".to_string());
+
+        let config = AgentReconnectConfig {
+            agent_id,
+            session_id: session_id.clone(),
+            workspace_path: agent_run.cwd.clone(),
+            process_name,
+        };
+        self.executor.reconnect_agent(config).await?;
+
+        // Restore liveness timer
+        self.executor
+            .execute(Effect::SetTimer {
+                id: TimerId::liveness_agent_run(&agent_run_id),
+                duration: crate::spawn::LIVENESS_INTERVAL,
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// Register an agent→agent_run mapping without reconnecting.
+    pub fn register_agent_run(&self, agent_id: AgentId, agent_run_id: AgentRunId) {
+        self.agent_runs.lock().insert(agent_id, agent_run_id);
+    }
+}

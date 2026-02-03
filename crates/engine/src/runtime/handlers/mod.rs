@@ -373,7 +373,11 @@ where
             | Event::CronFired { .. }
             | Event::CronDeleted { .. }
             | Event::DecisionCreated { .. }
-            | Event::DecisionResolved { .. } => {}
+            | Event::DecisionResolved { .. }
+            | Event::AgentRunCreated { .. }
+            | Event::AgentRunStarted { .. }
+            | Event::AgentRunStatusChanged { .. }
+            | Event::AgentRunDeleted { .. } => {}
 
             // Queue retry/dead: log lifecycle events
             Event::QueueItemRetry {

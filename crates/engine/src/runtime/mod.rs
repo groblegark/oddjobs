@@ -3,6 +3,7 @@
 
 //! Runtime for the Odd Jobs engine
 
+pub(crate) mod agent_run;
 mod handlers;
 mod monitor;
 mod pipeline;
@@ -16,7 +17,7 @@ use handlers::worker::WorkerState;
 #[cfg(test)]
 use handlers::worker::WorkerStatus;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
-use oj_core::{AgentId, Clock, Pipeline};
+use oj_core::{AgentId, AgentRunId, Clock, Pipeline};
 use oj_runbook::Runbook;
 use oj_storage::MaterializedState;
 use std::collections::HashMap;
@@ -58,6 +59,7 @@ pub struct Runtime<S, A, N, C: Clock> {
     pub(crate) queue_logger: QueueLogger,
     pub(crate) breadcrumb: BreadcrumbWriter,
     pub(crate) agent_pipelines: Mutex<HashMap<AgentId, String>>,
+    pub(crate) agent_runs: Mutex<HashMap<AgentId, AgentRunId>>,
     pub(crate) runbook_cache: Mutex<HashMap<String, Runbook>>,
     pub(crate) worker_states: Mutex<HashMap<String, WorkerState>>,
     pub(crate) cron_states: Mutex<HashMap<String, CronState>>,
@@ -91,6 +93,7 @@ where
             queue_logger: QueueLogger::new(config.log_dir.clone()),
             breadcrumb: BreadcrumbWriter::new(config.log_dir),
             agent_pipelines: Mutex::new(HashMap::new()),
+            agent_runs: Mutex::new(HashMap::new()),
             runbook_cache: Mutex::new(HashMap::new()),
             worker_states: Mutex::new(HashMap::new()),
             cron_states: Mutex::new(HashMap::new()),

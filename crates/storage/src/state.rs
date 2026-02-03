@@ -4,8 +4,8 @@
 //! Materialized state from WAL replay
 
 use oj_core::{
-    pipeline::AgentSignal, Decision, DecisionId, Event, Pipeline, PipelineConfig, StepOutcome,
-    StepStatus, WorkspaceStatus,
+    pipeline::AgentSignal, AgentRun, AgentRunStatus, Decision, DecisionId, Event, Pipeline,
+    PipelineConfig, StepOutcome, StepStatus, WorkspaceStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -142,6 +142,8 @@ pub struct MaterializedState {
     pub crons: HashMap<String, CronRecord>,
     #[serde(default)]
     pub decisions: HashMap<String, Decision>,
+    #[serde(default)]
+    pub agent_runs: HashMap<String, AgentRun>,
 }
 
 /// Build a composite key for namespace-scoped lookups.
@@ -509,8 +511,18 @@ impl MaterializedState {
                 kind,
                 message,
             } => {
-                // Find pipeline by agent_id in current step
-                if let Some(pipeline) = self.find_pipeline_by_agent_id(agent_id.as_str()) {
+                // Check standalone agent runs first
+                let found_agent_run = self
+                    .agent_runs
+                    .values_mut()
+                    .find(|r| r.agent_id.as_deref() == Some(agent_id.as_str()));
+                if let Some(run) = found_agent_run {
+                    run.agent_signal = Some(AgentSignal {
+                        kind: kind.clone(),
+                        message: message.clone(),
+                    });
+                } else if let Some(pipeline) = self.find_pipeline_by_agent_id(agent_id.as_str()) {
+                    // Find pipeline by agent_id in current step
                     pipeline.agent_signal = Some(AgentSignal {
                         kind: kind.clone(),
                         message: message.clone(),
@@ -803,6 +815,61 @@ impl MaterializedState {
                     decision.message.clone_from(message);
                     decision.resolved_at_ms = Some(*resolved_at_ms);
                 }
+            }
+
+            // -- agent_run events --
+            Event::AgentRunCreated {
+                id,
+                agent_name,
+                command_name,
+                namespace,
+                cwd,
+                runbook_hash,
+                vars,
+                created_at_epoch_ms,
+            } => {
+                self.agent_runs.insert(
+                    id.as_str().to_string(),
+                    AgentRun {
+                        id: id.as_str().to_string(),
+                        agent_name: agent_name.clone(),
+                        command_name: command_name.clone(),
+                        namespace: namespace.clone(),
+                        cwd: cwd.clone(),
+                        runbook_hash: runbook_hash.clone(),
+                        status: AgentRunStatus::Starting,
+                        agent_id: None,
+                        session_id: None,
+                        error: None,
+                        created_at_ms: *created_at_epoch_ms,
+                        updated_at_ms: *created_at_epoch_ms,
+                        action_attempts: HashMap::new(),
+                        agent_signal: None,
+                        vars: vars.clone(),
+                    },
+                );
+            }
+
+            Event::AgentRunStarted { id, agent_id } => {
+                if let Some(run) = self.agent_runs.get_mut(id.as_str()) {
+                    run.status = AgentRunStatus::Running;
+                    run.agent_id = Some(agent_id.as_str().to_string());
+                    run.updated_at_ms = epoch_ms_now();
+                }
+            }
+
+            Event::AgentRunStatusChanged { id, status, reason } => {
+                if let Some(run) = self.agent_runs.get_mut(id.as_str()) {
+                    run.status = status.clone();
+                    if let Some(reason) = reason {
+                        run.error = Some(reason.clone());
+                    }
+                    run.updated_at_ms = epoch_ms_now();
+                }
+            }
+
+            Event::AgentRunDeleted { id } => {
+                self.agent_runs.remove(id.as_str());
             }
 
             // Events that don't affect persisted state

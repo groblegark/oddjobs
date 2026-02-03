@@ -212,6 +212,44 @@ pub(super) fn handle_query(
                 }))
             });
 
+            // If not found in pipelines, check standalone agent runs
+            let agent = agent.or_else(|| {
+                state.agent_runs.values().find_map(|ar| {
+                    let ar_agent_id = ar.agent_id.as_deref().unwrap_or(&ar.id);
+                    if ar_agent_id != agent_id
+                        && !ar_agent_id.starts_with(&agent_id)
+                        && ar.id != agent_id
+                        && !ar.id.starts_with(&agent_id)
+                    {
+                        return None;
+                    }
+                    let namespace = if ar.namespace.is_empty() {
+                        None
+                    } else {
+                        Some(ar.namespace.clone())
+                    };
+                    Some(Box::new(AgentDetail {
+                        agent_id: ar_agent_id.to_string(),
+                        agent_name: Some(ar.agent_name.clone()),
+                        pipeline_id: String::new(),
+                        pipeline_name: ar.command_name.clone(),
+                        step_name: String::new(),
+                        namespace,
+                        status: format!("{}", ar.status),
+                        workspace_path: Some(ar.cwd.clone()),
+                        session_id: ar.session_id.clone(),
+                        files_read: 0,
+                        files_written: 0,
+                        commands_run: 0,
+                        exit_reason: ar.error.clone(),
+                        error: ar.error.clone(),
+                        started_at_ms: ar.created_at_ms,
+                        finished_at_ms: None,
+                        updated_at_ms: ar.updated_at_ms,
+                    }))
+                })
+            });
+
             Response::Agent { agent }
         }
 
@@ -410,6 +448,18 @@ pub(super) fn handle_query(
         }
 
         Query::GetAgentSignal { agent_id } => {
+            // Check standalone agent runs first
+            let signal = state.agent_runs.values().find_map(|ar| {
+                (ar.agent_id.as_deref() == Some(&agent_id)).then_some(ar.agent_signal.as_ref())?
+            });
+            if let Some(s) = signal {
+                return Response::AgentSignal {
+                    signaled: true,
+                    kind: Some(s.kind.clone()),
+                    message: s.message.clone(),
+                };
+            }
+
             // Find pipeline by agent_id in current step and return its signal
             let signal = state.pipelines.values().find_map(|p| {
                 (p.step_history.last()?.agent_id.as_deref() == Some(&agent_id))
@@ -478,6 +528,34 @@ pub(super) fn handle_query(
                 }
 
                 agents.extend(summaries);
+            }
+
+            // Include standalone agent runs
+            for ar in state.agent_runs.values() {
+                let ar_status = format!("{}", ar.status);
+                if let Some(ref s) = status {
+                    if ar_status != *s {
+                        continue;
+                    }
+                }
+                let namespace = if ar.namespace.is_empty() {
+                    None
+                } else {
+                    Some(ar.namespace.clone())
+                };
+                agents.push(AgentSummary {
+                    pipeline_id: String::new(),
+                    step_name: String::new(),
+                    agent_id: ar.agent_id.clone().unwrap_or_else(|| ar.id.clone()),
+                    agent_name: Some(ar.agent_name.clone()),
+                    namespace,
+                    status: ar_status,
+                    files_read: 0,
+                    files_written: 0,
+                    commands_run: 0,
+                    exit_reason: ar.error.clone(),
+                    updated_at_ms: ar.updated_at_ms,
+                });
             }
 
             // Sort by most recently updated first

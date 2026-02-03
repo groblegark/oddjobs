@@ -10,6 +10,18 @@ use oj_daemon::{Query, Request, Response};
 
 use super::{AgentSignalResponse, CancelResult, ClientError, DaemonClient};
 
+/// Result from running a command — either a pipeline or a standalone agent
+pub enum RunCommandResult {
+    Pipeline {
+        pipeline_id: String,
+        pipeline_name: String,
+    },
+    AgentRun {
+        agent_run_id: String,
+        agent_name: String,
+    },
+}
+
 impl DaemonClient {
     /// Query for pipelines
     pub async fn list_pipelines(&self) -> Result<Vec<oj_daemon::PipelineSummary>, ClientError> {
@@ -257,7 +269,7 @@ impl DaemonClient {
         command: &str,
         args: &[String],
         named_args: &HashMap<String, String>,
-    ) -> Result<(String, String), ClientError> {
+    ) -> Result<RunCommandResult, ClientError> {
         let request = Request::RunCommand {
             project_root: project_root.to_path_buf(),
             invoke_dir: invoke_dir.to_path_buf(),
@@ -270,7 +282,17 @@ impl DaemonClient {
             Response::CommandStarted {
                 pipeline_id,
                 pipeline_name,
-            } => Ok((pipeline_id, pipeline_name)),
+            } => Ok(RunCommandResult::Pipeline {
+                pipeline_id,
+                pipeline_name,
+            }),
+            Response::AgentRunStarted {
+                agent_run_id,
+                agent_name,
+            } => Ok(RunCommandResult::AgentRun {
+                agent_run_id,
+                agent_name,
+            }),
             other => Self::reject(other),
         }
     }

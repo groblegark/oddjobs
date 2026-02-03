@@ -20,6 +20,7 @@ use tokio::net::UnixStream;
 
 #[path = "client_queries.rs"]
 mod queries;
+pub use queries::RunCommandResult;
 
 // Timeout configuration (env vars in milliseconds)
 fn parse_duration_ms(var: &str) -> Option<Duration> {

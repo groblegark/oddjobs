@@ -235,6 +235,136 @@ pub fn build_action_effects(
     }
 }
 
+/// Build effects for an agent action on a standalone agent run.
+pub fn build_action_effects_for_agent_run(
+    agent_run: &oj_core::AgentRun,
+    agent_def: &AgentDef,
+    action_config: &ActionConfig,
+    trigger: &str,
+    input: &HashMap<String, String>,
+) -> Result<ActionEffects, RuntimeError> {
+    let action = action_config.action();
+    let message = action_config.message();
+    let agent_run_id = oj_core::AgentRunId::new(&agent_run.id);
+
+    tracing::info!(
+        agent_run_id = %agent_run.id,
+        trigger = trigger,
+        action = ?action,
+        "building agent run action effects"
+    );
+
+    match action {
+        AgentAction::Nudge => {
+            let session_id = agent_run
+                .session_id
+                .as_ref()
+                .ok_or_else(|| RuntimeError::InvalidRequest("no session for nudge".into()))?;
+
+            let nudge_message = message.unwrap_or("Please continue with the task.");
+            Ok(ActionEffects::Nudge {
+                effects: vec![Effect::SendToSession {
+                    session_id: SessionId::new(session_id),
+                    input: format!("{}\n", nudge_message),
+                }],
+            })
+        }
+
+        AgentAction::Done => Ok(ActionEffects::CompleteAgentRun),
+
+        AgentAction::Fail => Ok(ActionEffects::FailAgentRun {
+            error: trigger.to_string(),
+        }),
+
+        AgentAction::Recover => {
+            let mut new_inputs = input.clone();
+            if let Some(msg) = message {
+                if action_config.append() {
+                    let existing = new_inputs.get("prompt").cloned().unwrap_or_default();
+                    new_inputs.insert("prompt".to_string(), format!("{}\n\n{}", existing, msg));
+                } else {
+                    new_inputs.insert("prompt".to_string(), msg.to_string());
+                }
+            }
+
+            Ok(ActionEffects::Recover {
+                kill_session: agent_run.session_id.clone(),
+                agent_name: agent_def.name.clone(),
+                input: new_inputs,
+            })
+        }
+
+        AgentAction::Escalate => {
+            tracing::warn!(
+                agent_run_id = %agent_run.id,
+                trigger = trigger,
+                message = ?message,
+                "escalating standalone agent to human"
+            );
+
+            let effects = vec![
+                Effect::Notify {
+                    title: format!("Agent needs attention: {}", agent_run.command_name),
+                    message: trigger.to_string(),
+                },
+                Effect::Emit {
+                    event: Event::AgentRunStatusChanged {
+                        id: agent_run_id.clone(),
+                        status: oj_core::AgentRunStatus::Escalated,
+                        reason: Some(trigger.to_string()),
+                    },
+                },
+                Effect::CancelTimer {
+                    id: TimerId::liveness_agent_run(&agent_run_id),
+                },
+                Effect::CancelTimer {
+                    id: TimerId::exit_deferred_agent_run(&agent_run_id),
+                },
+            ];
+
+            Ok(ActionEffects::EscalateAgentRun { effects })
+        }
+
+        AgentAction::Gate => {
+            let command = action_config
+                .run()
+                .ok_or_else(|| RuntimeError::InvalidRunDirective {
+                    context: format!("agent_run {}", agent_run.id),
+                    directive: "gate action requires a 'run' field".to_string(),
+                })?
+                .to_string();
+
+            Ok(ActionEffects::Gate { command })
+        }
+    }
+}
+
+/// Build an agent notification effect for a standalone agent run.
+pub fn build_agent_run_notify_effect(
+    agent_run: &oj_core::AgentRun,
+    agent_def: &AgentDef,
+    message_template: Option<&String>,
+) -> Option<Effect> {
+    let template = message_template?;
+    let mut vars: HashMap<String, String> = agent_run
+        .vars
+        .iter()
+        .map(|(k, v)| (format!("var.{}", k), v.clone()))
+        .collect();
+    vars.insert("agent_run_id".to_string(), agent_run.id.clone());
+    vars.insert("name".to_string(), agent_run.command_name.clone());
+    vars.insert("agent".to_string(), agent_def.name.clone());
+    if let Some(err) = &agent_run.error {
+        vars.insert("error".to_string(), err.clone());
+    }
+
+    let message = oj_runbook::NotifyConfig::render(template, &vars);
+    Some(Effect::Notify {
+        title: agent_def.name.clone(),
+        message,
+    })
+}
+
 /// Build an agent notification effect if a message template is configured.
 pub fn build_agent_notify_effect(
     pipeline: &Pipeline,
@@ -281,6 +411,12 @@ pub enum ActionEffects {
     Escalate { effects: Vec<Effect> },
     /// Run a shell gate command; advance if it passes, escalate if it fails
     Gate { command: String },
+    /// Complete a standalone agent run
+    CompleteAgentRun,
+    /// Fail a standalone agent run
+    FailAgentRun { error: String },
+    /// Escalate a standalone agent run to human
+    EscalateAgentRun { effects: Vec<Effect> },
 }
 
 #[cfg(test)]

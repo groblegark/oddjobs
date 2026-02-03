@@ -121,6 +121,7 @@ where
                 agent_id,
                 agent_name,
                 pipeline_id,
+                agent_run_id: _,
                 workspace_path,
                 input,
                 command,

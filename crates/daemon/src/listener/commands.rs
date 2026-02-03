@@ -58,6 +58,14 @@ pub(super) async fn handle_run_command(
         });
     }
 
+    // Detect if this is a standalone agent command
+    let is_agent = matches!(&cmd_def.run, oj_runbook::RunDirective::Agent { .. });
+    let agent_name_if_standalone = if let oj_runbook::RunDirective::Agent { agent } = &cmd_def.run {
+        Some(agent.clone())
+    } else {
+        None
+    };
+
     // Get pipeline name from command definition (shell commands use the command name)
     let pipeline_name = cmd_def.run.pipeline_name().unwrap_or(command).to_string();
 
@@ -82,10 +90,21 @@ pub(super) async fn handle_run_command(
         .send(event)
         .map_err(|_| ConnectionError::WalError)?;
 
-    Ok(Response::CommandStarted {
-        pipeline_id: pipeline_id.to_string(),
-        pipeline_name,
-    })
+    if is_agent {
+        // For standalone agent commands, return AgentRunStarted
+        // The engine generates the actual agent_run_id, but the daemon needs to
+        // return a response immediately. We use the pipeline_id as a correlation
+        // key — the engine's command handler will create the agent_run.
+        Ok(Response::AgentRunStarted {
+            agent_run_id: pipeline_id.to_string(),
+            agent_name: agent_name_if_standalone.unwrap_or_default(),
+        })
+    } else {
+        Ok(Response::CommandStarted {
+            pipeline_id: pipeline_id.to_string(),
+            pipeline_name,
+        })
+    }
 }
 
 /// Load a runbook from a project root by scanning all .toml files.

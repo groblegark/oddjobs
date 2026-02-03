@@ -20,6 +20,17 @@ where
     /// Route timer events to the appropriate handler
     pub(crate) async fn handle_timer(&self, id: &TimerId) -> Result<Vec<Event>, RuntimeError> {
         let id_str = id.as_str();
+        // Agent-run timers (check before pipeline timers since they share prefixes)
+        if let Some(ar_id) = id_str.strip_prefix("liveness:ar:") {
+            return self.handle_agent_run_liveness_timer(ar_id).await;
+        }
+        if let Some(ar_id) = id_str.strip_prefix("exit-deferred:ar:") {
+            return self.handle_agent_run_exit_deferred_timer(ar_id).await;
+        }
+        if let Some(rest) = id_str.strip_prefix("cooldown:ar:") {
+            return self.handle_agent_run_cooldown_timer(rest).await;
+        }
+        // Pipeline timers
         if let Some(pipeline_id) = id_str.strip_prefix("liveness:") {
             return self.handle_liveness_timer(pipeline_id).await;
         }
@@ -270,5 +281,143 @@ where
 
         self.handle_monitor_state(&pipeline, &agent_def, monitor_state)
             .await
+    }
+
+    // === Agent run timer handlers ===
+
+    async fn handle_agent_run_liveness_timer(
+        &self,
+        agent_run_id: &str,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let agent_run = match self.lock_state(|s| s.agent_runs.get(agent_run_id).cloned()) {
+            Some(ar) => ar,
+            None => return Ok(vec![]),
+        };
+
+        if agent_run.status.is_terminal() {
+            return Ok(vec![]);
+        }
+
+        let session_id = match &agent_run.session_id {
+            Some(id) => id.clone(),
+            None => return Ok(vec![]),
+        };
+
+        let is_alive = self.executor.check_session_alive(&session_id).await;
+        let ar_id = oj_core::AgentRunId::new(agent_run_id);
+
+        if is_alive {
+            self.executor
+                .execute(Effect::SetTimer {
+                    id: TimerId::liveness_agent_run(&ar_id),
+                    duration: crate::spawn::LIVENESS_INTERVAL,
+                })
+                .await?;
+            Ok(vec![])
+        } else {
+            tracing::info!(
+                agent_run_id,
+                "standalone agent session dead, scheduling deferred exit"
+            );
+            self.executor
+                .execute(Effect::SetTimer {
+                    id: TimerId::exit_deferred_agent_run(&ar_id),
+                    duration: std::time::Duration::from_secs(5),
+                })
+                .await?;
+            Ok(vec![])
+        }
+    }
+
+    async fn handle_agent_run_exit_deferred_timer(
+        &self,
+        agent_run_id: &str,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let agent_run = match self.lock_state(|s| s.agent_runs.get(agent_run_id).cloned()) {
+            Some(ar) => ar,
+            None => return Ok(vec![]),
+        };
+
+        if agent_run.status.is_terminal() {
+            return Ok(vec![]);
+        }
+
+        let agent_id = agent_run.agent_id.as_ref().map(AgentId::new);
+        let final_state = match agent_id {
+            Some(id) => self.executor.get_agent_state(&id).await.ok(),
+            None => None,
+        };
+
+        let runbook = self.cached_runbook(&agent_run.runbook_hash)?;
+        let agent_def = runbook
+            .get_agent(&agent_run.agent_name)
+            .ok_or_else(|| RuntimeError::AgentNotFound(agent_run.agent_name.clone()))?
+            .clone();
+
+        let monitor_state = match final_state {
+            Some(AgentState::WaitingForInput) => MonitorState::WaitingForInput,
+            Some(AgentState::Failed(err)) => {
+                MonitorState::from_agent_state(&AgentState::Failed(err))
+            }
+            _ => MonitorState::Exited,
+        };
+
+        self.handle_standalone_monitor_state(&agent_run, &agent_def, monitor_state)
+            .await
+    }
+
+    async fn handle_agent_run_cooldown_timer(
+        &self,
+        rest: &str,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        // Parse timer ID: "agent_run_id:trigger:chain_pos"
+        let parts: Vec<&str> = rest.splitn(3, ':').collect();
+        if parts.len() != 3 {
+            tracing::warn!(timer_rest = rest, "malformed agent_run cooldown timer ID");
+            return Ok(vec![]);
+        }
+        let agent_run_id = parts[0];
+        let trigger = parts[1];
+        let chain_pos: usize = parts[2].parse().unwrap_or(0);
+
+        let agent_run = match self.lock_state(|s| s.agent_runs.get(agent_run_id).cloned()) {
+            Some(ar) => ar,
+            None => return Ok(vec![]),
+        };
+
+        if agent_run.status.is_terminal() {
+            return Ok(vec![]);
+        }
+
+        let runbook = self.cached_runbook(&agent_run.runbook_hash)?;
+        let agent_def = runbook
+            .get_agent(&agent_run.agent_name)
+            .ok_or_else(|| RuntimeError::AgentNotFound(agent_run.agent_name.clone()))?
+            .clone();
+
+        let action_config = match trigger {
+            "idle" => agent_def.on_idle.clone(),
+            "exit" => agent_def.on_dead.clone(),
+            _ => {
+                tracing::warn!(trigger, "unknown trigger for agent_run cooldown timer");
+                return Ok(vec![]);
+            }
+        };
+
+        tracing::info!(
+            agent_run_id,
+            trigger,
+            chain_pos,
+            "standalone agent cooldown expired, executing action"
+        );
+
+        self.execute_standalone_action_with_attempts(
+            &agent_run,
+            &agent_def,
+            &action_config,
+            trigger,
+            chain_pos,
+        )
+        .await
     }
 }

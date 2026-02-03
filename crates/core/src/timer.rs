@@ -6,6 +6,7 @@
 //! TimerId uniquely identifies a timer instance used for scheduling delayed
 //! actions such as timeouts, heartbeats, or periodic checks.
 
+use crate::agent_run::AgentRunId;
 use crate::pipeline::PipelineId;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
@@ -98,6 +99,43 @@ impl TimerId {
     /// Returns true if this is a queue poll timer.
     pub fn is_queue_poll(&self) -> bool {
         self.0.starts_with("queue-poll:")
+    }
+
+    /// Timer ID for liveness monitoring of a standalone agent run.
+    pub fn liveness_agent_run(agent_run_id: &AgentRunId) -> Self {
+        Self::new(format!("liveness:ar:{}", agent_run_id))
+    }
+
+    /// Timer ID for deferred exit handling of a standalone agent run.
+    pub fn exit_deferred_agent_run(agent_run_id: &AgentRunId) -> Self {
+        Self::new(format!("exit-deferred:ar:{}", agent_run_id))
+    }
+
+    /// Timer ID for cooldown between action attempts on a standalone agent run.
+    pub fn cooldown_agent_run(agent_run_id: &AgentRunId, trigger: &str, chain_pos: usize) -> Self {
+        Self::new(format!(
+            "cooldown:ar:{}:{}:{}",
+            agent_run_id, trigger, chain_pos
+        ))
+    }
+
+    /// Returns the AgentRunId portion if this is an agent-run-related timer.
+    pub fn agent_run_id_str(&self) -> Option<&str> {
+        if let Some(rest) = self.0.strip_prefix("liveness:ar:") {
+            Some(rest)
+        } else if let Some(rest) = self.0.strip_prefix("exit-deferred:ar:") {
+            Some(rest)
+        } else if let Some(rest) = self.0.strip_prefix("cooldown:ar:") {
+            // Format: "cooldown:ar:agent_run_id:trigger:chain_pos"
+            rest.split(':').next()
+        } else {
+            None
+        }
+    }
+
+    /// Returns true if this is an agent-run-related timer.
+    pub fn is_agent_run_timer(&self) -> bool {
+        self.agent_run_id_str().is_some()
     }
 
     /// Extracts the pipeline ID portion if this is a pipeline-related timer.

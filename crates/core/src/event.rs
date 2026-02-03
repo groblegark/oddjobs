@@ -4,6 +4,7 @@
 //! Event types for the Odd Jobs system
 
 use crate::agent::{AgentError, AgentId, AgentState};
+use crate::agent_run::{AgentRunId, AgentRunStatus};
 use crate::decision::{DecisionOption, DecisionSource};
 use crate::pipeline::PipelineId;
 use crate::session::SessionId;
@@ -446,6 +447,36 @@ pub enum Event {
         namespace: String,
     },
 
+    // -- agent_run --
+    #[serde(rename = "agent_run:created")]
+    AgentRunCreated {
+        id: AgentRunId,
+        agent_name: String,
+        command_name: String,
+        #[serde(default)]
+        namespace: String,
+        cwd: PathBuf,
+        runbook_hash: String,
+        #[serde(default)]
+        vars: HashMap<String, String>,
+        #[serde(default)]
+        created_at_epoch_ms: u64,
+    },
+
+    #[serde(rename = "agent_run:started")]
+    AgentRunStarted { id: AgentRunId, agent_id: AgentId },
+
+    #[serde(rename = "agent_run:status_changed")]
+    AgentRunStatusChanged {
+        id: AgentRunId,
+        status: AgentRunStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+
+    #[serde(rename = "agent_run:deleted")]
+    AgentRunDeleted { id: AgentRunId },
+
     /// Catch-all for unknown event types (extensibility)
     #[serde(other, skip_serializing)]
     Custom,
@@ -543,6 +574,10 @@ impl Event {
             Event::QueueItemDead { .. } => "queue:item_dead",
             Event::DecisionCreated { .. } => "decision:created",
             Event::DecisionResolved { .. } => "decision:resolved",
+            Event::AgentRunCreated { .. } => "agent_run:created",
+            Event::AgentRunStarted { .. } => "agent_run:started",
+            Event::AgentRunStatusChanged { .. } => "agent_run:status_changed",
+            Event::AgentRunDeleted { .. } => "agent_run:deleted",
             Event::Custom => "custom",
         }
     }
@@ -738,6 +773,29 @@ impl Event {
                     format!("{t} id={id}")
                 }
             }
+            Event::AgentRunCreated {
+                id,
+                agent_name,
+                namespace,
+                ..
+            } => {
+                if namespace.is_empty() {
+                    format!("{t} id={id} agent={agent_name}")
+                } else {
+                    format!("{t} id={id} ns={namespace} agent={agent_name}")
+                }
+            }
+            Event::AgentRunStarted { id, agent_id } => {
+                format!("{t} id={id} agent_id={agent_id}")
+            }
+            Event::AgentRunStatusChanged { id, status, reason } => {
+                if let Some(reason) = reason {
+                    format!("{t} id={id} status={status} reason={reason}")
+                } else {
+                    format!("{t} id={id} status={status}")
+                }
+            }
+            Event::AgentRunDeleted { id } => format!("{t} id={id}"),
         }
     }
 

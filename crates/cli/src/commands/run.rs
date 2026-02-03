@@ -203,7 +203,7 @@ async fn dispatch_to_daemon(
     positional: &[String],
     named: &HashMap<String, String>,
 ) -> Result<()> {
-    let (pipeline_id, pipeline_name) = client
+    let result = client
         .run_command(
             project_root,
             invoke_dir,
@@ -214,6 +214,28 @@ async fn dispatch_to_daemon(
         )
         .await?;
 
+    match result {
+        crate::client::RunCommandResult::Pipeline {
+            pipeline_id,
+            pipeline_name,
+        } => dispatch_pipeline(client, namespace, command, &pipeline_id, &pipeline_name).await,
+        crate::client::RunCommandResult::AgentRun {
+            agent_run_id,
+            agent_name,
+        } => {
+            dispatch_agent_run(namespace, command, &agent_run_id, &agent_name);
+            Ok(())
+        }
+    }
+}
+
+async fn dispatch_pipeline(
+    client: &DaemonClient,
+    namespace: &str,
+    command: &str,
+    pipeline_id: &str,
+    pipeline_name: &str,
+) -> Result<()> {
     let short_id = &pipeline_id[..8.min(pipeline_id.len())];
     println!("Project: {namespace}");
     println!("Command {} invoked.", command);
@@ -241,7 +263,7 @@ async fn dispatch_to_daemon(
                 if Instant::now() >= deadline {
                     break;
                 }
-                if let Ok(Some(p)) = client.get_pipeline(&pipeline_id).await {
+                if let Ok(Some(p)) = client.get_pipeline(pipeline_id).await {
                     if p.step_status != "Pending" {
                         started = true;
                         break;
@@ -259,6 +281,16 @@ async fn dispatch_to_daemon(
     super::pipeline::print_pipeline_commands(short_id);
 
     Ok(())
+}
+
+fn dispatch_agent_run(namespace: &str, command: &str, agent_run_id: &str, agent_name: &str) {
+    let short_id = &agent_run_id[..8.min(agent_run_id.len())];
+    println!("Project: {namespace}");
+    println!("Command {} invoked.", command);
+    println!("Agent: {agent_name} ({short_id})");
+    println!();
+    println!("  oj agent show {short_id}");
+    println!("  oj agent logs {short_id}");
 }
 
 #[cfg(test)]

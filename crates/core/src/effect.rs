@@ -4,6 +4,7 @@
 //! Effects represent side effects the system needs to perform
 
 use crate::agent::AgentId;
+use crate::agent_run::AgentRunId;
 use crate::event::Event;
 use crate::pipeline::PipelineId;
 use crate::session::SessionId;
@@ -27,6 +28,9 @@ pub enum Effect {
         agent_id: AgentId,
         agent_name: String,
         pipeline_id: PipelineId,
+        /// For standalone agents, the AgentRunId that owns this spawn
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_run_id: Option<AgentRunId>,
         workspace_path: PathBuf,
         input: HashMap<String, String>,
         /// Command to execute (already interpolated)
@@ -145,23 +149,30 @@ impl crate::traced::TracedEffect for Effect {
                 agent_id,
                 agent_name,
                 pipeline_id,
+                agent_run_id,
                 workspace_path,
                 command,
                 cwd,
                 ..
-            } => vec![
-                ("agent_id", agent_id.to_string()),
-                ("agent_name", agent_name.clone()),
-                ("pipeline_id", pipeline_id.to_string()),
-                ("workspace_path", workspace_path.display().to_string()),
-                ("command", command.clone()),
-                (
-                    "cwd",
-                    cwd.as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default(),
-                ),
-            ],
+            } => {
+                let mut fields = vec![
+                    ("agent_id", agent_id.to_string()),
+                    ("agent_name", agent_name.clone()),
+                    ("pipeline_id", pipeline_id.to_string()),
+                    ("workspace_path", workspace_path.display().to_string()),
+                    ("command", command.clone()),
+                    (
+                        "cwd",
+                        cwd.as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default(),
+                    ),
+                ];
+                if let Some(ref run_id) = agent_run_id {
+                    fields.push(("agent_run_id", run_id.to_string()));
+                }
+                fields
+            }
             Effect::SendToAgent { agent_id, .. } => vec![("agent_id", agent_id.to_string())],
             Effect::KillAgent { agent_id } => vec![("agent_id", agent_id.to_string())],
             Effect::SendToSession { session_id, .. } => {

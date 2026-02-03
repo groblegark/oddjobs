@@ -15,7 +15,7 @@ use oj_adapters::{
     ClaudeAgentAdapter, DesktopNotifyAdapter, SessionAdapter, TmuxAdapter, TracedAgent,
     TracedSession,
 };
-use oj_core::{AgentId, Event, PipelineId, SystemClock};
+use oj_core::{AgentId, AgentRunId, AgentRunStatus, Event, PipelineId, SystemClock};
 use oj_engine::breadcrumb::{self, Breadcrumb};
 use oj_engine::{AgentLogger, Runtime, RuntimeConfig, RuntimeDeps, Scheduler};
 use oj_storage::{MaterializedState, Snapshot, Wal};
@@ -133,6 +133,8 @@ pub struct ReconcileContext {
     pub worker_count: usize,
     /// Number of crons with status "running" to reconcile
     pub cron_count: usize,
+    /// Number of non-terminal standalone agent runs to reconcile
+    pub agent_run_count: usize,
 }
 
 impl DaemonState {
@@ -331,10 +333,11 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
     }
 
     info!(
-        "Recovered state: {} pipelines, {} sessions, {} workspaces",
+        "Recovered state: {} pipelines, {} sessions, {} workspaces, {} agent_runs",
         state.pipelines.len(),
         state.sessions.len(),
-        state.workspaces.len()
+        state.workspaces.len(),
+        state.agent_runs.len()
     );
 
     // 5. Set up adapters (wrapped with tracing for observability)
@@ -461,6 +464,11 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
         .values()
         .filter(|c| c.status == "running")
         .count();
+    let agent_run_count = state_snapshot
+        .agent_runs
+        .values()
+        .filter(|ar| !ar.is_terminal())
+        .count();
 
     info!("Daemon started");
 
@@ -485,6 +493,7 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
             pipeline_count,
             worker_count,
             cron_count,
+            agent_run_count,
         },
     })
 }
@@ -609,6 +618,87 @@ pub(crate) async fn reconcile_state(
             .await;
     }
 
+    // Reconcile standalone agent runs
+    let non_terminal_runs: Vec<_> = state
+        .agent_runs
+        .values()
+        .filter(|ar| !ar.is_terminal())
+        .collect();
+
+    if !non_terminal_runs.is_empty() {
+        info!(
+            "Reconciling {} non-terminal standalone agent runs",
+            non_terminal_runs.len()
+        );
+    }
+
+    for agent_run in &non_terminal_runs {
+        let Some(ref session_id) = agent_run.session_id else {
+            warn!(agent_run_id = %agent_run.id, "no session_id, marking failed");
+            let _ = event_tx
+                .send(Event::AgentRunStatusChanged {
+                    id: AgentRunId::new(&agent_run.id),
+                    status: AgentRunStatus::Failed,
+                    reason: Some("no session at recovery".to_string()),
+                })
+                .await;
+            continue;
+        };
+
+        let is_alive = sessions.is_alive(session_id).await.unwrap_or(false);
+
+        if is_alive {
+            let agent_id_str = agent_run.agent_id.as_deref().unwrap_or("");
+            let process_name = "claude";
+            let is_running = sessions
+                .is_process_running(session_id, process_name)
+                .await
+                .unwrap_or(false);
+
+            if is_running {
+                info!(
+                    agent_run_id = %agent_run.id,
+                    session_id,
+                    "recovering: standalone agent still running, reconnecting watcher"
+                );
+                if let Err(e) = runtime.recover_standalone_agent(agent_run).await {
+                    warn!(
+                        agent_run_id = %agent_run.id,
+                        error = %e,
+                        "failed to recover standalone agent, triggering gone"
+                    );
+                    let agent_id = AgentId::new(agent_id_str);
+                    let _ = event_tx.send(Event::AgentGone { agent_id }).await;
+                }
+            } else {
+                info!(
+                    agent_run_id = %agent_run.id,
+                    session_id,
+                    "recovering: standalone agent exited while daemon was down"
+                );
+                let agent_id = AgentId::new(agent_id_str);
+                runtime.register_agent_run(agent_id.clone(), AgentRunId::new(&agent_run.id));
+                let _ = event_tx
+                    .send(Event::AgentExited {
+                        agent_id,
+                        exit_code: None,
+                    })
+                    .await;
+            }
+        } else {
+            info!(
+                agent_run_id = %agent_run.id,
+                session_id,
+                "recovering: standalone agent session died while daemon was down"
+            );
+            let agent_id_str = agent_run.agent_id.as_deref().unwrap_or(&agent_run.id);
+            let agent_id = AgentId::new(agent_id_str);
+            runtime.register_agent_run(agent_id.clone(), AgentRunId::new(&agent_run.id));
+            let _ = event_tx.send(Event::AgentGone { agent_id }).await;
+        }
+    }
+
+    // Reconcile pipelines
     let non_terminal: Vec<_> = state
         .pipelines
         .values()

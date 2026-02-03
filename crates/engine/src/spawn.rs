@@ -5,7 +5,7 @@
 
 use crate::error::RuntimeError;
 use crate::ExecuteError;
-use oj_core::{AgentId, Effect, Pipeline, PipelineId, TimerId};
+use oj_core::{AgentId, AgentRunId, Effect, Pipeline, PipelineId, TimerId};
 use oj_runbook::AgentDef;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,13 +15,36 @@ use uuid::Uuid;
 /// Liveness check interval (30 seconds)
 pub const LIVENESS_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Spawn an agent for a pipeline
+/// Context for spawning an agent, abstracting over pipelines and standalone runs.
+pub struct SpawnContext<'a> {
+    /// Pipeline ID (set for pipeline agents, empty for standalone)
+    pub pipeline_id: &'a PipelineId,
+    /// Optional agent run ID (set for standalone agents)
+    pub agent_run_id: Option<&'a AgentRunId>,
+    /// Display name (pipeline name or command name)
+    pub name: &'a str,
+    /// Namespace for scoping
+    pub namespace: &'a str,
+}
+
+impl<'a> SpawnContext<'a> {
+    /// Create a SpawnContext from a Pipeline.
+    pub fn from_pipeline(pipeline: &'a Pipeline, pipeline_id: &'a PipelineId) -> Self {
+        Self {
+            pipeline_id,
+            agent_run_id: None,
+            name: &pipeline.name,
+            namespace: &pipeline.namespace,
+        }
+    }
+}
+
+/// Spawn an agent for a pipeline or standalone run.
 ///
 /// Returns the effects to execute for spawning the agent.
 pub fn build_spawn_effects(
     agent_def: &AgentDef,
-    pipeline: &Pipeline,
-    pipeline_id: &PipelineId,
+    ctx: &SpawnContext<'_>,
     agent_name: &str,
     input: &HashMap<String, String>,
     workspace_path: &Path,
@@ -33,7 +56,7 @@ pub fn build_spawn_effects(
     let project_root = workspace_path.to_path_buf();
 
     tracing::debug!(
-        pipeline_id = %pipeline_id,
+        owner_id = %ctx.pipeline_id,
         agent_name,
         workspace_path = %workspace_path.display(),
         project_root = %project_root.display(),
@@ -52,8 +75,8 @@ pub fn build_spawn_effects(
     // Generate a unique UUID for agent_id (used as --session-id for claude/claudeless)
     let agent_id = Uuid::new_v4().to_string();
     prompt_vars.insert("agent_id".to_string(), agent_id.clone());
-    prompt_vars.insert("pipeline_id".to_string(), pipeline_id.to_string());
-    prompt_vars.insert("name".to_string(), pipeline.name.clone());
+    prompt_vars.insert("pipeline_id".to_string(), ctx.pipeline_id.to_string());
+    prompt_vars.insert("name".to_string(), ctx.name.to_string());
     prompt_vars.insert(
         "workspace".to_string(),
         workspace_path.display().to_string(),
@@ -140,8 +163,8 @@ pub fn build_spawn_effects(
     let mut env = agent_def.build_env(&vars);
 
     // Pass OJ_NAMESPACE so nested `oj` calls inherit the project namespace
-    if !pipeline.namespace.is_empty() {
-        env.push(("OJ_NAMESPACE".to_string(), pipeline.namespace.clone()));
+    if !ctx.namespace.is_empty() {
+        env.push(("OJ_NAMESPACE".to_string(), ctx.namespace.to_string()));
     }
 
     // Pass OJ_STATE_DIR so `oj` commands can connect to the right daemon socket
@@ -211,18 +234,26 @@ pub fn build_spawn_effects(
     );
 
     tracing::info!(
-        pipeline_id = %pipeline_id,
+        owner_id = %ctx.pipeline_id,
         agent_name,
         command,
         effective_cwd = ?effective_cwd,
         "spawn effects prepared"
     );
 
+    // Build liveness timer keyed to the right owner
+    let liveness_timer_id = if let Some(ar_id) = ctx.agent_run_id {
+        TimerId::liveness_agent_run(ar_id)
+    } else {
+        TimerId::liveness(ctx.pipeline_id)
+    };
+
     Ok(vec![
         Effect::SpawnAgent {
             agent_id: AgentId::new(agent_id),
             agent_name: agent_name.to_string(),
-            pipeline_id: pipeline_id.clone(),
+            pipeline_id: ctx.pipeline_id.clone(),
+            agent_run_id: ctx.agent_run_id.cloned(),
             workspace_path: workspace_path.to_path_buf(),
             input: vars,
             command,
@@ -231,7 +262,7 @@ pub fn build_spawn_effects(
         },
         // Start liveness monitoring timer
         Effect::SetTimer {
-            id: TimerId::liveness(pipeline_id),
+            id: liveness_timer_id,
             duration: LIVENESS_INTERVAL,
         },
     ])

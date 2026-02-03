@@ -55,10 +55,10 @@ fn build_spawn_effects_creates_agent_and_timer() {
         .collect();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &input,
         workspace.path(),
@@ -86,10 +86,10 @@ fn build_spawn_effects_interpolates_variables() {
         .collect();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &input,
         workspace.path(),
@@ -116,10 +116,10 @@ fn build_spawn_effects_uses_absolute_cwd() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -142,10 +142,10 @@ fn build_spawn_effects_uses_relative_cwd() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -167,10 +167,10 @@ fn build_spawn_effects_prepares_workspace() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -195,10 +195,10 @@ fn build_spawn_effects_fails_on_missing_prompt_file() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let result = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -220,10 +220,10 @@ fn build_spawn_effects_carries_full_config() {
         .collect();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &input,
         workspace.path(),
@@ -272,10 +272,10 @@ fn build_spawn_effects_timer_uses_liveness_interval() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -307,10 +307,10 @@ fn build_spawn_effects_namespaces_pipeline_inputs() {
         .collect();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &input,
         workspace.path(),
@@ -360,10 +360,10 @@ fn build_spawn_effects_inputs_namespace_in_prompt() {
     .collect();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &input,
         workspace.path(),
@@ -412,10 +412,10 @@ fn build_spawn_effects_escapes_backticks_in_prompt() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -446,10 +446,10 @@ fn build_spawn_effects_with_prime_succeeds() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -470,10 +470,10 @@ fn build_spawn_effects_with_prime_script_succeeds() {
     let pipeline = test_pipeline();
 
     let pid = PipelineId::new("pipe-prime-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &HashMap::new(),
         workspace.path(),
@@ -506,10 +506,10 @@ fn build_spawn_effects_exposes_locals_in_prompt() {
     .collect();
 
     let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
     let effects = build_spawn_effects(
         &agent,
-        &pipeline,
-        &pid,
+        &ctx,
         "worker",
         &input,
         workspace.path(),

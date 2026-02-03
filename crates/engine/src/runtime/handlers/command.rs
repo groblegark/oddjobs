@@ -7,7 +7,7 @@ use super::super::Runtime;
 use super::CreatePipelineParams;
 use crate::error::RuntimeError;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
-use oj_core::{Clock, Effect, Event, PipelineId};
+use oj_core::{AgentRunId, Clock, Effect, Event, PipelineId};
 use oj_runbook::RunDirective;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -186,7 +186,66 @@ where
                 Ok(result_events)
             }
             RunDirective::Agent { agent } => {
-                Err(Self::invalid_directive("command", "agent", agent))
+                let agent_name = agent.clone();
+                let agent_def = runbook
+                    .get_agent(&agent_name)
+                    .ok_or_else(|| RuntimeError::AgentNotFound(agent_name.clone()))?
+                    .clone();
+
+                // Use the pipeline_id as the agent_run_id (daemon generated it)
+                let agent_run_id = AgentRunId::new(pipeline_id.to_string());
+
+                // Only pass runbook_json if not already cached
+                let already_cached = self.runbook_cache.lock().contains_key(&runbook_hash);
+                let mut creation_effects = Vec::new();
+                if !already_cached {
+                    creation_effects.push(Effect::Emit {
+                        event: Event::RunbookLoaded {
+                            hash: runbook_hash.clone(),
+                            version: 1,
+                            runbook: runbook_json,
+                        },
+                    });
+                }
+
+                // Insert into in-process cache
+                {
+                    self.runbook_cache
+                        .lock()
+                        .entry(runbook_hash.clone())
+                        .or_insert(runbook);
+                }
+
+                // Emit AgentRunCreated
+                creation_effects.push(Effect::Emit {
+                    event: Event::AgentRunCreated {
+                        id: agent_run_id.clone(),
+                        agent_name: agent_name.clone(),
+                        command_name: command.to_string(),
+                        namespace: namespace.to_string(),
+                        cwd: invoke_dir.to_path_buf(),
+                        runbook_hash: runbook_hash.clone(),
+                        vars: args.clone(),
+                        created_at_epoch_ms: self.clock().epoch_ms(),
+                    },
+                });
+
+                let mut result_events = self.executor.execute_all(creation_effects).await?;
+
+                // Spawn the standalone agent
+                let spawn_events = self
+                    .spawn_standalone_agent(
+                        &agent_run_id,
+                        &agent_def,
+                        &agent_name,
+                        &args,
+                        invoke_dir,
+                        namespace,
+                    )
+                    .await?;
+                result_events.extend(spawn_events);
+
+                Ok(result_events)
             }
         }
     }

@@ -248,6 +248,14 @@ pub enum Request {
         item_id: String,
     },
 
+    /// Drain all pending items from a persisted queue
+    QueueDrain {
+        project_root: PathBuf,
+        #[serde(default)]
+        namespace: String,
+        queue_name: String,
+    },
+
     /// Resolve a pending decision
     DecisionResolve {
         id: String,
@@ -529,6 +537,12 @@ pub enum Response {
 
     /// Item was retried (moved back to pending)
     QueueRetried { queue_name: String, item_id: String },
+
+    /// Queue was drained (all pending items removed)
+    QueueDrained {
+        queue_name: String,
+        items: Vec<QueueItemSummary>,
+    },
 
     /// Agent signal query result (for stop hook)
     AgentSignal {

@@ -82,6 +82,14 @@ pub enum QueueCommand {
         #[arg(long = "project")]
         project: Option<String>,
     },
+    /// Remove and return all pending items from a persisted queue
+    Drain {
+        /// Queue name
+        queue: String,
+        /// Project namespace override
+        #[arg(long = "project")]
+        project: Option<String>,
+    },
 }
 
 /// Parse a key=value string for --var arguments.
@@ -232,6 +240,56 @@ pub async fn handle(
                         queue_name
                     );
                 }
+                Response::Error { message } => {
+                    anyhow::bail!("{}", message);
+                }
+                _ => {
+                    anyhow::bail!("unexpected response from daemon");
+                }
+            }
+        }
+        QueueCommand::Drain { queue, project } => {
+            let effective_namespace = project
+                .or_else(|| std::env::var("OJ_NAMESPACE").ok())
+                .unwrap_or_else(|| namespace.to_string());
+
+            let request = Request::QueueDrain {
+                project_root: project_root.to_path_buf(),
+                namespace: effective_namespace,
+                queue_name: queue.clone(),
+            };
+
+            match client.send(&request).await? {
+                Response::QueueDrained { queue_name, items } => match format {
+                    OutputFormat::Json => {
+                        println!("{}", serde_json::to_string_pretty(&items)?);
+                    }
+                    _ => {
+                        if items.is_empty() {
+                            println!("No pending items in queue '{}'", queue_name);
+                        } else {
+                            println!(
+                                "Drained {} item{} from queue '{}'",
+                                items.len(),
+                                if items.len() == 1 { "" } else { "s" },
+                                queue_name
+                            );
+                            for item in &items {
+                                let data_str: String = item
+                                    .data
+                                    .iter()
+                                    .map(|(k, v)| format!("{}={}", k, v))
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                                println!(
+                                    "  {} {}",
+                                    color::muted(&item.id[..8.min(item.id.len())]),
+                                    data_str,
+                                );
+                            }
+                        }
+                    }
+                },
                 Response::Error { message } => {
                     anyhow::bail!("{}", message);
                 }

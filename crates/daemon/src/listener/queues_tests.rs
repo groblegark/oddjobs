@@ -13,7 +13,7 @@ use oj_storage::{MaterializedState, Wal};
 use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
-use super::{handle_queue_drop, handle_queue_push, handle_queue_retry};
+use super::{handle_queue_drain, handle_queue_drop, handle_queue_push, handle_queue_retry};
 
 /// Helper: create an EventBus backed by a temp WAL, returning the bus, reader WAL arc, and path.
 fn test_event_bus(dir: &std::path::Path) -> (EventBus, Arc<Mutex<Wal>>, PathBuf) {
@@ -605,6 +605,165 @@ fn retry_no_match_returns_not_found() {
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("not found")),
         "expected not found error, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn drain_removes_all_pending_items() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, wal, _) = test_event_bus(wal_dir.path());
+
+    // Pre-populate state with multiple pending items
+    let mut initial_state = MaterializedState::default();
+    for i in 1..=3 {
+        initial_state.apply_event(&Event::QueuePushed {
+            queue_name: "jobs".to_string(),
+            item_id: format!("item-{}", i),
+            data: [("task".to_string(), format!("task-{}", i))]
+                .into_iter()
+                .collect(),
+            pushed_at_epoch_ms: 1_000_000 + i,
+            namespace: String::new(),
+        });
+    }
+    let state = Arc::new(Mutex::new(initial_state));
+
+    let result = handle_queue_drain(project.path(), "", "jobs", &event_bus, &state).unwrap();
+
+    match result {
+        Response::QueueDrained {
+            ref queue_name,
+            ref items,
+        } => {
+            assert_eq!(queue_name, "jobs");
+            assert_eq!(items.len(), 3);
+            let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+            assert!(ids.contains(&"item-1"));
+            assert!(ids.contains(&"item-2"));
+            assert!(ids.contains(&"item-3"));
+        }
+        other => panic!("expected QueueDrained, got {:?}", other),
+    }
+
+    let events = drain_events(&wal);
+    assert_eq!(events.len(), 3, "expected 3 QueueDropped events");
+    for event in &events {
+        assert!(
+            matches!(event, Event::QueueDropped { queue_name, .. } if queue_name == "jobs"),
+            "expected QueueDropped, got {:?}",
+            event
+        );
+    }
+}
+
+#[test]
+fn drain_skips_non_pending_items() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, wal, _) = test_event_bus(wal_dir.path());
+
+    let mut initial_state = MaterializedState::default();
+    // One pending item
+    initial_state.apply_event(&Event::QueuePushed {
+        queue_name: "jobs".to_string(),
+        item_id: "pending-1".to_string(),
+        data: [("task".to_string(), "pending".to_string())]
+            .into_iter()
+            .collect(),
+        pushed_at_epoch_ms: 1_000_000,
+        namespace: String::new(),
+    });
+    // One active item
+    initial_state.apply_event(&Event::QueuePushed {
+        queue_name: "jobs".to_string(),
+        item_id: "active-1".to_string(),
+        data: [("task".to_string(), "active".to_string())]
+            .into_iter()
+            .collect(),
+        pushed_at_epoch_ms: 2_000_000,
+        namespace: String::new(),
+    });
+    initial_state.apply_event(&Event::QueueTaken {
+        queue_name: "jobs".to_string(),
+        item_id: "active-1".to_string(),
+        worker_name: "w1".to_string(),
+        namespace: String::new(),
+    });
+    // One dead item
+    initial_state.apply_event(&Event::QueuePushed {
+        queue_name: "jobs".to_string(),
+        item_id: "dead-1".to_string(),
+        data: [("task".to_string(), "dead".to_string())]
+            .into_iter()
+            .collect(),
+        pushed_at_epoch_ms: 3_000_000,
+        namespace: String::new(),
+    });
+    initial_state.apply_event(&Event::QueueItemDead {
+        queue_name: "jobs".to_string(),
+        item_id: "dead-1".to_string(),
+        namespace: String::new(),
+    });
+    let state = Arc::new(Mutex::new(initial_state));
+
+    let result = handle_queue_drain(project.path(), "", "jobs", &event_bus, &state).unwrap();
+
+    match result {
+        Response::QueueDrained { ref items, .. } => {
+            assert_eq!(items.len(), 1, "only pending items should be drained");
+            assert_eq!(items[0].id, "pending-1");
+        }
+        other => panic!("expected QueueDrained, got {:?}", other),
+    }
+
+    let events = drain_events(&wal);
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        Event::QueueDropped { item_id, .. } if item_id == "pending-1"
+    ));
+}
+
+#[test]
+fn drain_empty_queue_returns_empty_list() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, wal, _) = test_event_bus(wal_dir.path());
+    let state = Arc::new(Mutex::new(MaterializedState::default()));
+
+    let result = handle_queue_drain(project.path(), "", "jobs", &event_bus, &state).unwrap();
+
+    assert!(
+        matches!(
+            result,
+            Response::QueueDrained { ref queue_name, ref items }
+            if queue_name == "jobs" && items.is_empty()
+        ),
+        "expected empty QueueDrained, got {:?}",
+        result
+    );
+
+    let events = drain_events(&wal);
+    assert!(
+        events.is_empty(),
+        "no events should be emitted for empty drain"
+    );
+}
+
+#[test]
+fn drain_unknown_queue_returns_error() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
+    let state = Arc::new(Mutex::new(MaterializedState::default()));
+
+    let result = handle_queue_drain(project.path(), "", "nonexistent", &event_bus, &state).unwrap();
+
+    assert!(
+        matches!(result, Response::Error { ref message } if message.contains("nonexistent")),
+        "expected Error, got {:?}",
         result
     );
 }

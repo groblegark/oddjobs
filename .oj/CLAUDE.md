@@ -89,6 +89,44 @@ Use `local.repo` to resolve the main repo root from an ephemeral worktree.
 agent work via a shell command. No separate check step needed; the gate runs between
 nudge cycles and controls step completion.
 
+**Crons** — time-driven pipeline execution:
+
+```hcl
+cron "janitor" {
+  interval = "30m"
+  run      = { pipeline = "cleanup" }
+}
+```
+
+Start with `oj cron start <name>`, test with `oj cron once <name>`.
+
+**Prime** — inject context at agent session start to reduce tool calls:
+
+```hcl
+agent "medic" {
+  prime = [
+    "echo '## System Status'",
+    "oj status 2>/dev/null || echo 'not running'",
+    "echo '## Queues'",
+    "oj queue list 2>/dev/null || echo 'no queues'",
+  ]
+}
+```
+
+Prime commands run as SessionStart hooks. Their output becomes context the
+agent can reference immediately without running discovery commands itself.
+
+**Persisted queues as inboxes** — queues aren't just for dispatch. Use them
+to collect items for later human review:
+
+```hcl
+queue "symptoms" {
+  type = "persisted"
+}
+```
+
+Agents push structured findings; humans review with `oj queue items`.
+
 ## Best Practices
 
 **Shell:**
@@ -101,12 +139,20 @@ nudge cycles and controls step completion.
 - Set both `on_idle` and `on_dead` handlers
 - Use gates (`on_idle = { action = "gate", run = "..." }`) to verify completion
 - Keep prompts focused; the orchestrator handles lifecycle
+- Use `--disallowed-tools EnterPlanMode,ExitPlanMode` for quick agents (fixes, chores, triage)
+- Use `prime = [...]` to inject system state so agents start with context
 
 **Steps:**
 - `on_done = { step = "next" }` for explicit transitions
 - `on_fail` for special handling (e.g. conflict resolution agent)
 - `run = { agent = "name" }` to invoke agents from steps
 - `on_fail = { step = "retry", attempts = 2 }` for bounded retry
+- Combine independent shell commands in one step — don't chain separate steps
+  for things that don't need individual error handling
+
+**Commands:**
+- `run = { pipeline = "name" }` for pipeline dispatch
+- `run = <<-SHELL ... SHELL` for inline shell (e.g. launching crons, quick operations)
 
 **Workspaces:**
 - `workspace = "ephemeral"` for isolated git worktrees

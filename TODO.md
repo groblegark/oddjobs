@@ -50,8 +50,8 @@ Core pipeline
   2. Inline command execution: shell command.run executes locally (see draft)
 
 Reliability
-  3. Cron: watchdog and janitor runbooks for stuck agents / stale resources
-  4. Default error handling for agent errors (rate limit → retry, no internet → retry,
+  2. Cron: watchdog and janitor runbooks for stuck agents / stale resources
+  3. Default error handling for agent errors (rate limit → retry, no internet → retry,
      out of credits → escalate, unauthorized → escalate). See design notes below.
 
 Human-in-the-loop

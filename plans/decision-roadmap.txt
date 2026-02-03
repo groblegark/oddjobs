@@ -1,0 +1,27 @@
+## Phase 1: Data Model & Storage
+- [ ] Decision struct: id, pipeline_id, agent_id, source (question/approval/gate/error/idle), context, options[], chosen, created_at, resolved_at
+- [ ] Store decisions in materialized state (new top-level map, not nested under pipeline)
+- [ ] Events: DecisionCreated, DecisionResolved
+- [ ] StepStatus::Waiting carries decision_id instead of bare reason string
+
+## Phase 2: Decision Creation
+- [ ] Escalation paths emit DecisionCreated with system-generated options (retry/nudge/cancel)
+- [ ] PreToolUse hook captures AskUserQuestion/ExitPlanMode structured payload (question, options, plan file)
+- [ ] Gate failures include gate command + exit code + stderr in context
+- [ ] on_dead/on_idle/on_error include agent log tail in context
+
+## Phase 3: CLI
+- [ ] oj decision list — id, pipeline, age, source, summary
+- [ ] oj decision show <id> — full context + numbered options
+- [ ] oj decision resolve <id> <choice> — maps choice to pipeline effect (resume/cancel/restart)
+- [ ] oj decisions shorthand
+
+## Phase 4: Agent Resume Wiring
+- [ ] Resolution maps to correct pipeline effect per source type
+- [ ] AskUserQuestion/ExitPlanMode answers flow back to agent via resume message or hook response
+- [ ] Desktop notification on decision created (replaces current escalation notify)
+
+## Phase 5: Polish
+- [ ] oj status shows decision count per project
+- [ ] Decision auto-expires if pipeline is cancelled externally
+- [ ] oj decision list --resolved for history

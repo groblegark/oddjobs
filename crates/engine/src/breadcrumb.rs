@@ -33,6 +33,12 @@ pub struct Breadcrumb {
     pub workspace_id: Option<String>,
     pub workspace_root: Option<PathBuf>,
     pub updated_at: String,
+    /// Content hash of the stored runbook (for resume from orphan state).
+    #[serde(default)]
+    pub runbook_hash: String,
+    /// Working directory where commands execute.
+    #[serde(default)]
+    pub cwd: Option<PathBuf>,
 }
 
 /// Agent information captured in a breadcrumb.
@@ -121,6 +127,8 @@ impl BreadcrumbWriter {
             workspace_id: pipeline.workspace_id.as_ref().map(|w| w.to_string()),
             workspace_root: pipeline.workspace_path.clone(),
             updated_at: format_utc_now(),
+            runbook_hash: pipeline.runbook_hash.clone(),
+            cwd: Some(pipeline.cwd.clone()),
         }
     }
 }

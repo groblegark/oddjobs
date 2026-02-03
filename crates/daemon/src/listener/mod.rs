@@ -200,7 +200,7 @@ async fn handle_request(
         }
 
         Request::PipelineResume { id, message, vars } => {
-            mutations::handle_pipeline_resume(event_bus, id, message, vars)
+            mutations::handle_pipeline_resume(state, orphans, event_bus, id, message, vars)
         }
 
         Request::PipelineCancel { ids } => mutations::handle_pipeline_cancel(state, event_bus, ids),

@@ -82,20 +82,128 @@ pub(super) fn handle_session_send(
 }
 
 /// Handle a pipeline resume request.
+///
+/// Validates that the pipeline exists in state or the orphan registry before
+/// emitting the resume event. For orphaned pipelines, emits synthetic events
+/// to reconstruct the pipeline in state, then resumes.
 pub(super) fn handle_pipeline_resume(
+    state: &Arc<Mutex<MaterializedState>>,
+    orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
     event_bus: &EventBus,
     id: String,
     message: Option<String>,
     vars: std::collections::HashMap<String, String>,
 ) -> Result<Response, ConnectionError> {
-    let event = Event::PipelineResume {
-        id: PipelineId::new(id),
-        message,
-        vars,
+    // Check if pipeline exists in state
+    let found_in_state = {
+        let state_guard = state.lock();
+        state_guard.get_pipeline(&id).is_some()
     };
+
+    if found_in_state {
+        let event = Event::PipelineResume {
+            id: PipelineId::new(id),
+            message,
+            vars,
+        };
+        event_bus
+            .send(event)
+            .map_err(|_| ConnectionError::WalError)?;
+        return Ok(Response::Ok);
+    }
+
+    // Not in state — check orphan registry
+    let orphan = {
+        let orphans_guard = orphans.lock();
+        orphans_guard
+            .iter()
+            .find(|bc| bc.pipeline_id == id || bc.pipeline_id.starts_with(&id))
+            .cloned()
+    };
+
+    let Some(orphan) = orphan else {
+        return Ok(Response::Error {
+            message: format!("pipeline not found: {}", id),
+        });
+    };
+
+    // Orphan found — check if the runbook is available for reconstruction
+    if orphan.runbook_hash.is_empty() {
+        return Ok(Response::Error {
+            message: format!(
+                "pipeline {} is orphaned (state lost during daemon restart) and cannot be \
+                 resumed: breadcrumb missing runbook hash (written by older daemon version). \
+                 Dismiss with `oj pipeline prune --orphans` and re-run the pipeline.",
+                orphan.pipeline_id
+            ),
+        });
+    }
+
+    // Verify the runbook is in state (needed for step definitions during resume)
+    let runbook_available = {
+        let state_guard = state.lock();
+        state_guard.runbooks.contains_key(&orphan.runbook_hash)
+    };
+
+    if !runbook_available {
+        return Ok(Response::Error {
+            message: format!(
+                "pipeline {} is orphaned (state lost during daemon restart) and cannot be \
+                 resumed: runbook is no longer available. Dismiss with \
+                 `oj pipeline prune --orphans` and re-run the pipeline.",
+                orphan.pipeline_id
+            ),
+        });
+    }
+
+    // Reconstruct the pipeline by emitting synthetic events:
+    // 1. PipelineCreated (at current_step as initial_step)
+    // 2. PipelineAdvanced to "failed" (so resume resets to the right step)
+    // 3. PipelineResume (the actual resume request)
+    let orphan_id = orphan.pipeline_id.clone();
+    let pipeline_id = PipelineId::new(&orphan_id);
+    let cwd = orphan.cwd.or(orphan.workspace_root).unwrap_or_default();
+
     event_bus
-        .send(event)
+        .send(Event::PipelineCreated {
+            id: pipeline_id.clone(),
+            kind: orphan.kind,
+            name: orphan.name,
+            runbook_hash: orphan.runbook_hash,
+            cwd,
+            vars: orphan.vars,
+            initial_step: orphan.current_step,
+            created_at_epoch_ms: 0,
+            namespace: orphan.project,
+        })
         .map_err(|_| ConnectionError::WalError)?;
+
+    event_bus
+        .send(Event::PipelineAdvanced {
+            id: pipeline_id.clone(),
+            step: "failed".to_string(),
+        })
+        .map_err(|_| ConnectionError::WalError)?;
+
+    event_bus
+        .send(Event::PipelineResume {
+            id: pipeline_id,
+            message,
+            vars,
+        })
+        .map_err(|_| ConnectionError::WalError)?;
+
+    // Remove from orphan registry
+    {
+        let mut orphans_guard = orphans.lock();
+        if let Some(idx) = orphans_guard
+            .iter()
+            .position(|bc| bc.pipeline_id == orphan_id)
+        {
+            orphans_guard.remove(idx);
+        }
+    }
+
     Ok(Response::Ok)
 }
 
@@ -723,3 +831,7 @@ pub(super) fn handle_cron_prune(
         skipped,
     })
 }
+
+#[cfg(test)]
+#[path = "mutations_tests.rs"]
+mod tests;

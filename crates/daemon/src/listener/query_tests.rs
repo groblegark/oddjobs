@@ -404,6 +404,8 @@ fn make_breadcrumb(pipeline_id: &str, name: &str, project: &str, step: &str) -> 
         workspace_id: None,
         workspace_root: Some(std::path::PathBuf::from("/tmp/ws")),
         updated_at: "2026-01-15T10:30:00Z".to_string(),
+        runbook_hash: "hash123".to_string(),
+        cwd: Some(std::path::PathBuf::from("/tmp/project")),
     }
 }
 

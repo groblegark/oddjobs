@@ -42,6 +42,8 @@ fn write_produces_valid_json() {
     assert_eq!(breadcrumb.step_status, "Pending");
     assert_eq!(breadcrumb.vars.get("branch").unwrap(), "main");
     assert!(!breadcrumb.updated_at.is_empty());
+    assert_eq!(breadcrumb.runbook_hash, "abc123");
+    assert_eq!(breadcrumb.cwd.as_deref(), Some(Path::new("/tmp/test")));
 }
 
 #[test]

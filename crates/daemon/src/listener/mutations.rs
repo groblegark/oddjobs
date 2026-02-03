@@ -362,7 +362,7 @@ pub(super) fn handle_pipeline_prune(
                 .map_err(|_| ConnectionError::WalError)?;
 
             // Best-effort cleanup of pipeline log and breadcrumb files
-            let log_file = logs_path.join(format!("{}.log", entry.id));
+            let log_file = oj_engine::log_paths::pipeline_log_path(logs_path, &entry.id);
             let _ = std::fs::remove_file(&log_file);
             let crumb_file = oj_engine::log_paths::breadcrumb_path(logs_path, &entry.id);
             let _ = std::fs::remove_file(&crumb_file);
@@ -394,7 +394,8 @@ pub(super) fn handle_pipeline_prune(
                 let crumb = oj_engine::log_paths::breadcrumb_path(logs_path, &removed.pipeline_id);
                 let _ = std::fs::remove_file(&crumb);
                 // Delete pipeline log
-                let log_file = logs_path.join(format!("{}.log", removed.pipeline_id));
+                let log_file =
+                    oj_engine::log_paths::pipeline_log_path(logs_path, &removed.pipeline_id);
                 let _ = std::fs::remove_file(&log_file);
                 // Delete agent logs/dirs
                 let agent_log = logs_path

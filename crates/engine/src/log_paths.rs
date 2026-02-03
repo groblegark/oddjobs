@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Shared path builders for agent log files.
+//! Shared path builders for pipeline and agent log files.
 //!
 //! Used by both the logger (writer) and daemon (reader) to construct
-//! consistent paths for agent logs in the directory structure:
+//! consistent paths for logs in the directory structure:
+//!   `<logs_dir>/pipeline/<pipeline_id>.log`
 //!   `<logs_dir>/agent/<agent_id>.log`
 
 use std::path::{Path, PathBuf};
+
+/// Build the path to a pipeline log file.
+///
+/// Structure: `{logs_dir}/pipeline/{pipeline_id}.log`
+///
+/// # Arguments
+/// * `logs_dir` - Base logs directory (e.g., `~/.local/state/oj/logs`)
+/// * `pipeline_id` - Pipeline identifier
+pub fn pipeline_log_path(logs_dir: &Path, pipeline_id: &str) -> PathBuf {
+    logs_dir
+        .join("pipeline")
+        .join(format!("{}.log", pipeline_id))
+}
 
 /// Build the path to an agent log file.
 ///

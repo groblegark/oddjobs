@@ -4,6 +4,15 @@
 use super::*;
 
 #[test]
+fn pipeline_log_path_builds_expected_path() {
+    let result = pipeline_log_path(Path::new("/state/logs"), "pipeline-001");
+    assert_eq!(
+        result,
+        PathBuf::from("/state/logs/pipeline/pipeline-001.log")
+    );
+}
+
+#[test]
 fn agent_log_path_builds_expected_path() {
     let result = agent_log_path(Path::new("/state/logs"), "abc-123-def");
     assert_eq!(result, PathBuf::from("/state/logs/agent/abc-123-def.log"));

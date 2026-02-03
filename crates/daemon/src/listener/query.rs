@@ -350,10 +350,12 @@ pub(super) fn handle_query(
         }
 
         Query::GetPipelineLogs { id, lines } => {
+            use oj_engine::log_paths::pipeline_log_path;
+
             // Resolve pipeline ID (supports prefix matching)
             let full_id = state.get_pipeline(&id).map(|p| p.id.clone()).unwrap_or(id);
 
-            let log_path = logs_path.join(format!("{}.log", full_id));
+            let log_path = pipeline_log_path(logs_path, &full_id);
             let content = match std::fs::read_to_string(&log_path) {
                 Ok(text) => {
                     if lines > 0 {

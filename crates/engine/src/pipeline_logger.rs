@@ -13,7 +13,7 @@ use crate::log_paths;
 /// Append-only logger for per-pipeline activity logs.
 ///
 /// Writes human-readable timestamped lines to:
-///   `<log_dir>/<pipeline_id>.log`
+///   `<log_dir>/pipeline/<pipeline_id>.log`
 ///
 /// Each `append()` call opens, writes, and closes the file.
 /// This is safe for the low write frequency of pipeline events.
@@ -33,7 +33,7 @@ impl PipelineLogger {
     /// Failures are logged via tracing but do not propagate — logging
     /// must not break the engine.
     pub fn append(&self, pipeline_id: &str, step: &str, message: &str) {
-        let path = self.log_dir.join(format!("{}.log", pipeline_id));
+        let path = log_paths::pipeline_log_path(&self.log_dir, pipeline_id);
         if let Err(e) = self.write_line(&path, step, message) {
             tracing::warn!(
                 pipeline_id,
@@ -87,7 +87,9 @@ impl PipelineLogger {
     }
 
     fn write_line(&self, path: &Path, step: &str, message: &str) -> std::io::Result<()> {
-        fs::create_dir_all(&self.log_dir)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
         let ts = format_utc_now();
         writeln!(file, "{} [{}] {}", ts, step, message)?;

@@ -12,7 +12,7 @@ fn append_creates_directory_and_file() {
 
     logger.append("pipe-1", "init", "pipeline created");
 
-    let content = std::fs::read_to_string(log_dir.join("pipe-1.log")).unwrap();
+    let content = std::fs::read_to_string(log_dir.join("pipeline/pipe-1.log")).unwrap();
     assert!(content.contains("[init] pipeline created"));
 }
 
@@ -25,7 +25,7 @@ fn multiple_appends_produce_ordered_lines() {
     logger.append("pipe-1", "init", "shell: echo hello");
     logger.append("pipe-1", "init", "shell completed (exit 0)");
 
-    let content = std::fs::read_to_string(dir.path().join("pipe-1.log")).unwrap();
+    let content = std::fs::read_to_string(dir.path().join("pipeline/pipe-1.log")).unwrap();
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 3);
     assert!(lines[0].contains("[init] step started"));
@@ -40,7 +40,7 @@ fn lines_match_expected_format() {
 
     logger.append("pipe-1", "plan", "agent spawned: planner");
 
-    let content = std::fs::read_to_string(dir.path().join("pipe-1.log")).unwrap();
+    let content = std::fs::read_to_string(dir.path().join("pipeline/pipe-1.log")).unwrap();
     let line = content.trim();
 
     // Format: YYYY-MM-DDTHH:MM:SSZ [step] message
@@ -71,8 +71,8 @@ fn separate_pipelines_get_separate_files() {
     logger.append("pipe-1", "init", "first pipeline");
     logger.append("pipe-2", "init", "second pipeline");
 
-    let content1 = std::fs::read_to_string(dir.path().join("pipe-1.log")).unwrap();
-    let content2 = std::fs::read_to_string(dir.path().join("pipe-2.log")).unwrap();
+    let content1 = std::fs::read_to_string(dir.path().join("pipeline/pipe-1.log")).unwrap();
+    let content2 = std::fs::read_to_string(dir.path().join("pipeline/pipe-2.log")).unwrap();
     assert!(content1.contains("first pipeline"));
     assert!(content2.contains("second pipeline"));
     assert!(!content1.contains("second pipeline"));
@@ -100,7 +100,7 @@ fn agent_pointer_uses_absolute_path() {
     let agent_id = "8cf5e1df-a434-4029-a369-c95af9c374c9";
     logger.append_agent_pointer("pipe-1", "plan", agent_id);
 
-    let content = std::fs::read_to_string(log_dir.join("pipe-1.log")).unwrap();
+    let content = std::fs::read_to_string(log_dir.join("pipeline/pipe-1.log")).unwrap();
     // Should contain the full absolute path with agent_id
     let expected_path = log_dir.join("agent").join(format!("{}.log", agent_id));
     assert!(

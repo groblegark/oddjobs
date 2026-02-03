@@ -107,7 +107,7 @@ pipeline "build" {
 ## Best Practices
 
 **Shell scripts:**
-- `set -e` is automatic — commands fail on error
+- `set -euo pipefail` is automatic — commands fail on error
 - Use newlines, not `&&` chains
 - Use `test` command, not `if` statements
 

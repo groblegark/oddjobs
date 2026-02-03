@@ -1,15 +1,28 @@
 # TODO
 
-In progress (agents working):
-  - feat(cli): oj status command (dashboard overview)
-  - feat(engine): step on_fail attempts support
-  - feat(cli): refactor oj queue CLI (list queues, items subcommand)
-  - feat(engine): pipeline breadcrumb files for orphan detection
+In progress (merging):
+  - feat(engine): eager locals — evaluate $() in locals at creation, remove trusted prefixes
   - feat(engine): PreToolUse hook for ExitPlanMode/AskUserQuestion → Prompting state
-  - fix(parser): handle multi-value CLI options (--disallowed-tools, --allowed-tools)
-  - fix(cli): oj pipeline peek fallback when session gone
+  - feat(runbook): validate name references and step reachability at parse time
+  - fix(runbook): validate template references (var/args/local) at parse time
+
+In progress (agents working):
+  - feat(engine): step on_fail attempts support
+
+Drafts:
+  - draft(cli): inline commands — execute shell command.run locally, not via daemon
 
 Recently landed:
+  - feat(cli): auto-generate --help for runbook commands (oj run <cmd> --help)
+  - feat(engine): pipeline breadcrumb files for orphan detection
+  - feat(cli): oj status command (dashboard overview)
+  - feat(cli): refactor oj queue CLI (list queues, items subcommand)
+  - fix(parser): handle multi-value CLI options (--disallowed-tools, --allowed-tools)
+  - fix(cli): oj pipeline peek fallback when session gone
+  - chore(runbooks): add oj run merge <branch> <title> convenience command
+  - chore(runbooks): add draft.hcl — oj run draft, oj run drafts
+  - chore(runbooks): update comment format for auto-help (description/examples)
+  - chore(runbooks): fetch+rebase in merge push across all projects
   - chore(cli): sort list outputs by last updated
   - chore(cli): improve oj agent list columns (ID, NAME, PROJECT, shorter IDs)
   - chore(cli): add oj agent prune command
@@ -18,7 +31,6 @@ Recently landed:
   - chore(runbooks): disallow ExitPlanMode/AskUserQuestion in fix/chore agents
   - chore(runbooks): increase fix and chore worker concurrency to 3
   - chore(runbooks): rename agents to bugs and chores
-  - fix(runbooks): fetch and rebase before push in merge pipeline
   - fix(cli): inconsistent shell exit error messages
   - chore(cli): oj pipeline prune command
   - fix(workspace): oj workspace drop for orphaned worktrees
@@ -35,25 +47,26 @@ Backlog (roughly priority-ordered):
 
 Core pipeline
   1. Worker poll interval: optional poll_interval on worker blocks for periodic checks
+  2. Inline command execution: shell command.run executes locally (see draft)
 
 Reliability
-  2. Cron: watchdog and janitor runbooks for stuck agents / stale resources
-  3. Default error handling for agent errors (rate limit → retry, no internet → retry,
+  3. Cron: watchdog and janitor runbooks for stuck agents / stale resources
+  4. Default error handling for agent errors (rate limit → retry, no internet → retry,
      out of credits → escalate, unauthorized → escalate). See design notes below.
 
 Human-in-the-loop
-  4. Human In The Loop: CLI-first commands for handling escalation
-  5. Terminal: Dedicated fullscreen TUI for "watching" status and interactive inbox
+  5. Human In The Loop: CLI-first commands for handling escalation
+  6. Terminal: Dedicated fullscreen TUI for "watching" status and interactive inbox
 
 CLI polish
-  6. CLI color output: detect tty, respect COLOR/NO_COLOR env vars
+  7. CLI color output: detect tty, respect COLOR/NO_COLOR env vars
       - Copy color conventions from ../quench and ../wok
       - Colorize show, list, --help views and other human-facing output
       - Ask human for preferences on color scheme before implementing
 
 Multi-project
-  7. Shared queues: allow cross-project queue push (e.g. --project flag routing)
-  8. Remote daemon: coordinate jobs across multiple machines
+  8. Shared queues: allow cross-project queue push (e.g. --project flag routing)
+  9. Remote daemon: coordinate jobs across multiple machines
 
 ----
 
@@ -61,10 +74,12 @@ Key files:
   .oj/runbooks/bug.hcl            — fix worker pipeline
   .oj/runbooks/build.hcl          — feature build pipeline
   .oj/runbooks/chore.hcl          — chore worker pipeline
+  .oj/runbooks/draft.hcl          — draft pipeline + drafts list/close
   .oj/runbooks/merge.hcl          — local merge queue
   crates/runbook/src/find.rs      — runbook discovery (recursive scanner)
+  crates/runbook/src/help.rs      — auto-generated --help for runbook commands
   crates/runbook/src/queue.rs     — QueueDef, QueueType, RetryConfig
-  crates/runbook/src/template.rs  — interpolation (shell escaping, trusted prefixes)
+  crates/runbook/src/template.rs  — interpolation (shell escaping)
   crates/engine/src/spawn.rs      — agent spawn, prompt interpolation
   crates/engine/src/workspace.rs  — agent settings injection (Stop, Notification hooks)
   crates/engine/src/monitor.rs    — MonitorState, PromptType, action effects
@@ -112,7 +127,7 @@ Open questions:
 ## Dogfooding Notes
 
 Key features landed:
-  - End-to-end pipelines: build, fix, chore all flow through submit → merge queue
+  - End-to-end pipelines: build, fix, chore, draft all flow through agents
   - Per-project namespace isolation (OJ_NAMESPACE) for multi-project use
   - Desktop notifications on pipeline/agent lifecycle (on_start/on_done/on_fail)
   - Notification hooks for instant agent idle/prompt detection (no polling)
@@ -120,16 +135,20 @@ Key features landed:
   - Worker concurrency > 1 for parallel dispatch (tested with concurrency=3)
   - Pipeline locals {}, name templates, on_cancel step, --var syntax throughout
   - WAL materialization for consistent query state across daemon restarts
-  - Trusted-prefix interpolation: $(cmd) in locals works for shell steps
+  - Eager locals: $() evaluated at creation, all shell interpolation escaped uniformly
   - Ctrl+C handling in oj pipeline wait
   - Workspace drop resilience for orphaned worktrees
   - Auto-resume workers on daemon restart
   - Deduplicated workspace nonces, suppress empty Error: on silent exits
   - Pipeline on_cancel/on_fail → wok issue lifecycle (close/reopen)
   - --disallowed-tools to prevent agents from using plan mode or asking questions
+  - Auto-generated --help for runbook commands
+  - Runbook validation: name references, step reachability, template references
+  - Draft runbook: exploratory work pushed to draft/ branches, not merged
+  - `oj run merge` convenience command across all projects
 
 Patterns that work:
-  - oj run {build,fix,chore} → agent → submit → merge queue. Full loop end-to-end.
+  - oj run {build,fix,chore,draft} → agent → submit/push. Full loop end-to-end.
   - Parallel builds: kick off multiple oj run build, monitor with
     oj pipeline wait <id1> <id2> <id3> for streaming progress.
   - Multi-project: run pipelines across oddjobs, wok, quench simultaneously.
@@ -139,12 +158,20 @@ Patterns that work:
   - Manual merge fallback: git fetch + merge when merge queue is stuck.
   - Commit and push TODO/doc changes before kicking off agents — avoids merge conflicts
     when agent branches diverge from main.
+  - oj run drafts to review exploratory work without polluting main.
 
 Issues discovered:
   - ExitPlanMode/AskUserQuestion tools block agents at TUI dialogs with no hook signal.
     Claude Code only fires idle_prompt after 60s, and the agent is mid-tool-call, not idle.
-    Workaround: --disallowed-tools. Proper fix: PreToolUse hook to detect and escalate.
+    Workaround: --disallowed-tools. Proper fix: PreToolUse hook (in progress).
   - Pipeline state can be lost on daemon restart (WAL durability gap). Breadcrumb files
-    (<pipeline-id>.crumb.json in logs/) planned for orphan detection.
-  - Runbook parser treats multi-value options (--disallowed-tools A B) as positional args.
-    Workaround: comma-separated (--disallowed-tools A,B,C).
+    now written for orphan detection.
+  - Runbook parser treated multi-value options (--disallowed-tools A B) as positional args.
+    Fixed: parser now handles multi-value CLI options correctly.
+  - Shell escaping bug: var.* values flowing through locals bypass escaping.
+    Fixed: eager locals evaluate $() at creation, all interpolation escaped uniformly.
+  - Merge push→check loop: on_fail cycle with no max attempts causes infinite retries.
+    Needs: step on_fail attempts support (in progress).
+  - Submit step fails when local.title contains special chars (quotes, $, backticks).
+    Root cause: locals launder untrusted var.* content into trusted namespace.
+    Fixed by eager locals (above). Workaround: manually push + queue merge.

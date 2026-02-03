@@ -247,16 +247,18 @@ pub async fn handle(
                                     .max()
                                     .unwrap_or(8)
                                     .max(8);
+                                let time_w =
+                                    crons.iter().map(|c| c.time.len()).max().unwrap_or(4).max(4);
 
                                 if show_project {
                                     println!(
-                                        "{:<name_w$} {:<proj_w$} {:<interval_w$} {:<pipeline_w$} STATUS",
-                                        "KIND", "PROJECT", "INTERVAL", "PIPELINE",
+                                        "{:<name_w$} {:<proj_w$} {:<interval_w$} {:<pipeline_w$} {:<time_w$} STATUS",
+                                        "KIND", "PROJECT", "INTERVAL", "PIPELINE", "TIME",
                                     );
                                 } else {
                                     println!(
-                                        "{:<name_w$} {:<interval_w$} {:<pipeline_w$} STATUS",
-                                        "KIND", "INTERVAL", "PIPELINE",
+                                        "{:<name_w$} {:<interval_w$} {:<pipeline_w$} {:<time_w$} STATUS",
+                                        "KIND", "INTERVAL", "PIPELINE", "TIME",
                                     );
                                 }
                                 for c in &crons {
@@ -267,13 +269,13 @@ pub async fn handle(
                                             &c.namespace
                                         };
                                         println!(
-                                            "{:<name_w$} {:<proj_w$} {:<interval_w$} {:<pipeline_w$} {}",
-                                            c.name, proj, c.interval, c.pipeline, c.status,
+                                            "{:<name_w$} {:<proj_w$} {:<interval_w$} {:<pipeline_w$} {:<time_w$} {}",
+                                            c.name, proj, c.interval, c.pipeline, c.time, c.status,
                                         );
                                     } else {
                                         println!(
-                                            "{:<name_w$} {:<interval_w$} {:<pipeline_w$} {}",
-                                            c.name, c.interval, c.pipeline, c.status,
+                                            "{:<name_w$} {:<interval_w$} {:<pipeline_w$} {:<time_w$} {}",
+                                            c.name, c.interval, c.pipeline, c.time, c.status,
                                         );
                                     }
                                 }

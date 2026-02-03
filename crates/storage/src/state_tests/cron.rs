@@ -143,6 +143,79 @@ fn cron_fired_is_noop_for_state() {
         pipeline_id: PipelineId::new("pipe-123"),
         namespace: String::new(),
     });
-    // CronFired should not create any state by itself
+    // CronFired should not create a record if the cron doesn't exist
     assert!(state.crons.is_empty());
+}
+
+#[test]
+fn cron_fired_updates_last_fired_at() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::CronStarted {
+        cron_name: "janitor".to_string(),
+        project_root: PathBuf::from("/test/project"),
+        runbook_hash: "abc123".to_string(),
+        interval: "30m".to_string(),
+        pipeline_name: "cleanup".to_string(),
+        namespace: String::new(),
+    });
+
+    assert!(state.crons["janitor"].last_fired_at_ms.is_none());
+
+    state.apply_event(&Event::CronFired {
+        cron_name: "janitor".to_string(),
+        pipeline_id: PipelineId::new("pipe-123"),
+        namespace: String::new(),
+    });
+
+    assert!(state.crons["janitor"].last_fired_at_ms.is_some());
+}
+
+#[test]
+fn cron_started_sets_started_at_ms() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::CronStarted {
+        cron_name: "janitor".to_string(),
+        project_root: PathBuf::from("/test/project"),
+        runbook_hash: "abc123".to_string(),
+        interval: "30m".to_string(),
+        pipeline_name: "cleanup".to_string(),
+        namespace: String::new(),
+    });
+
+    assert!(state.crons["janitor"].started_at_ms > 0);
+}
+
+#[test]
+fn cron_restart_preserves_last_fired_at() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::CronStarted {
+        cron_name: "janitor".to_string(),
+        project_root: PathBuf::from("/test/project"),
+        runbook_hash: "abc123".to_string(),
+        interval: "30m".to_string(),
+        pipeline_name: "cleanup".to_string(),
+        namespace: String::new(),
+    });
+
+    state.apply_event(&Event::CronFired {
+        cron_name: "janitor".to_string(),
+        pipeline_id: PipelineId::new("pipe-123"),
+        namespace: String::new(),
+    });
+
+    let fired_ms = state.crons["janitor"].last_fired_at_ms;
+    assert!(fired_ms.is_some());
+
+    // Re-emit CronStarted (daemon restart)
+    state.apply_event(&Event::CronStarted {
+        cron_name: "janitor".to_string(),
+        project_root: PathBuf::from("/test/project"),
+        runbook_hash: "abc123".to_string(),
+        interval: "30m".to_string(),
+        pipeline_name: "cleanup".to_string(),
+        namespace: String::new(),
+    });
+
+    // last_fired_at should be preserved
+    assert_eq!(state.crons["janitor"].last_fired_at_ms, fired_ms);
 }

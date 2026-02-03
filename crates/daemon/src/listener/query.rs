@@ -3,6 +3,8 @@
 
 //! Read-only query handlers.
 
+#[path = "query_crons.rs"]
+mod query_crons;
 #[path = "query_orphans.rs"]
 mod query_orphans;
 #[path = "query_queues.rs"]
@@ -552,15 +554,23 @@ pub(super) fn handle_query(
         }
 
         Query::ListCrons => {
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
             let crons = state
                 .crons
                 .values()
-                .map(|c| CronSummary {
-                    name: c.name.clone(),
-                    namespace: c.namespace.clone(),
-                    interval: c.interval.clone(),
-                    pipeline: c.pipeline_name.clone(),
-                    status: c.status.clone(),
+                .map(|c| {
+                    let time = query_crons::cron_time_display(c, now_ms);
+                    CronSummary {
+                        name: c.name.clone(),
+                        namespace: c.namespace.clone(),
+                        interval: c.interval.clone(),
+                        pipeline: c.pipeline_name.clone(),
+                        status: c.status.clone(),
+                        time,
+                    }
                 })
                 .collect();
             Response::Crons { crons }

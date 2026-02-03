@@ -118,6 +118,12 @@ pub struct CronRecord {
     pub status: String,
     pub interval: String,
     pub pipeline_name: String,
+    /// Epoch ms when the cron was started (timer began)
+    #[serde(default)]
+    pub started_at_ms: u64,
+    /// Epoch ms when the cron last fired (spawned a pipeline)
+    #[serde(default)]
+    pub last_fired_at_ms: Option<u64>,
 }
 
 /// Materialized state built from WAL operations
@@ -673,6 +679,12 @@ impl MaterializedState {
                 namespace,
             } => {
                 let key = scoped_key(namespace, cron_name);
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                // Preserve last_fired_at_ms across restarts (re-emitted CronStarted)
+                let last_fired_at_ms = self.crons.get(&key).and_then(|r| r.last_fired_at_ms);
                 self.crons.insert(
                     key,
                     CronRecord {
@@ -683,6 +695,8 @@ impl MaterializedState {
                         status: "running".to_string(),
                         interval: interval.clone(),
                         pipeline_name: pipeline_name.clone(),
+                        started_at_ms: now_ms,
+                        last_fired_at_ms,
                     },
                 );
             }
@@ -697,8 +711,20 @@ impl MaterializedState {
                 }
             }
 
-            // CronFired is a tracking event; pipeline creation is handled by PipelineCreated
-            Event::CronFired { .. } => {}
+            Event::CronFired {
+                cron_name,
+                namespace,
+                ..
+            } => {
+                let key = scoped_key(namespace, cron_name);
+                if let Some(record) = self.crons.get_mut(&key) {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    record.last_fired_at_ms = Some(now_ms);
+                }
+            }
 
             Event::CronDeleted {
                 cron_name,

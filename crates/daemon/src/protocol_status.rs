@@ -18,6 +18,9 @@ pub struct CronSummary {
     pub interval: String,
     pub pipeline: String,
     pub status: String,
+    /// Human-readable time: "in 12m" for running, "3h ago" for stopped
+    #[serde(default)]
+    pub time: String,
 }
 
 /// Per-namespace status summary

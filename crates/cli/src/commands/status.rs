@@ -23,7 +23,7 @@ pub struct StatusArgs {
 
 pub async fn handle(args: StatusArgs, format: OutputFormat) -> Result<()> {
     if !args.watch {
-        return handle_once(format).await;
+        return handle_once(format, None).await;
     }
 
     let interval = crate::commands::pipeline::parse_duration(&args.interval)?;
@@ -33,12 +33,12 @@ pub async fn handle(args: StatusArgs, format: OutputFormat) -> Result<()> {
 
     loop {
         print!("\x1B[2J\x1B[H");
-        handle_once(format).await?;
+        handle_once(format, Some(&args.interval)).await?;
         tokio::time::sleep(interval).await;
     }
 }
 
-async fn handle_once(format: OutputFormat) -> Result<()> {
+async fn handle_once(format: OutputFormat, watch_interval: Option<&str>) -> Result<()> {
     let client = match DaemonClient::connect() {
         Ok(c) => c,
         Err(_) => {
@@ -63,7 +63,7 @@ async fn handle_once(format: OutputFormat) -> Result<()> {
     };
 
     match format {
-        OutputFormat::Text => format_text(uptime_secs, &namespaces),
+        OutputFormat::Text => print!("{}", format_text(uptime_secs, &namespaces, watch_interval)),
         OutputFormat::Json => {
             let obj = serde_json::json!({
                 "uptime_secs": uptime_secs,
@@ -84,7 +84,11 @@ fn handle_not_running(format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-fn format_text(uptime_secs: u64, namespaces: &[oj_daemon::NamespaceStatus]) {
+fn format_text(
+    uptime_secs: u64,
+    namespaces: &[oj_daemon::NamespaceStatus],
+    watch_interval: Option<&str>,
+) -> String {
     let mut out = String::new();
 
     // Header line with uptime and global counts
@@ -96,6 +100,9 @@ fn format_text(uptime_secs: u64, namespaces: &[oj_daemon::NamespaceStatus]) {
         .sum();
 
     let _ = write!(out, "oj daemon: up {}", uptime);
+    if let Some(interval) = watch_interval {
+        let _ = write!(out, " | every {}", interval);
+    }
     if total_active > 0 {
         let _ = write!(
             out,
@@ -117,8 +124,7 @@ fn format_text(uptime_secs: u64, namespaces: &[oj_daemon::NamespaceStatus]) {
     out.push('\n');
 
     if namespaces.is_empty() {
-        print!("{}", out);
-        return;
+        return out;
     }
 
     for ns in namespaces {
@@ -247,7 +253,7 @@ fn format_text(uptime_secs: u64, namespaces: &[oj_daemon::NamespaceStatus]) {
         }
     }
 
-    print!("{}", out);
+    out
 }
 
 fn format_duration(secs: u64) -> String {
@@ -279,3 +285,7 @@ fn truncate_id(id: &str, max_len: usize) -> &str {
         &id[..max_len]
     }
 }
+
+#[cfg(test)]
+#[path = "status_tests.rs"]
+mod tests;

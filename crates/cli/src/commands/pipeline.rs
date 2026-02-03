@@ -154,20 +154,6 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
     Ok(Duration::from_secs(total_secs))
 }
 
-/// Map a pipeline's step/status to a sort group: 0 = active, 1 = failed, 2 = terminal.
-pub(crate) fn status_group(step: &str, step_status: &str) -> u8 {
-    match step {
-        "failed" => 1,
-        "done" => 2,
-        _ => match step_status {
-            "Running" | "Pending" | "Waiting" => 0,
-            "Failed" => 1,
-            "Completed" => 2,
-            _ => 2,
-        },
-    }
-}
-
 pub(crate) fn format_pipeline_list(out: &mut impl Write, pipelines: &[oj_daemon::PipelineSummary]) {
     if pipelines.is_empty() {
         let _ = writeln!(out, "No pipelines");
@@ -283,12 +269,8 @@ pub async fn handle(
                 });
             }
 
-            // Sort: active first, then failed, then completed — most recent first within each group
-            pipelines.sort_by(|a, b| {
-                let ga = status_group(&a.step, &a.step_status);
-                let gb = status_group(&b.step, &b.step_status);
-                ga.cmp(&gb).then(b.created_at_ms.cmp(&a.created_at_ms))
-            });
+            // Sort by most recently updated first
+            pipelines.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
 
             // Limit
             let total = pipelines.len();

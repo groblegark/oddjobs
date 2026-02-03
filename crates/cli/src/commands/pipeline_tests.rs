@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use super::super::pipeline_wait::{print_step_progress, StepTracker};
-use super::{format_pipeline_list, format_var_value, parse_duration, status_group};
+use super::{format_pipeline_list, format_var_value, parse_duration};
 use oj_daemon::{PipelineDetail, PipelineSummary, StepRecordDetail};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -38,47 +38,7 @@ fn parse_duration_zero_fails() {
 }
 
 #[test]
-fn status_group_running_is_active() {
-    assert_eq!(status_group("build", "Running"), 0);
-}
-
-#[test]
-fn status_group_pending_is_active() {
-    assert_eq!(status_group("execute", "Pending"), 0);
-}
-
-#[test]
-fn status_group_waiting_is_active() {
-    assert_eq!(status_group("review", "Waiting"), 0);
-}
-
-#[test]
-fn status_group_failed_step() {
-    assert_eq!(status_group("failed", "Failed"), 1);
-}
-
-#[test]
-fn status_group_failed_step_any_status() {
-    assert_eq!(status_group("failed", "Running"), 1);
-}
-
-#[test]
-fn status_group_done_step() {
-    assert_eq!(status_group("done", "Completed"), 2);
-}
-
-#[test]
-fn status_group_step_status_failed() {
-    assert_eq!(status_group("build", "Failed"), 1);
-}
-
-#[test]
-fn status_group_step_status_completed() {
-    assert_eq!(status_group("build", "Completed"), 2);
-}
-
-#[test]
-fn sort_order_active_before_failed_before_done() {
+fn sort_order_most_recently_updated_first() {
     let mut pipelines = vec![
         PipelineSummary {
             id: "done-1".into(),
@@ -87,7 +47,7 @@ fn sort_order_active_before_failed_before_done() {
             step: "done".into(),
             step_status: "Completed".into(),
             created_at_ms: 1000,
-            updated_at_ms: 1000,
+            updated_at_ms: 5000,
             namespace: String::new(),
         },
         PipelineSummary {
@@ -112,19 +72,15 @@ fn sort_order_active_before_failed_before_done() {
         },
     ];
 
-    pipelines.sort_by(|a, b| {
-        let ga = status_group(&a.step, &a.step_status);
-        let gb = status_group(&b.step, &b.step_status);
-        ga.cmp(&gb).then(b.created_at_ms.cmp(&a.created_at_ms))
-    });
+    pipelines.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
 
-    assert_eq!(pipelines[0].id, "active-1");
-    assert_eq!(pipelines[1].id, "failed-1");
-    assert_eq!(pipelines[2].id, "done-1");
+    assert_eq!(pipelines[0].id, "done-1"); // updated_at 5000
+    assert_eq!(pipelines[1].id, "active-1"); // updated_at 3000
+    assert_eq!(pipelines[2].id, "failed-1"); // updated_at 2000
 }
 
 #[test]
-fn sort_order_most_recent_first_within_group() {
+fn sort_order_most_recent_updated_first_within_same_status() {
     let mut pipelines = vec![
         PipelineSummary {
             id: "old".into(),
@@ -148,11 +104,7 @@ fn sort_order_most_recent_first_within_group() {
         },
     ];
 
-    pipelines.sort_by(|a, b| {
-        let ga = status_group(&a.step, &a.step_status);
-        let gb = status_group(&b.step, &b.step_status);
-        ga.cmp(&gb).then(b.created_at_ms.cmp(&a.created_at_ms))
-    });
+    pipelines.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
 
     assert_eq!(pipelines[0].id, "new");
     assert_eq!(pipelines[1].id, "old");

@@ -341,14 +341,8 @@ pub(super) fn handle_query(
                 agents.extend(summaries);
             }
 
-            // Sort: running agents first, then by pipeline_id (most recent first)
-            agents.sort_by(|a, b| {
-                let a_running = a.status == "running";
-                let b_running = b.status == "running";
-                b_running
-                    .cmp(&a_running)
-                    .then_with(|| b.pipeline_id.cmp(&a.pipeline_id))
-            });
+            // Sort by most recently updated first
+            agents.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
 
             Response::Agents { agents }
         }
@@ -357,13 +351,28 @@ pub(super) fn handle_query(
             let workers = state
                 .workers
                 .values()
-                .map(|w| WorkerSummary {
-                    name: w.name.clone(),
-                    namespace: w.namespace.clone(),
-                    queue: w.queue_name.clone(),
-                    status: w.status.clone(),
-                    active: w.active_pipeline_ids.len(),
-                    concurrency: w.concurrency,
+                .map(|w| {
+                    // Derive updated_at_ms from the most recently updated active pipeline
+                    let updated_at_ms = w
+                        .active_pipeline_ids
+                        .iter()
+                        .filter_map(|pid| state.pipelines.get(pid))
+                        .filter_map(|p| {
+                            p.step_history
+                                .last()
+                                .map(|r| r.finished_at_ms.unwrap_or(r.started_at_ms))
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    WorkerSummary {
+                        name: w.name.clone(),
+                        namespace: w.namespace.clone(),
+                        queue: w.queue_name.clone(),
+                        status: w.status.clone(),
+                        active: w.active_pipeline_ids.len(),
+                        concurrency: w.concurrency,
+                        updated_at_ms,
+                    }
                 })
                 .collect();
             Response::Workers { workers }
@@ -428,6 +437,8 @@ fn compute_agent_summaries(
                 exit_reason
             };
 
+            let updated_at_ms = step.finished_at_ms.unwrap_or(step.started_at_ms);
+
             Some(AgentSummary {
                 pipeline_id: pipeline_id.to_string(),
                 step_name: step.name.clone(),
@@ -437,6 +448,7 @@ fn compute_agent_summaries(
                 files_written,
                 commands_run,
                 exit_reason,
+                updated_at_ms,
             })
         })
         .collect()

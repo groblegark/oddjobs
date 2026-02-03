@@ -223,7 +223,8 @@ pub async fn handle(
                 },
             };
             match client.send(&request).await? {
-                Response::QueueItems { items } => {
+                Response::QueueItems { mut items } => {
+                    items.sort_by(|a, b| b.pushed_at_epoch_ms.cmp(&a.pushed_at_epoch_ms));
                     if items.is_empty() {
                         println!("No items in queue '{}'", queue);
                         return Ok(());

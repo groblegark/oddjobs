@@ -410,6 +410,9 @@ pub struct AgentSummary {
     pub commands_run: usize,
     /// Exit reason (e.g. "completed", "idle (gate passed)", "failed: ...")
     pub exit_reason: Option<String>,
+    /// Most recent activity timestamp (from step history)
+    #[serde(default)]
+    pub updated_at_ms: u64,
 }
 
 /// Summary of a session for listing
@@ -485,6 +488,9 @@ pub struct WorkerSummary {
     pub status: String,
     pub active: usize,
     pub concurrency: u32,
+    /// Most recent activity timestamp (from active pipelines)
+    #[serde(default)]
+    pub updated_at_ms: u64,
 }
 
 /// Protocol errors

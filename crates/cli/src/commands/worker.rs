@@ -60,7 +60,7 @@ pub async fn handle(
             };
             match client.send(&request).await? {
                 Response::Workers { mut workers } => {
-                    workers.sort_by(|a, b| a.name.cmp(&b.name));
+                    workers.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
                     match format {
                         OutputFormat::Json => {
                             println!("{}", serde_json::to_string_pretty(&workers)?);

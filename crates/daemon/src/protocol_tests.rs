@@ -164,6 +164,7 @@ fn encode_decode_workers_response() {
             active: 2,
             concurrency: 3,
             namespace: String::new(),
+            updated_at_ms: 0,
         }],
     };
 
@@ -215,6 +216,7 @@ fn encode_decode_agents_response() {
             files_written: 3,
             commands_run: 5,
             exit_reason: None,
+            updated_at_ms: 1700000000000,
         }],
     };
 

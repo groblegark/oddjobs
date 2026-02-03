@@ -35,6 +35,9 @@ where
         if let Some(rest) = id_str.strip_prefix("cron:") {
             return self.handle_cron_timer_fired(rest).await;
         }
+        if let Some(rest) = id_str.strip_prefix("queue-poll:") {
+            return self.handle_queue_poll_timer(rest).await;
+        }
         // Unknown timer — no-op
         tracing::debug!(timer_id = %id, "ignoring unknown timer");
         Ok(vec![])

@@ -168,3 +168,30 @@ fn is_cron() {
     let id = TimerId::new("liveness:pipe-123");
     assert!(!id.is_cron());
 }
+
+#[test]
+fn queue_poll_timer_id_format() {
+    let id = TimerId::queue_poll("my-worker", "");
+    assert_eq!(id.as_str(), "queue-poll:my-worker");
+}
+
+#[test]
+fn queue_poll_timer_id_with_namespace() {
+    let id = TimerId::queue_poll("my-worker", "myproject");
+    assert_eq!(id.as_str(), "queue-poll:myproject/my-worker");
+}
+
+#[test]
+fn is_queue_poll() {
+    let id = TimerId::queue_poll("my-worker", "");
+    assert!(id.is_queue_poll());
+
+    let id = TimerId::queue_poll("my-worker", "ns");
+    assert!(id.is_queue_poll());
+
+    let id = TimerId::new("liveness:pipe-123");
+    assert!(!id.is_queue_poll());
+
+    let id = TimerId::new("cron:janitor");
+    assert!(!id.is_queue_poll());
+}

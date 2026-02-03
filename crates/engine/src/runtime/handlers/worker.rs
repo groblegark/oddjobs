@@ -28,6 +28,8 @@ pub(crate) struct WorkerState {
     pub item_pipeline_map: HashMap<PipelineId, String>,
     /// Project namespace
     pub namespace: String,
+    /// Poll interval for external queues (None = no periodic polling)
+    pub poll_interval: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +94,7 @@ where
         });
 
         // Store worker state
+        let poll_interval = queue_def.poll.clone();
         let state = WorkerState {
             project_root: project_root.to_path_buf(),
             runbook_hash: runbook_hash.to_string(),
@@ -103,6 +106,7 @@ where
             queue_type,
             item_pipeline_map: persisted_item_map,
             namespace: namespace.to_string(),
+            poll_interval: poll_interval.clone(),
         };
 
         {
@@ -114,14 +118,33 @@ where
         match queue_type {
             QueueType::External => {
                 let list_command = queue_def.list.clone().unwrap_or_default();
-                Ok(self
+                let events = self
                     .executor
                     .execute_all(vec![Effect::PollQueue {
                         worker_name: worker_name.to_string(),
                         list_command,
                         cwd: project_root.to_path_buf(),
                     }])
-                    .await?)
+                    .await?;
+
+                // Start periodic poll timer if configured
+                if let Some(ref poll) = poll_interval {
+                    let duration = crate::monitor::parse_duration(poll).map_err(|e| {
+                        RuntimeError::InvalidFormat(format!(
+                            "invalid poll interval '{}': {}",
+                            poll, e
+                        ))
+                    })?;
+                    let timer_id = TimerId::queue_poll(worker_name, namespace);
+                    self.executor
+                        .execute(Effect::SetTimer {
+                            id: timer_id,
+                            duration,
+                        })
+                        .await?;
+                }
+
+                Ok(events)
             }
             QueueType::Persisted => {
                 self.poll_persisted_queue(worker_name, &worker_def.source.queue, namespace)
@@ -438,11 +461,63 @@ where
         &self,
         worker_name: &str,
     ) -> Result<Vec<Event>, RuntimeError> {
-        let mut workers = self.worker_states.lock();
-        if let Some(state) = workers.get_mut(worker_name) {
-            state.status = WorkerStatus::Stopped;
-        }
+        let namespace = {
+            let mut workers = self.worker_states.lock();
+            if let Some(state) = workers.get_mut(worker_name) {
+                state.status = WorkerStatus::Stopped;
+                state.namespace.clone()
+            } else {
+                String::new()
+            }
+        };
+
+        // Cancel poll timer if it was set (no-op if timer doesn't exist)
+        let timer_id = TimerId::queue_poll(worker_name, &namespace);
+        self.executor
+            .execute(Effect::CancelTimer { id: timer_id })
+            .await?;
+
         Ok(vec![])
+    }
+
+    /// Handle a queue poll timer firing: wake the worker and reschedule.
+    pub(crate) async fn handle_queue_poll_timer(
+        &self,
+        rest: &str,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        // Parse worker name from timer ID (after "queue-poll:" prefix)
+        // Format: "worker_name" or "namespace/worker_name"
+        let worker_name = rest.rsplit('/').next().unwrap_or(rest);
+
+        let (poll_interval, namespace) = {
+            let workers = self.worker_states.lock();
+            match workers.get(worker_name) {
+                Some(s) if s.status == WorkerStatus::Running => match &s.poll_interval {
+                    Some(interval) => (interval.clone(), s.namespace.clone()),
+                    None => return Ok(vec![]),
+                },
+                _ => return Ok(vec![]),
+            }
+        };
+
+        tracing::debug!(worker = worker_name, "queue poll timer fired");
+
+        // Wake the worker (triggers re-poll of the list command)
+        let result_events = self.handle_worker_wake(worker_name).await?;
+
+        // Reschedule timer for next interval
+        let duration = crate::monitor::parse_duration(&poll_interval).map_err(|e| {
+            RuntimeError::InvalidFormat(format!("invalid poll interval '{}': {}", poll_interval, e))
+        })?;
+        let timer_id = TimerId::queue_poll(worker_name, &namespace);
+        self.executor
+            .execute(Effect::SetTimer {
+                id: timer_id,
+                duration,
+            })
+            .await?;
+
+        Ok(result_events)
     }
 
     /// Check if a completed pipeline belongs to a worker and trigger re-poll if so.

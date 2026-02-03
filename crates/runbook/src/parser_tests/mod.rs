@@ -6,6 +6,7 @@ use crate::{parse_runbook, parse_runbook_with_format, Format, ParseError, QueueT
 mod action_trigger;
 mod cron;
 mod prime;
+mod queue_poll;
 mod references;
 
 // New format - uses RunDirective tables and args string syntax

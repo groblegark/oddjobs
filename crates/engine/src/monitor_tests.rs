@@ -391,6 +391,28 @@ fn parse_duration_invalid_number() {
     assert!(result.is_err());
 }
 
+#[test]
+fn parse_duration_milliseconds() {
+    assert_eq!(parse_duration("200ms").unwrap(), Duration::from_millis(200));
+    assert_eq!(parse_duration("0ms").unwrap(), Duration::from_millis(0));
+    assert_eq!(
+        parse_duration("1500ms").unwrap(),
+        Duration::from_millis(1500)
+    );
+    assert_eq!(
+        parse_duration("100millis").unwrap(),
+        Duration::from_millis(100)
+    );
+    assert_eq!(
+        parse_duration("1millisecond").unwrap(),
+        Duration::from_millis(1)
+    );
+    assert_eq!(
+        parse_duration("50milliseconds").unwrap(),
+        Duration::from_millis(50)
+    );
+}
+
 // =============================================================================
 // Agent Notification Tests
 // =============================================================================

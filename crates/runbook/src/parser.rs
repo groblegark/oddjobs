@@ -257,6 +257,14 @@ pub fn parse_runbook_with_format(content: &str, format: Format) -> Result<Runboo
                         message: "external queue must not have 'retry' field".to_string(),
                     });
                 }
+                if let Some(ref poll) = queue.poll {
+                    if let Err(e) = validate_duration_str(poll) {
+                        return Err(ParseError::InvalidFormat {
+                            location: format!("queue.{}.poll", name),
+                            message: e,
+                        });
+                    }
+                }
             }
             QueueType::Persisted => {
                 if queue.vars.is_empty() {
@@ -275,6 +283,12 @@ pub fn parse_runbook_with_format(content: &str, format: Format) -> Result<Runboo
                     return Err(ParseError::InvalidFormat {
                         location: format!("queue.{}", name),
                         message: "persisted queue must not have 'take' field".to_string(),
+                    });
+                }
+                if queue.poll.is_some() {
+                    return Err(ParseError::InvalidFormat {
+                        location: format!("queue.{}", name),
+                        message: "persisted queue must not have 'poll' field".to_string(),
                     });
                 }
                 if let Some(ref retry) = queue.retry {

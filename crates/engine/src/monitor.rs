@@ -33,6 +33,9 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
         .map_err(|_| format!("invalid number in duration: {}", s))?;
 
     let multiplier = match suffix.trim() {
+        "ms" | "millis" | "millisecond" | "milliseconds" => {
+            return Ok(Duration::from_millis(num));
+        }
         "" | "s" | "sec" | "secs" | "second" | "seconds" => 1,
         "m" | "min" | "mins" | "minute" | "minutes" => 60,
         "h" | "hr" | "hrs" | "hour" | "hours" => 3600,

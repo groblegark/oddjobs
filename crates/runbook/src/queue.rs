@@ -62,4 +62,8 @@ pub struct QueueDef {
     /// Retry configuration (persisted queues only)
     #[serde(default)]
     pub retry: Option<RetryConfig>,
+    /// Poll interval for external queues (e.g. "30s", "5m")
+    /// When set, workers periodically check the queue at this interval
+    #[serde(default)]
+    pub poll: Option<String>,
 }

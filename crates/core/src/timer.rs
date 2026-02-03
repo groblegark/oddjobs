@@ -86,6 +86,20 @@ impl TimerId {
         self.0.starts_with("cron:")
     }
 
+    /// Timer ID for periodic queue polling.
+    pub fn queue_poll(worker_name: &str, namespace: &str) -> Self {
+        if namespace.is_empty() {
+            Self::new(format!("queue-poll:{}", worker_name))
+        } else {
+            Self::new(format!("queue-poll:{}/{}", namespace, worker_name))
+        }
+    }
+
+    /// Returns true if this is a queue poll timer.
+    pub fn is_queue_poll(&self) -> bool {
+        self.0.starts_with("queue-poll:")
+    }
+
     /// Extracts the pipeline ID portion if this is a pipeline-related timer.
     ///
     /// Returns `Some(&str)` for liveness, exit-deferred, and cooldown timers.

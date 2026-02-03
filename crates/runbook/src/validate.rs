@@ -154,8 +154,9 @@ pub(crate) fn validate_duration_str(s: &str) -> Result<(), String> {
         .map_err(|_| format!("invalid number in duration: {}", s))?;
 
     match suffix.trim() {
-        "" | "s" | "sec" | "secs" | "second" | "seconds" | "m" | "min" | "mins" | "minute"
-        | "minutes" | "h" | "hr" | "hrs" | "hour" | "hours" | "d" | "day" | "days" => Ok(()),
+        "" | "s" | "sec" | "secs" | "second" | "seconds" | "ms" | "millis" | "millisecond"
+        | "milliseconds" | "m" | "min" | "mins" | "minute" | "minutes" | "h" | "hr" | "hrs"
+        | "hour" | "hours" | "d" | "day" | "days" => Ok(()),
         other => Err(format!("unknown duration suffix: {}", other)),
     }
 }

@@ -30,11 +30,16 @@ Multi-project
 ----
 
 ## In Flight
-  - fix(engine): queue items stuck in Active status after worker restart (pipeline bb7f78ff)
-  - chore(cli): `oj queue drop` should accept ID prefixes (pipeline d12e5c65)
-  - feat(cli): "did you mean?" suggestions for resource name typos and cross-project lookups (pipeline e9cb54ef)
+  - feat(cli): "did you mean?" suggestions for resource name typos and cross-project lookups (pipeline 04fb6568)
 
 ## Recently Completed
+  - fix(daemon): save final snapshot on shutdown — prevents state loss across restarts
+  - fix(daemon): `oj pipeline resume` works for orphaned pipelines (re-adopts from breadcrumb)
+  - fix(daemon): `oj pipeline peek/attach/logs` resolve session_id for orphaned pipelines
+  - feat(cli): `oj queue drop` and `oj queue retry` accept ID prefixes
+  - chore(cli): simplified `oj daemon orphans` output (one line per orphan)
+  - feat(cli): colored help output for custom help blocks
+  - fix(notify): pre-set bundle ID to unblock macOS notifications
   - feat(engine): standalone agent runs — `oj run <name>` with `run = { agent = "..." }` spawns top-level agents
   - feat(engine): decision system phase 1 — data model, storage, events, CLI (oj decision list/show/resolve)
   - feat(cli): TIME column in `oj cron list` (next fire countdown for running, last fired age for stopped)
@@ -236,6 +241,10 @@ Key features landed:
   - Decision system phase 1: data model, WAL events, oj decision list/show/resolve
   - Cron list: TIME column (next fire / last fired), KIND column rename
   - Merge resolver prime: git status + commit log + diffstat injected at session start
+  - Shutdown snapshot: daemon saves final checkpoint before exiting
+  - Orphan recovery: resume, peek, attach, logs all work for orphaned pipelines
+  - Queue drop/retry accept ID prefixes (consistent with other commands)
+  - Colored custom help blocks, macOS notification bundle ID fix
 
 Patterns that work:
   - oj run {build,fix,chore,draft} → agent → submit/push. Full loop end-to-end.
@@ -280,5 +289,12 @@ Issues discovered:
     but if check_worker_pipeline_complete doesn't run (restart between WAL apply and
     engine handler), no QueueCompleted event is emitted. The item_pipeline_map is
     in-memory only and reconstruction misses completed pipelines. Fix dispatched.
-  - `oj queue drop` requires full UUID while other queue commands accept prefixes.
-    Chore dispatched.
+  - `oj queue drop` required full UUID while other queue commands accepted prefixes.
+    Fixed: queue drop and retry now accept prefixes.
+  - Daemon shutdown didn't save final snapshot. On restart, state since last periodic
+    checkpoint was lost. If snapshot file was also missing, all state gone — pipelines
+    became orphans detected only via breadcrumb files. Fixed: shutdown saves final
+    checkpoint. Orphan resume/peek/attach/logs also fixed as defense-in-depth.
+  - Orphaned pipelines couldn't be resumed — resume looked in materialized state which
+    didn't have them. peek/attach/logs also failed (no session_id). Fixed: all commands
+    now fall back to the orphan registry's breadcrumb data.

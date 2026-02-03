@@ -1,10 +1,15 @@
 # TODO
 
-In progress (agents working):
-  - feat(engine): orphan pipeline detection via breadcrumb files in `oj pipeline list`
-  - chore(cli): add --project flag to `oj worker start` and `oj worker stop`
-
 Recently landed:
+  - feat(engine): source-aware prime commands for agents (per-source SessionStart hooks)
+  - feat(cli): `oj pipeline prune --orphans` — prune orphaned pipelines via breadcrumb files
+  - fix(cli): `oj queue list` shows all queues across all project namespaces
+  - fix(cli): external queue push runs list command from project root
+  - fix(cli): rename "(default)" namespace label to "(no project)" in display output
+  - feat(cli): show total retry count across steps in `oj pipeline list`
+  - feat(cli): `oj project list` — list project name and root directory
+  - feat(daemon): surface orphaned pipelines in pipeline list/show/status
+  - feat(cli): add --project flag to worker start/stop commands
   - feat(engine): cron entrypoint — time-driven pipeline execution (oj cron {list,start,stop,once})
   - chore(runbooks): replace shared target-dir with sccache across all projects
   - fix(runbooks): stage uncommitted resolver changes before rebase in merge push
@@ -169,6 +174,14 @@ Key features landed:
   - Draft-rebase command for rebasing exploratory branches
   - Cron entrypoint: time-driven pipeline execution with auto-resume and runbook hot-reload
   - sccache for worktree builds: eliminates shared target-dir cache poisoning
+  - Orphan pipeline detection: breadcrumb files + surfacing in list/show/status
+  - `oj project list`: visibility into registered projects and roots
+  - --project flag on worker start/stop: explicit namespace control
+  - Source-aware prime: per-source SessionStart hooks for agents
+  - `oj pipeline prune --orphans`: clean up orphaned pipelines
+  - Cross-namespace queue visibility: `oj queue list` shows all projects
+  - External queue push fix: list command runs from project root
+  - Retry count in pipeline list: visibility into step retry activity
 
 Patterns that work:
   - oj run {build,fix,chore,draft} → agent → submit/push. Full loop end-to-end.

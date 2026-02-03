@@ -464,10 +464,24 @@ pub async fn handle(
                     .map(|a| a.agent_id.clone())
             });
 
-            match session_id {
-                Some(session_id) => {
-                    let with_color = should_use_color();
-                    let output = client.peek_session(&session_id, with_color).await?;
+            // Try to capture the tmux pane output if a session exists
+            let peek_output = if let Some(ref session_id) = session_id {
+                let with_color = should_use_color();
+                match client.peek_session(session_id, with_color).await {
+                    Ok(output) => Some((session_id.clone(), output)),
+                    Err(crate::client::ClientError::Rejected(msg))
+                        if msg.starts_with("Session not found") =>
+                    {
+                        None
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            } else {
+                None
+            };
+
+            match peek_output {
+                Some((session_id, output)) => {
                     println!("╭──── peek: {} ────", session_id);
                     print!("{}", output);
                     println!("╰──── end peek ────");

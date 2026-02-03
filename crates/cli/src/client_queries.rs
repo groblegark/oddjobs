@@ -444,12 +444,14 @@ impl DaemonClient {
     pub async fn get_cron_logs(
         &self,
         name: &str,
+        namespace: &str,
         lines: usize,
         project_root: Option<&Path>,
     ) -> Result<(PathBuf, String), ClientError> {
         let request = Request::Query {
             query: Query::GetCronLogs {
                 name: name.to_string(),
+                namespace: namespace.to_string(),
                 lines,
                 project_root: project_root.map(|p| p.to_path_buf()),
             },

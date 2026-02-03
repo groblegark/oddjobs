@@ -196,11 +196,11 @@ pub async fn handle(
             limit,
             project,
         } => {
-            let _effective_namespace = project
+            let effective_namespace = project
                 .or_else(|| std::env::var("OJ_NAMESPACE").ok())
                 .unwrap_or_else(|| namespace.to_string());
             let (log_path, content) = client
-                .get_cron_logs(&name, limit, Some(project_root))
+                .get_cron_logs(&name, &effective_namespace, limit, Some(project_root))
                 .await?;
             display_log(&log_path, &content, follow, format, "cron", &name).await?;
         }

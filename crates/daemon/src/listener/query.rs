@@ -768,12 +768,18 @@ pub(super) fn handle_query(
 
         Query::GetCronLogs {
             name,
+            namespace,
             lines,
             project_root,
         } => {
             use oj_engine::log_paths::cron_log_path;
 
-            let log_path = cron_log_path(logs_path, &name);
+            let scoped = if namespace.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", namespace, name)
+            };
+            let log_path = cron_log_path(logs_path, &scoped);
 
             // If log exists, return it
             if log_path.exists() {
@@ -806,8 +812,6 @@ pub(super) fn handle_query(
                         if !candidates.contains(&cname) {
                             candidates.push(cname);
                         }
-                    }
-                }
 
                 let candidate_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
                 let similar = suggest::find_similar(&name, &candidate_refs);

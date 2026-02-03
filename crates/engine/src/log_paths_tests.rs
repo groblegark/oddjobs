@@ -31,6 +31,15 @@ fn cron_log_path_builds_expected_path() {
 }
 
 #[test]
+fn cron_log_path_with_namespace() {
+    let result = cron_log_path(Path::new("/state/logs"), "myproject/nightly-deploy");
+    assert_eq!(
+        result,
+        PathBuf::from("/state/logs/cron/myproject/nightly-deploy.log")
+    );
+}
+
+#[test]
 fn worker_log_path_builds_expected_path() {
     let result = worker_log_path(Path::new("/state/logs"), "my-worker");
     assert_eq!(result, PathBuf::from("/state/logs/worker/my-worker.log"));

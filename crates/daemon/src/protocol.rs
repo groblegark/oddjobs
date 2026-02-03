@@ -344,6 +344,8 @@ pub enum Query {
     GetCronLogs {
         /// Cron name
         name: String,
+        #[serde(default)]
+        namespace: String,
         /// Number of most recent lines to return (0 = all)
         lines: usize,
         #[serde(default)]

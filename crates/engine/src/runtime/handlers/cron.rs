@@ -29,12 +29,22 @@ pub(crate) enum CronStatus {
     Stopped,
 }
 
+/// Build a namespace-scoped cron name for log file paths.
+fn scoped_cron_name(namespace: &str, cron_name: &str) -> String {
+    if namespace.is_empty() {
+        cron_name.to_string()
+    } else {
+        format!("{}/{}", namespace, cron_name)
+    }
+}
+
 /// Append a timestamped line to the cron log file.
 ///
 /// Creates the `{logs_dir}/cron/` directory on first write.
 /// Errors are silently ignored — logging must not break the cron.
-fn append_cron_log(logs_dir: &Path, cron_name: &str, message: &str) {
-    let path = cron_log_path(logs_dir, cron_name);
+fn append_cron_log(logs_dir: &Path, cron_name: &str, namespace: &str, message: &str) {
+    let scoped = scoped_cron_name(namespace, cron_name);
+    let path = cron_log_path(logs_dir, &scoped);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -96,6 +106,7 @@ where
         append_cron_log(
             self.logger.log_dir(),
             cron_name,
+            namespace,
             &format!(
                 "started (interval={}, pipeline={})",
                 interval, pipeline_name
@@ -123,7 +134,7 @@ where
             .execute(Effect::CancelTimer { id: timer_id })
             .await?;
 
-        append_cron_log(self.logger.log_dir(), cron_name, "stopped");
+        append_cron_log(self.logger.log_dir(), cron_name, namespace, "stopped");
 
         Ok(vec![])
     }
@@ -178,9 +189,10 @@ where
         &self,
         rest: &str,
     ) -> Result<Vec<Event>, RuntimeError> {
-        // Parse cron name from timer ID rest (after "cron:" prefix)
+        // Parse cron name and namespace from timer ID rest (after "cron:" prefix)
         // Format: "cron_name" or "namespace/cron_name"
         let cron_name = rest.rsplit('/').next().unwrap_or(rest);
+        let timer_namespace = rest.strip_suffix(&format!("/{}", cron_name)).unwrap_or("");
 
         let (_project_root, runbook_hash, pipeline_name, interval, namespace) = {
             let crons = self.cron_states.lock();
@@ -197,6 +209,7 @@ where
                     append_cron_log(
                         self.logger.log_dir(),
                         cron_name,
+                        timer_namespace,
                         "skip: cron not in running state",
                     );
                     return Ok(vec![]);
@@ -254,6 +267,7 @@ where
         append_cron_log(
             self.logger.log_dir(),
             cron_name,
+            &namespace,
             &format!(
                 "tick: triggered pipeline {} ({})",
                 pipeline_name,
@@ -298,10 +312,10 @@ where
         &self,
         cron_name: &str,
     ) -> Result<Option<oj_core::Event>, RuntimeError> {
-        let project_root = {
+        let (project_root, namespace) = {
             let crons = self.cron_states.lock();
             match crons.get(cron_name) {
-                Some(s) => s.project_root.clone(),
+                Some(s) => (s.project_root.clone(), s.namespace.clone()),
                 None => return Ok(None),
             }
         };
@@ -311,12 +325,22 @@ where
         let runbook = oj_runbook::find_runbook_by_cron(&runbook_dir, cron_name)
             .map_err(|e| {
                 let msg = e.to_string();
-                append_cron_log(self.logger.log_dir(), cron_name, &format!("error: {}", msg));
+                append_cron_log(
+                    self.logger.log_dir(),
+                    cron_name,
+                    &namespace,
+                    &format!("error: {}", msg),
+                );
                 RuntimeError::RunbookLoadError(msg)
             })?
             .ok_or_else(|| {
                 let msg = format!("no runbook found containing cron '{}'", cron_name);
-                append_cron_log(self.logger.log_dir(), cron_name, &format!("error: {}", msg));
+                append_cron_log(
+                    self.logger.log_dir(),
+                    cron_name,
+                    &namespace,
+                    &format!("error: {}", msg),
+                );
                 RuntimeError::RunbookLoadError(msg)
             })?;
 

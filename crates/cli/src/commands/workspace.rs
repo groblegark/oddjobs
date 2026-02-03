@@ -29,6 +29,10 @@ pub enum WorkspaceCommand {
         /// Show all workspaces (no limit)
         #[arg(long, conflicts_with = "limit")]
         no_limit: bool,
+
+        /// Filter by project namespace
+        #[arg(long = "project")]
+        project: Option<String>,
     },
     /// Show details of a workspace
     Show {
@@ -66,8 +70,18 @@ pub async fn handle(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        WorkspaceCommand::List { limit, no_limit } => {
+        WorkspaceCommand::List {
+            limit,
+            no_limit,
+            project,
+        } => {
             let mut workspaces = client.list_workspaces().await?;
+
+            // Filter by project namespace
+            let filter_namespace = project.or_else(|| std::env::var("OJ_NAMESPACE").ok());
+            if let Some(ref ns) = filter_namespace {
+                workspaces.retain(|w| w.namespace == *ns);
+            }
 
             // Sort by recency (most recent first)
             workspaces.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));

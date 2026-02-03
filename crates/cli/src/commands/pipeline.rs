@@ -38,6 +38,10 @@ pub enum PipelineCommand {
         /// Show all pipelines (no limit)
         #[arg(long, conflicts_with = "limit")]
         no_limit: bool,
+
+        /// Filter by project namespace
+        #[arg(long = "project")]
+        project: Option<String>,
     },
     /// Show details of a pipeline
     Show {
@@ -354,8 +358,15 @@ pub async fn handle(
             status,
             limit,
             no_limit,
+            project,
         } => {
             let mut pipelines = client.list_pipelines().await?;
+
+            // Filter by project namespace
+            let filter_namespace = project.or_else(|| std::env::var("OJ_NAMESPACE").ok());
+            if let Some(ref ns) = filter_namespace {
+                pipelines.retain(|p| p.namespace == *ns);
+            }
 
             // Filter by name substring
             if let Some(ref pat) = name {

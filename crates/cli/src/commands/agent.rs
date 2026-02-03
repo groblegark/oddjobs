@@ -45,6 +45,10 @@ pub enum AgentCommand {
         /// Show all agents (no limit)
         #[arg(long, conflicts_with = "limit")]
         no_limit: bool,
+
+        /// Filter by project namespace
+        #[arg(long = "project")]
+        project: Option<String>,
     },
     /// Show detailed info for a single agent
     Show {
@@ -142,10 +146,17 @@ pub async fn handle(
             status,
             limit,
             no_limit,
+            project,
         } => {
-            let agents = client
+            let mut agents = client
                 .list_agents(pipeline.as_deref(), status.as_deref())
                 .await?;
+
+            // Filter by project namespace
+            let filter_namespace = project.or_else(|| std::env::var("OJ_NAMESPACE").ok());
+            if let Some(ref ns) = filter_namespace {
+                agents.retain(|a| a.namespace.as_deref() == Some(ns.as_str()));
+            }
 
             let total = agents.len();
             let display_limit = if no_limit { total } else { limit };

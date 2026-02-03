@@ -21,7 +21,11 @@ pub struct CronArgs {
 #[derive(Subcommand)]
 pub enum CronCommand {
     /// List all crons and their status
-    List {},
+    List {
+        /// Filter by project namespace
+        #[arg(long = "project")]
+        project: Option<String>,
+    },
     /// Start a cron (begins interval timer)
     Start {
         /// Cron name from runbook
@@ -69,6 +73,10 @@ pub enum CronCommand {
         /// Show what would be pruned without making changes
         #[arg(long)]
         dry_run: bool,
+
+        /// Filter by project namespace
+        #[arg(long = "project")]
+        project: Option<String>,
     },
 }
 
@@ -166,8 +174,18 @@ pub async fn handle(
                 .await?;
             display_log(&log_path, &content, follow, format, "cron", &name).await?;
         }
-        CronCommand::Prune { all, dry_run } => {
-            let (pruned, skipped) = client.cron_prune(all, dry_run).await?;
+        CronCommand::Prune {
+            all,
+            dry_run,
+            project,
+        } => {
+            let (mut pruned, skipped) = client.cron_prune(all, dry_run).await?;
+
+            // Filter by project namespace
+            let filter_namespace = project.or_else(|| std::env::var("OJ_NAMESPACE").ok());
+            if let Some(ref ns) = filter_namespace {
+                pruned.retain(|e| e.namespace == *ns);
+            }
 
             match format {
                 OutputFormat::Text => {
@@ -198,12 +216,18 @@ pub async fn handle(
                 }
             }
         }
-        CronCommand::List {} => {
+        CronCommand::List { project } => {
             let request = Request::Query {
                 query: Query::ListCrons,
             };
             match client.send(&request).await? {
                 Response::Crons { mut crons } => {
+                    // Filter by project namespace
+                    let filter_namespace = project.or_else(|| std::env::var("OJ_NAMESPACE").ok());
+                    if let Some(ref ns) = filter_namespace {
+                        crons.retain(|c| c.namespace == *ns);
+                    }
+
                     crons.sort_by(|a, b| a.name.cmp(&b.name));
                     match format {
                         OutputFormat::Json => {

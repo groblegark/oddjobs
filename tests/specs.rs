@@ -25,6 +25,8 @@ mod project_setup;
 mod daemon_crons;
 #[path = "specs/daemon/help.rs"]
 mod daemon_help;
+#[path = "specs/daemon/init_idempotency.rs"]
+mod daemon_init_idempotency;
 #[path = "specs/daemon/lifecycle.rs"]
 mod daemon_lifecycle;
 #[path = "specs/daemon/logs.rs"]

@@ -39,7 +39,7 @@ struct Cli {
     output: OutputFormat,
 
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -116,8 +116,19 @@ async fn run() -> Result<()> {
     let cli = Cli::parse();
     let format = cli.output;
 
+    let command = match cli.command {
+        Some(cmd) => cmd,
+        None => {
+            // No subcommand provided — print help and exit 0
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            println!();
+            return Ok(());
+        }
+    };
+
     // Handle daemon command separately (doesn't need client connection)
-    if let Commands::Daemon(args) = cli.command {
+    if let Commands::Daemon(args) = command {
         return daemon::daemon(args, format).await;
     }
 
@@ -130,7 +141,7 @@ async fn run() -> Result<()> {
     // - Action commands: auto-start daemon, max 1 restart (user-initiated mutations)
     // - Query commands: connect only, no restart (reads that need existing state)
     // - Signal commands: connect only, no restart (agent-initiated, context-dependent)
-    match cli.command {
+    match command {
         // Action commands - mutate state, user-initiated
         Commands::Run(args) => {
             let client = DaemonClient::for_action()?;

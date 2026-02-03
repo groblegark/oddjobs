@@ -5,6 +5,11 @@
 use crate::prelude::*;
 
 #[test]
+fn oj_no_args_shows_usage_and_exits_zero() {
+    cli().passes().stdout_has("Usage:");
+}
+
+#[test]
 fn oj_help_shows_usage() {
     cli().args(&["--help"]).passes().stdout_has("Usage:");
 }

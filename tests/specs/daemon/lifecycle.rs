@@ -81,7 +81,7 @@ fn daemon_recovers_pipeline_after_crash() {
     // Wait for the pipeline to reach the agent step (Running status)
     let running = wait_for(SPEC_WAIT_MAX_MS, || {
         let output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
-        output.contains("work") && output.contains("Running")
+        output.contains("work") && output.contains("running")
     });
     assert!(running, "pipeline should reach the agent step");
 
@@ -111,7 +111,7 @@ fn daemon_recovers_pipeline_after_crash() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
 
     if !done {
@@ -127,7 +127,7 @@ fn daemon_recovers_pipeline_after_crash() {
     temp.oj()
         .args(&["pipeline", "list"])
         .passes()
-        .stdout_has("Completed");
+        .stdout_has("completed");
 }
 
 #[test]

@@ -72,7 +72,7 @@ fn make_breadcrumb(pipeline_id: &str) -> Breadcrumb {
         name: "test-pipeline".to_string(),
         vars: HashMap::new(),
         current_step: "work".to_string(),
-        step_status: "Running".to_string(),
+        step_status: "running".to_string(),
         agents: vec![],
         workspace_id: None,
         workspace_root: None,

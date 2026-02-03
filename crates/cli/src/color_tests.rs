@@ -227,3 +227,70 @@ fn status_case_insensitive() {
         "should preserve original casing"
     );
 }
+
+#[test]
+#[serial]
+fn status_compound_failed_gets_red() {
+    std::env::set_var("COLOR", "1");
+    std::env::remove_var("NO_COLOR");
+
+    let result = status("failed: timeout");
+    assert!(
+        result.contains("\x1b[31m"),
+        "expected red ANSI for compound failed status"
+    );
+    assert!(result.contains("failed: timeout"));
+}
+
+#[test]
+#[serial]
+fn status_compound_waiting_gets_yellow() {
+    std::env::set_var("COLOR", "1");
+    std::env::remove_var("NO_COLOR");
+
+    let result = status("waiting (decision-123)");
+    assert!(
+        result.contains("\x1b[33m"),
+        "expected yellow ANSI for compound waiting status"
+    );
+}
+
+#[test]
+#[serial]
+fn green_helper() {
+    std::env::set_var("COLOR", "1");
+    std::env::remove_var("NO_COLOR");
+
+    let result = green("●");
+    assert!(result.contains("\x1b[32m"), "expected green ANSI");
+    assert!(result.contains("●"));
+}
+
+#[test]
+#[serial]
+fn yellow_helper() {
+    std::env::set_var("COLOR", "1");
+    std::env::remove_var("NO_COLOR");
+
+    let result = yellow("⚠");
+    assert!(result.contains("\x1b[33m"), "expected yellow ANSI");
+    assert!(result.contains("⚠"));
+}
+
+#[test]
+#[serial]
+fn green_plain_when_no_color() {
+    std::env::set_var("NO_COLOR", "1");
+    std::env::remove_var("COLOR");
+
+    assert_eq!(green("●"), "●");
+}
+
+#[test]
+#[serial]
+fn yellow_plain_when_no_color() {
+    std::env::set_var("NO_COLOR", "1");
+    std::env::remove_var("COLOR");
+
+    assert_eq!(yellow("⚠"), "⚠");
+}

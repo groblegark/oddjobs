@@ -77,7 +77,7 @@ oj worker start merge
 TIMEOUT=30
 ELAPSED=0
 while [ $ELAPSED -lt $TIMEOUT ]; do
-  if oj pipeline list 2>/dev/null | grep -q "Completed"; then
+  if oj pipeline list 2>/dev/null | grep -q "completed"; then
     break
   fi
   sleep 1  # polling interval, not synchronization

@@ -122,7 +122,7 @@ impl BreadcrumbWriter {
             name: pipeline.name.clone(),
             vars: pipeline.vars.clone(),
             current_step: pipeline.step.clone(),
-            step_status: format!("{:?}", pipeline.step_status),
+            step_status: pipeline.step_status.to_string(),
             agents,
             workspace_id: pipeline.workspace_id.as_ref().map(|w| w.to_string()),
             workspace_root: pipeline.workspace_path.clone(),

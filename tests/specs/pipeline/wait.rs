@@ -72,7 +72,7 @@ fn wait_single_pipeline_succeeds() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 
@@ -121,7 +121,7 @@ fn wait_multiple_ids_any_mode() {
 
     let done = wait_for(SPEC_WAIT_MAX_MS, || {
         let out = temp.oj().args(&["pipeline", "list"]).passes().stdout();
-        out.matches("Completed").count() >= 2
+        out.matches("completed").count() >= 2
     });
     assert!(done, "both pipelines should complete");
 
@@ -144,7 +144,7 @@ fn wait_multiple_ids_all_mode() {
 
     let done = wait_for(SPEC_WAIT_MAX_MS, || {
         let out = temp.oj().args(&["pipeline", "list"]).passes().stdout();
-        out.matches("Completed").count() >= 2
+        out.matches("completed").count() >= 2
     });
     assert!(done, "both pipelines should complete");
 
@@ -180,7 +180,7 @@ fn wait_all_mode_mixed_outcomes_exits_nonzero() {
 
     let done = wait_for(SPEC_WAIT_MAX_MS, || {
         let out = temp.oj().args(&["pipeline", "list"]).passes().stdout();
-        let has_completed = out.contains("Completed");
+        let has_completed = out.contains("completed");
         let has_failed = out.contains("failed");
         has_completed && has_failed
     });

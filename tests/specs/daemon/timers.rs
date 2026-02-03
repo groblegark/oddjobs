@@ -102,7 +102,7 @@ fn timer_check_fires_during_event_activity() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
 
     if !done {
@@ -117,5 +117,5 @@ fn timer_check_fires_during_event_activity() {
     temp.oj()
         .args(&["pipeline", "list"])
         .passes()
-        .stdout_has("Completed");
+        .stdout_has("completed");
 }

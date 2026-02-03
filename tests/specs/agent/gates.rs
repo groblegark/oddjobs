@@ -135,7 +135,7 @@ fn on_dead_gate_exit_zero_advances_pipeline() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(
         done,
@@ -168,7 +168,7 @@ fn on_dead_gate_nonzero_exit_escalates_pipeline() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Waiting")
+            .contains("waiting")
     });
     assert!(
         waiting,
@@ -221,7 +221,7 @@ tools.Bash.auto_approve = true
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(
         done,

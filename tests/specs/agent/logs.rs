@@ -99,7 +99,7 @@ fn agent_logs_written_to_pipeline_step_structure() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 
@@ -108,7 +108,7 @@ fn agent_logs_written_to_pipeline_step_structure() {
     // Extract pipeline ID (first 8 chars of UUID in the list)
     let pipeline_id = list_output
         .lines()
-        .find(|l| l.contains("Completed"))
+        .find(|l| l.contains("completed"))
         .and_then(|l| l.split_whitespace().next())
         .expect("should find pipeline ID");
 
@@ -164,7 +164,7 @@ fn agent_logs_command_succeeds_after_pipeline_completes() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 
@@ -172,7 +172,7 @@ fn agent_logs_command_succeeds_after_pipeline_completes() {
     let list_output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
     let pipeline_id = list_output
         .lines()
-        .find(|l| l.contains("Completed"))
+        .find(|l| l.contains("completed"))
         .and_then(|l| l.split_whitespace().next())
         .expect("should find pipeline ID");
 
@@ -202,7 +202,7 @@ fn agent_logs_command_with_step_filter_succeeds() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 
@@ -210,7 +210,7 @@ fn agent_logs_command_with_step_filter_succeeds() {
     let list_output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
     let pipeline_id = list_output
         .lines()
-        .find(|l| l.contains("Completed"))
+        .find(|l| l.contains("completed"))
         .and_then(|l| l.split_whitespace().next())
         .expect("should find pipeline ID");
 

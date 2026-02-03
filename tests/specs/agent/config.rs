@@ -92,7 +92,7 @@ fn runbook_with_agent_config_loads() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 }
@@ -156,7 +156,7 @@ action = "escalate"
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete via on_idle = done");
 }

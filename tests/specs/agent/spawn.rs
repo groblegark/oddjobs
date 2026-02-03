@@ -102,14 +102,14 @@ fn agent_spawn_creates_session_and_completes() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete via agent spawn path");
 
     temp.oj()
         .args(&["pipeline", "list"])
         .passes()
-        .stdout_has("Completed");
+        .stdout_has("completed");
 }
 
 /// Verifies the agent spawn flow with interactive mode (no -p):
@@ -134,7 +134,7 @@ fn agent_spawn_interactive_idle_completes() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete via on_idle = done");
 }
@@ -243,7 +243,7 @@ on_dead = {{ action = "gate", run = "test -f output/impl.txt" }}
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "multi-step pipeline should complete via gates");
 }
@@ -270,7 +270,7 @@ fn agent_spawn_graceful_when_no_trust_prompt() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(
         done,
@@ -327,7 +327,7 @@ on_idle = "done"
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(
         done,
@@ -359,7 +359,7 @@ fn agent_spawn_auto_accepts_trust_prompt() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(
         done,

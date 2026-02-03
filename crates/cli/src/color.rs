@@ -167,22 +167,45 @@ pub fn muted(text: &str) -> String {
     }
 }
 
+/// Apply green (ANSI 32) to text, respecting color settings.
+pub fn green(text: &str) -> String {
+    if !should_colorize() {
+        return text.to_string();
+    }
+    format!("\x1b[32m{text}{RESET}")
+}
+
+/// Apply yellow (ANSI 33) to text, respecting color settings.
+pub fn yellow(text: &str) -> String {
+    if !should_colorize() {
+        return text.to_string();
+    }
+    format!("\x1b[33m{text}{RESET}")
+}
+
 /// Colorize a status string based on its semantic meaning.
 ///
-/// - Green: completed, done, running, started (healthy active states)
-/// - Yellow: waiting, escalated, pending, idle, orphaned, stopping, stopped
+/// - Green: completed, done, running, started, ready (healthy active states)
+/// - Yellow: waiting, escalated, pending, idle, orphaned, stopping, stopped,
+///   creating, cleaning
 /// - Red: failed, cancelled, dead, gone, error
 /// - Default (no color): unknown states
+///
+/// Uses first-word matching so compound statuses like "failed: reason" and
+/// "waiting (decision-id)" are colored correctly.
 pub fn status(text: &str) -> String {
     if !should_colorize() {
         return text.to_string();
     }
-    let lower = text.to_lowercase();
-    let code = match lower.as_str() {
-        "completed" | "done" | "running" | "started" => "\x1b[32m",
-        "waiting" | "escalated" | "pending" | "idle" | "orphaned" | "stopping" | "stopped" => {
-            "\x1b[33m"
-        }
+    let lower = text.trim_start().to_lowercase();
+    let first_word = lower
+        .split(|c: char| !c.is_alphabetic())
+        .next()
+        .unwrap_or("");
+    let code = match first_word {
+        "completed" | "done" | "running" | "started" | "ready" => "\x1b[32m",
+        "waiting" | "escalated" | "pending" | "idle" | "orphaned" | "stopping" | "stopped"
+        | "creating" | "cleaning" => "\x1b[33m",
         "failed" | "cancelled" | "dead" | "gone" | "error" => "\x1b[31m",
         _ => return text.to_string(),
     };

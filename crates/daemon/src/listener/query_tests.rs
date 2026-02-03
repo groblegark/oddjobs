@@ -395,7 +395,7 @@ fn make_breadcrumb(pipeline_id: &str, name: &str, project: &str, step: &str) -> 
         name: name.to_string(),
         vars: HashMap::new(),
         current_step: step.to_string(),
-        step_status: "Running".to_string(),
+        step_status: "running".to_string(),
         agents: vec![BreadcrumbAgent {
             agent_id: "orphan-agent-1".to_string(),
             session_name: Some("tmux-orphan-1".to_string()),
@@ -427,7 +427,7 @@ fn list_pipelines_includes_orphans() {
             assert_eq!(pipelines.len(), 1);
             assert_eq!(pipelines[0].id, "orphan-1234");
             assert_eq!(pipelines[0].name, "fix/orphan");
-            assert_eq!(pipelines[0].step_status, "Orphaned");
+            assert_eq!(pipelines[0].step_status, "orphaned");
             assert_eq!(pipelines[0].namespace, "oddjobs");
             assert!(pipelines[0].updated_at_ms > 0);
         }
@@ -460,7 +460,7 @@ fn get_pipeline_falls_back_to_orphan() {
         Response::Pipeline { pipeline } => {
             let p = pipeline.expect("should find orphan pipeline");
             assert_eq!(p.id, "orphan-5678");
-            assert_eq!(p.step_status, "Orphaned");
+            assert_eq!(p.step_status, "orphaned");
             assert_eq!(p.session_id.as_deref(), Some("tmux-orphan-1"));
             assert!(p.error.is_some());
             assert_eq!(p.agents.len(), 1);
@@ -514,7 +514,7 @@ fn get_pipeline_prefers_state_over_orphan() {
             let p = pipeline.expect("should find pipeline");
             // State version should be returned, not orphan
             assert_eq!(p.name, "fix/real");
-            assert_ne!(p.step_status, "Orphaned");
+            assert_ne!(p.step_status, "orphaned");
         }
         other => panic!("unexpected response: {:?}", other),
     }
@@ -540,7 +540,7 @@ fn status_overview_includes_orphans() {
             assert_eq!(ns.namespace, "oddjobs");
             assert_eq!(ns.orphaned_pipelines.len(), 1);
             assert_eq!(ns.orphaned_pipelines[0].id, "orphan-status-1");
-            assert_eq!(ns.orphaned_pipelines[0].step_status, "Orphaned");
+            assert_eq!(ns.orphaned_pipelines[0].step_status, "orphaned");
             assert!(ns.orphaned_pipelines[0].elapsed_ms > 0);
         }
         other => panic!("unexpected response: {:?}", other),
@@ -573,7 +573,7 @@ fn get_pipeline_orphan_prefix_match() {
         Response::Pipeline { pipeline } => {
             let p = pipeline.expect("should find orphan by prefix");
             assert_eq!(p.id, "orphan-abcdef123456");
-            assert_eq!(p.step_status, "Orphaned");
+            assert_eq!(p.step_status, "orphaned");
         }
         other => panic!("unexpected response: {:?}", other),
     }
@@ -1077,7 +1077,7 @@ fn get_pipeline_orphan_session_id_from_non_first_agent() {
         name: "fix/multi".to_string(),
         vars: HashMap::new(),
         current_step: "deploy".to_string(),
-        step_status: "Running".to_string(),
+        step_status: "running".to_string(),
         agents: vec![
             BreadcrumbAgent {
                 agent_id: "agent-plan".to_string(),

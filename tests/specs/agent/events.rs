@@ -265,7 +265,7 @@ fn on_idle_done_completes_pipeline() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(
         done,
@@ -300,7 +300,7 @@ fn on_idle_nudge_sends_continue_message() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Waiting")
+            .contains("waiting")
     });
     assert!(
         waiting,
@@ -333,7 +333,7 @@ fn on_idle_gate_advances_when_command_passes() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete via on_idle gate (exit 0)");
 }
@@ -361,7 +361,7 @@ fn on_idle_gate_escalates_when_command_fails() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Waiting")
+            .contains("waiting")
     });
     assert!(
         waiting,
@@ -397,7 +397,7 @@ fn on_dead_done_treats_exit_as_success() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(
         done,
@@ -431,7 +431,7 @@ fn on_dead_escalate_sets_waiting_status() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Waiting")
+            .contains("waiting")
     });
     assert!(
         waiting,
@@ -462,7 +462,7 @@ fn on_error_recover_retries_after_rate_limit() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete after rate limit recovery");
 }
@@ -486,7 +486,7 @@ fn on_error_escalate_on_network_failure() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Waiting")
+            .contains("waiting")
     });
     assert!(waiting, "pipeline should escalate after network errors");
 }

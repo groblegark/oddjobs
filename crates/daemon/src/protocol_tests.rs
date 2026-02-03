@@ -78,7 +78,7 @@ fn pipeline_summary_serialization() {
         name: "build feature".to_string(),
         kind: "build".to_string(),
         step: "Execute".to_string(),
-        step_status: "Running".to_string(),
+        step_status: "running".to_string(),
         created_at_ms: 1700000000000,
         updated_at_ms: 1700000001000,
         namespace: String::new(),
@@ -382,7 +382,7 @@ fn encode_decode_orphans_response() {
             kind: "deploy".to_string(),
             name: "deploy-staging".to_string(),
             current_step: "build".to_string(),
-            step_status: "Running".to_string(),
+            step_status: "running".to_string(),
             workspace_root: Some(std::path::PathBuf::from("/tmp/ws")),
             agents: vec![OrphanAgent {
                 agent_id: "pipe-orphan-build".to_string(),

@@ -44,7 +44,7 @@ fn shell_conditional_and_succeeds() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 
@@ -90,7 +90,7 @@ fn shell_pipeline_executes() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     if !done {
         let output = temp
@@ -134,7 +134,7 @@ fn shell_variable_expansion() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 }
@@ -168,7 +168,7 @@ fn shell_subshell_executes() {
             .args(&["pipeline", "list"])
             .passes()
             .stdout()
-            .contains("Completed")
+            .contains("completed")
     });
     assert!(done, "pipeline should complete");
 }
@@ -202,7 +202,7 @@ fn shell_exit_code_failure() {
         let output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
         last_output = output.to_string();
         // Pipeline should either fail or show error state
-        output.contains("Failed") || output.contains("execute")
+        output.contains("failed") || output.contains("execute")
     });
     assert!(
         failed,
@@ -247,17 +247,17 @@ fn shell_step_with_single_quote_in_arg() {
     let done = wait_for(SPEC_WAIT_MAX_MS, || {
         let output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
         last_output = output.to_string();
-        output.contains("Completed") || output.contains("Failed")
+        output.contains("completed") || output.contains("failed")
     });
     if !done {
         eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
     }
     assert!(done, "pipeline should finish, got:\n{}", last_output);
-    if !last_output.contains("Completed") {
+    if !last_output.contains("completed") {
         eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
     }
     assert!(
-        last_output.contains("Completed"),
+        last_output.contains("completed"),
         "pipeline should complete successfully, got:\n{}",
         last_output
     );
@@ -289,17 +289,17 @@ fn shell_step_with_double_quote_in_arg() {
     let done = wait_for(SPEC_WAIT_MAX_MS, || {
         let output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
         last_output = output.to_string();
-        output.contains("Completed") || output.contains("Failed")
+        output.contains("completed") || output.contains("failed")
     });
     if !done {
         eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
     }
     assert!(done, "pipeline should finish, got:\n{}", last_output);
-    if !last_output.contains("Completed") {
+    if !last_output.contains("completed") {
         eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
     }
     assert!(
-        last_output.contains("Completed"),
+        last_output.contains("completed"),
         "pipeline should complete successfully, got:\n{}",
         last_output
     );
@@ -398,7 +398,7 @@ fn pipeline_completes_all_steps() {
         .args(&["pipeline", "list"])
         .passes()
         .stdout_has("done")
-        .stdout_has("Completed");
+        .stdout_has("completed");
 }
 
 #[test]
@@ -439,7 +439,7 @@ run = "echo 'step2'"
         // Accept either seeing custom step names OR pipeline completed
         last_output.contains("step1")
             || last_output.contains("step2")
-            || (last_output.contains("done") && last_output.contains("Completed"))
+            || (last_output.contains("done") && last_output.contains("completed"))
     });
     assert!(
         found,

@@ -286,7 +286,7 @@ async fn dispatch_pipeline(
                     break;
                 }
                 if let Ok(Some(p)) = client.get_pipeline(pipeline_id).await {
-                    if p.step_status != "Pending" {
+                    if p.step_status != "pending" {
                         started = true;
                         break;
                     }

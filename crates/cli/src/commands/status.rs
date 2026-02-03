@@ -203,7 +203,7 @@ fn format_text(
                 let _ = writeln!(
                     out,
                     "    {} {}  {}  {}  {}  {}",
-                    color::status("⚠"),
+                    color::yellow("⚠"),
                     color::muted(short_id),
                     p.kind,
                     p.step,
@@ -230,11 +230,11 @@ fn format_text(
                 let _ = writeln!(
                     out,
                     "    {} {}  {}  {}  {}  {}",
-                    color::status("⚠"),
+                    color::yellow("⚠"),
                     color::muted(short_id),
                     p.kind,
                     p.step,
-                    color::status("Orphaned"),
+                    color::status("orphaned"),
                     elapsed,
                 );
             }
@@ -247,7 +247,7 @@ fn format_text(
             let _ = writeln!(out, "  {}", color::header("Workers:"));
             for w in &ns.workers {
                 let indicator = if w.status == "running" {
-                    color::status("●")
+                    color::green("●")
                 } else {
                     color::muted("○")
                 };

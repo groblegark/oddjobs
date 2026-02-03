@@ -45,7 +45,7 @@ fn sort_order_most_recently_updated_first() {
             name: "done-pipeline".into(),
             kind: "build".into(),
             step: "done".into(),
-            step_status: "Completed".into(),
+            step_status: "completed".into(),
             created_at_ms: 1000,
             updated_at_ms: 5000,
             namespace: String::new(),
@@ -56,7 +56,7 @@ fn sort_order_most_recently_updated_first() {
             name: "failed-pipeline".into(),
             kind: "build".into(),
             step: "failed".into(),
-            step_status: "Failed".into(),
+            step_status: "failed".into(),
             created_at_ms: 2000,
             updated_at_ms: 2000,
             namespace: String::new(),
@@ -67,7 +67,7 @@ fn sort_order_most_recently_updated_first() {
             name: "active-pipeline".into(),
             kind: "build".into(),
             step: "build".into(),
-            step_status: "Running".into(),
+            step_status: "running".into(),
             created_at_ms: 3000,
             updated_at_ms: 3000,
             namespace: String::new(),
@@ -90,7 +90,7 @@ fn sort_order_most_recent_updated_first_within_same_status() {
             name: "old-pipeline".into(),
             kind: "build".into(),
             step: "build".into(),
-            step_status: "Running".into(),
+            step_status: "running".into(),
             created_at_ms: 1000,
             updated_at_ms: 1000,
             namespace: String::new(),
@@ -101,7 +101,7 @@ fn sort_order_most_recent_updated_first_within_same_status() {
             name: "new-pipeline".into(),
             kind: "build".into(),
             step: "execute".into(),
-            step_status: "Running".into(),
+            step_status: "running".into(),
             created_at_ms: 5000,
             updated_at_ms: 5000,
             namespace: String::new(),
@@ -121,7 +121,7 @@ fn make_detail(name: &str, steps: Vec<StepRecordDetail>) -> PipelineDetail {
         name: name.into(),
         kind: "pipeline".into(),
         step: "build".into(),
-        step_status: "Running".into(),
+        step_status: "running".into(),
         vars: HashMap::new(),
         workspace_path: None,
         session_id: None,
@@ -365,8 +365,8 @@ fn list_empty() {
 #[test]
 fn list_columns_fit_data() {
     let pipelines = vec![
-        make_summary("abcdef123456", "my-build", "build", "plan", "Running"),
-        make_summary("999999999999", "x", "fix", "implement", "Running"),
+        make_summary("abcdef123456", "my-build", "build", "plan", "running"),
+        make_summary("999999999999", "x", "fix", "implement", "running"),
     ];
     let mut buf = Vec::new();
     format_pipeline_list(&mut buf, &pipelines);
@@ -392,9 +392,9 @@ fn list_columns_fit_data() {
 
 #[test]
 fn list_with_project_column() {
-    let mut p1 = make_summary("abcdef123456", "api-server", "build", "test", "Running");
+    let mut p1 = make_summary("abcdef123456", "api-server", "build", "test", "running");
     p1.namespace = "myproject".into();
-    let mut p2 = make_summary("999999999999", "worker", "fix", "done", "Completed");
+    let mut p2 = make_summary("999999999999", "worker", "fix", "done", "completed");
     p2.namespace = "other".into();
     let pipelines = vec![p1, p2];
 
@@ -413,9 +413,9 @@ fn list_with_project_column() {
 
 #[test]
 fn list_mixed_namespace_shows_no_project_for_empty() {
-    let mut p1 = make_summary("abcdef123456", "api-server", "build", "test", "Running");
+    let mut p1 = make_summary("abcdef123456", "api-server", "build", "test", "running");
     p1.namespace = "myproject".into();
-    let p2 = make_summary("999999999999", "worker", "fix", "done", "Completed");
+    let p2 = make_summary("999999999999", "worker", "fix", "done", "completed");
     // p2 has empty namespace
     let pipelines = vec![p1, p2];
 
@@ -437,7 +437,7 @@ fn list_no_project_when_all_empty_namespace() {
         "build-a",
         "build",
         "plan",
-        "Running",
+        "running",
     )];
     let mut buf = Vec::new();
     format_pipeline_list(&mut buf, &pipelines);
@@ -452,7 +452,7 @@ fn list_no_retries_column_when_all_zero() {
         "build-a",
         "build",
         "plan",
-        "Running",
+        "running",
     )];
     let mut buf = Vec::new();
     format_pipeline_list(&mut buf, &pipelines);
@@ -462,9 +462,9 @@ fn list_no_retries_column_when_all_zero() {
 
 #[test]
 fn list_retries_column_shown_when_nonzero() {
-    let mut p1 = make_summary("abcdef123456", "build-a", "build", "plan", "Running");
+    let mut p1 = make_summary("abcdef123456", "build-a", "build", "plan", "running");
     p1.retry_count = 3;
-    let p2 = make_summary("999999999999", "build-b", "build", "test", "Running");
+    let p2 = make_summary("999999999999", "build-b", "build", "test", "running");
     let pipelines = vec![p1, p2];
     let mut buf = Vec::new();
     format_pipeline_list(&mut buf, &pipelines);

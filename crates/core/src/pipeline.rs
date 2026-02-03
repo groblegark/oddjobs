@@ -94,6 +94,18 @@ impl StepStatus {
     }
 }
 
+impl fmt::Display for StepStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StepStatus::Pending => write!(f, "pending"),
+            StepStatus::Running => write!(f, "running"),
+            StepStatus::Waiting(_) => write!(f, "waiting"),
+            StepStatus::Completed => write!(f, "completed"),
+            StepStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for StepStatus {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

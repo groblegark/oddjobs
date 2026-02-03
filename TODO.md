@@ -1,16 +1,22 @@
 # TODO
 
 In progress (agents working):
-  - feat(engine): cron entrypoint — time-driven pipeline execution
-  - feat(cli): oj worker prune — remove stopped workers from state (merging)
-
-Drafts:
-  - draft(cli): inline commands — execute shell command.run locally, not via daemon
+  - feat(engine): orphan pipeline detection via breadcrumb files in `oj pipeline list`
+  - chore(cli): add --project flag to `oj worker start` and `oj worker stop`
 
 Recently landed:
+  - feat(cli): inline command execution — shell command.run executes locally, not via daemon
+  - fix(cli): use bash with pipefail for inline shell commands
+  - feat(cli): oj worker prune — remove stopped workers from state
   - feat(cli): oj worker stop <name> — pause a running worker
   - feat(cli): oj pipeline prune --failed, prune cancelled regardless of age
   - fix(engine): DeleteWorkspace should call git worktree remove before rm -rf
+  - chore(runbooks): add draft-rebase command and update CLAUDE.md
+  - chore(runbooks): sync build.hcl paradigms across projects
+  - chore(docs): modernize future cron runbooks, add architect.hcl
+  - chore(docs): update cron design — use cases, start/stop/once naming
+  - fix(runbooks): make branch deletion non-fatal in merge push step
+  - fix(runbooks): use local branches in draft-rebase/refine worktrees
   - chore(runbooks): add worktree cleanup steps to all pipelines (on_done/on_cancel/on_fail)
   - chore(runbooks): merge push on_fail attempts = 2, resolver gate attempts = 2
   - feat(engine): eager locals — evaluate $() in locals at creation, remove trusted prefixes
@@ -52,7 +58,6 @@ Backlog (roughly priority-ordered):
 
 Core pipeline
   1. Worker poll interval: optional poll_interval on worker blocks for periodic checks
-  2. Inline command execution: shell command.run executes locally (see draft)
 
 Crons and reliability
   2. Cron entrypoint: time-driven pipeline execution (third entrypoint alongside commands/workers)
@@ -161,6 +166,9 @@ Key features landed:
   - PreToolUse hook: detect plan/question tools before agent gets stuck
   - Step on_fail attempts: bounded retry for push→check loops
   - Worktree cleanup steps in all runbooks (build, fix, chore, draft, merge)
+  - Inline command execution: shell commands run locally without daemon round-trip
+  - Worker stop/prune: lifecycle management for workers
+  - Draft-rebase command for rebasing exploratory branches
 
 Patterns that work:
   - oj run {build,fix,chore,draft} → agent → submit/push. Full loop end-to-end.

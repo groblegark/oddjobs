@@ -251,12 +251,12 @@ pub async fn handle(
                                 if show_project {
                                     println!(
                                         "{:<name_w$} {:<proj_w$} {:<interval_w$} {:<pipeline_w$} STATUS",
-                                        "NAME", "PROJECT", "INTERVAL", "PIPELINE",
+                                        "KIND", "PROJECT", "INTERVAL", "PIPELINE",
                                     );
                                 } else {
                                     println!(
                                         "{:<name_w$} {:<interval_w$} {:<pipeline_w$} STATUS",
-                                        "NAME", "INTERVAL", "PIPELINE",
+                                        "KIND", "INTERVAL", "PIPELINE",
                                     );
                                 }
                                 for c in &crons {

@@ -387,6 +387,12 @@ async fn handle_request(
             state,
         ),
 
+        Request::QueueDrain {
+            project_root,
+            namespace,
+            queue_name,
+        } => queues::handle_queue_drain(&project_root, &namespace, &queue_name, event_bus, state),
+
         Request::DecisionResolve {
             id,
             chosen,

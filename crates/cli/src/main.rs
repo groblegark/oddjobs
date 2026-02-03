@@ -267,7 +267,8 @@ async fn run() -> Result<()> {
             match &args.command {
                 QueueCommand::Push { .. }
                 | QueueCommand::Drop { .. }
-                | QueueCommand::Retry { .. } => {
+                | QueueCommand::Retry { .. }
+                | QueueCommand::Drain { .. } => {
                     let client = DaemonClient::for_action()?;
                     queue::handle(args.command, &client, &project_root, &namespace, format).await?
                 }

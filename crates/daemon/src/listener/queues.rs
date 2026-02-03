@@ -441,6 +441,91 @@ pub(super) fn handle_queue_retry(
     })
 }
 
+/// Handle a QueueDrain request.
+///
+/// Removes all pending items from a persisted queue and returns them.
+pub(super) fn handle_queue_drain(
+    project_root: &Path,
+    namespace: &str,
+    queue_name: &str,
+    event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
+) -> Result<Response, ConnectionError> {
+    // Load runbook containing the queue
+    let runbook = match load_runbook_for_queue(project_root, queue_name) {
+        Ok(rb) => rb,
+        Err(e) => {
+            let hint =
+                suggest_for_queue(project_root, queue_name, namespace, "oj queue drain", state);
+            return Ok(Response::Error {
+                message: format!("{}{}", e, hint),
+            });
+        }
+    };
+
+    // Validate queue exists
+    let queue_def = match runbook.get_queue(queue_name) {
+        Some(def) => def,
+        None => {
+            return Ok(Response::Error {
+                message: format!("unknown queue: {}", queue_name),
+            })
+        }
+    };
+
+    // Validate queue is persisted
+    if queue_def.queue_type != QueueType::Persisted {
+        return Ok(Response::Error {
+            message: format!("queue '{}' is not a persisted queue", queue_name),
+        });
+    }
+
+    // Collect pending item IDs and build response summaries
+    let pending_items: Vec<crate::protocol::QueueItemSummary> = {
+        let state = state.lock();
+        let key = if namespace.is_empty() {
+            queue_name.to_string()
+        } else {
+            format!("{}/{}", namespace, queue_name)
+        };
+        state
+            .queue_items
+            .get(&key)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|i| i.status == oj_storage::QueueItemStatus::Pending)
+                    .map(|i| crate::protocol::QueueItemSummary {
+                        id: i.id.clone(),
+                        status: "pending".to_string(),
+                        data: i.data.clone(),
+                        worker_name: i.worker_name.clone(),
+                        pushed_at_epoch_ms: i.pushed_at_epoch_ms,
+                        failure_count: i.failure_count,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    // Emit QueueDropped for each pending item
+    for item in &pending_items {
+        let event = Event::QueueDropped {
+            queue_name: queue_name.to_string(),
+            item_id: item.id.clone(),
+            namespace: namespace.to_string(),
+        };
+        event_bus
+            .send(event)
+            .map_err(|_| ConnectionError::WalError)?;
+    }
+
+    Ok(Response::QueueDrained {
+        queue_name: queue_name.to_string(),
+        items: pending_items,
+    })
+}
+
 #[cfg(test)]
 #[path = "queues_tests.rs"]
 mod tests;

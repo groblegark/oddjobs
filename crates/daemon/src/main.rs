@@ -191,11 +191,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         drop(reconcile_ctx); // Nothing to reconcile
     }
 
-    // Timer check interval (1-second resolution)
+    // Timer check interval (default 1-second resolution, configurable via OJ_TIMER_CHECK_MS)
     // NOTE: Must be created outside the loop - tokio::select! re-evaluates
     // branches on each iteration, so using sleep() inside would reset on
     // every event, causing timers to never fire during activity.
-    let mut timer_check = tokio::time::interval(Duration::from_secs(1));
+    let mut timer_check = tokio::time::interval(timer_check_interval());
 
     // Engine loop - processes events sequentially from WAL
     loop {
@@ -292,6 +292,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     daemon.shutdown()?;
     info!("Daemon stopped");
     Ok(())
+}
+
+/// Timer check interval, configurable via `OJ_TIMER_CHECK_MS` (default: 1000ms).
+fn timer_check_interval() -> Duration {
+    std::env::var("OJ_TIMER_CHECK_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_secs(1))
 }
 
 /// Flush interval for group commit (~10ms durability window)
@@ -407,6 +416,10 @@ fn write_startup_error(config: &Config, error: &LifecycleError) {
     };
     let _ = writeln!(file, "ERROR Failed to start daemon: {}", error);
 }
+
+#[cfg(test)]
+#[path = "main_tests.rs"]
+mod tests;
 
 fn setup_logging(
     config: &Config,

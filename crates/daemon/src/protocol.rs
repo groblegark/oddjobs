@@ -99,6 +99,14 @@ pub enum Request {
         dry_run: bool,
     },
 
+    /// Prune agent logs from terminal pipelines
+    AgentPrune {
+        /// Prune all agents from terminal pipelines regardless of age
+        all: bool,
+        /// Preview only -- don't actually delete
+        dry_run: bool,
+    },
+
     /// Prune old workspaces from terminal pipelines
     WorkspacePrune {
         /// Prune all terminal workspaces regardless of age
@@ -296,6 +304,12 @@ pub enum Response {
         skipped: usize,
     },
 
+    /// Agent prune result
+    AgentsPruned {
+        pruned: Vec<AgentEntry>,
+        skipped: usize,
+    },
+
     /// Workspace prune result
     WorkspacesPruned {
         pruned: Vec<WorkspaceEntry>,
@@ -473,6 +487,14 @@ pub struct PipelineEntry {
     pub id: String,
     pub name: String,
     pub step: String,
+}
+
+/// Agent entry for prune responses
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentEntry {
+    pub agent_id: String,
+    pub pipeline_id: String,
+    pub step_name: String,
 }
 
 /// Summary of a queue item

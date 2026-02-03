@@ -260,6 +260,36 @@ fn encode_decode_roundtrip_agent_send() {
     assert_eq!(request, decoded);
 }
 
+#[test]
+fn encode_decode_roundtrip_agent_prune_request() {
+    let request = Request::AgentPrune {
+        all: true,
+        dry_run: false,
+    };
+
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+
+    assert_eq!(request, decoded);
+}
+
+#[test]
+fn encode_decode_roundtrip_agents_pruned_response() {
+    let response = Response::AgentsPruned {
+        pruned: vec![AgentEntry {
+            agent_id: "agent-123".to_string(),
+            pipeline_id: "pipe-abc".to_string(),
+            step_name: "build".to_string(),
+        }],
+        skipped: 2,
+    };
+
+    let encoded = encode(&response).expect("encode failed");
+    let decoded: Response = decode(&encoded).expect("decode failed");
+
+    assert_eq!(response, decoded);
+}
+
 #[tokio::test]
 async fn write_message_adds_length_prefix() {
     let data = b"test data";

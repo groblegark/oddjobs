@@ -72,6 +72,15 @@ pub enum AgentCommand {
         #[arg(long)]
         timeout: Option<String>,
     },
+    /// Remove agent logs from completed/failed/cancelled pipelines
+    Prune {
+        /// Remove all agent logs from terminal pipelines regardless of age
+        #[arg(long)]
+        all: bool,
+        /// Show what would be pruned without doing it
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Hook subcommands for Claude Code integration
     Hook {
         #[command(subcommand)]
@@ -186,6 +195,42 @@ pub async fn handle(
         }
         AgentCommand::Wait { agent_id, timeout } => {
             handle_wait(&agent_id, timeout.as_deref(), client).await?;
+        }
+        AgentCommand::Prune { all, dry_run } => {
+            let (pruned, skipped) = client.agent_prune(all, dry_run).await?;
+
+            match format {
+                OutputFormat::Text => {
+                    if dry_run {
+                        println!("Dry run — no changes made\n");
+                    }
+
+                    for entry in &pruned {
+                        let label = if dry_run { "Would prune" } else { "Pruned" };
+                        let short_pid = &entry.pipeline_id[..12.min(entry.pipeline_id.len())];
+                        println!(
+                            "{} agent {} ({}, {})",
+                            label, entry.agent_id, short_pid, entry.step_name
+                        );
+                    }
+
+                    let verb = if dry_run { "would be pruned" } else { "pruned" };
+                    println!(
+                        "\n{} agent(s) {}, {} pipeline(s) skipped",
+                        pruned.len(),
+                        verb,
+                        skipped
+                    );
+                }
+                OutputFormat::Json => {
+                    let obj = serde_json::json!({
+                        "dry_run": dry_run,
+                        "pruned": pruned,
+                        "skipped": skipped,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                }
+            }
         }
         AgentCommand::Hook { hook } => match hook {
             HookCommand::Stop { agent_id } => {

@@ -11,7 +11,7 @@ use oj_core::{AgentId, Event, PipelineId, SessionId, WorkspaceId};
 use oj_storage::MaterializedState;
 
 use crate::event_bus::EventBus;
-use crate::protocol::{PipelineEntry, Response, WorkspaceEntry};
+use crate::protocol::{AgentEntry, PipelineEntry, Response, WorkspaceEntry};
 
 use super::ConnectionError;
 
@@ -343,6 +343,80 @@ pub(super) fn handle_pipeline_prune(
     }
 
     Ok(Response::PipelinesPruned {
+        pruned: to_prune,
+        skipped,
+    })
+}
+
+/// Handle agent prune requests.
+///
+/// Removes agent log files for agents belonging to terminal pipelines
+/// (failed/cancelled/done). By default only prunes agents from pipelines
+/// older than 24 hours; use `--all` to prune all.
+pub(super) fn handle_agent_prune(
+    state: &Arc<Mutex<MaterializedState>>,
+    logs_path: &std::path::Path,
+    all: bool,
+    dry_run: bool,
+) -> Result<Response, ConnectionError> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let age_threshold_ms = 24 * 60 * 60 * 1000; // 24 hours in ms
+
+    let mut to_prune = Vec::new();
+    let mut skipped = 0usize;
+
+    {
+        let state_guard = state.lock();
+        for pipeline in state_guard.pipelines.values() {
+            if !pipeline.is_terminal() {
+                skipped += 1;
+                continue;
+            }
+
+            // Check age via step history
+            if !all {
+                let created_at_ms = pipeline
+                    .step_history
+                    .first()
+                    .map(|r| r.started_at_ms)
+                    .unwrap_or(0);
+                if created_at_ms > 0 && now_ms.saturating_sub(created_at_ms) < age_threshold_ms {
+                    skipped += 1;
+                    continue;
+                }
+            }
+
+            // Collect agents from step history
+            for record in &pipeline.step_history {
+                if let Some(agent_id) = &record.agent_id {
+                    to_prune.push(AgentEntry {
+                        agent_id: agent_id.clone(),
+                        pipeline_id: pipeline.id.clone(),
+                        step_name: record.name.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    if !dry_run {
+        for entry in &to_prune {
+            // Best-effort cleanup of agent log file
+            let agent_log = logs_path
+                .join("agent")
+                .join(format!("{}.log", entry.agent_id));
+            let _ = std::fs::remove_file(&agent_log);
+
+            // Best-effort cleanup of agent log directory
+            let agent_dir = logs_path.join("agent").join(&entry.agent_id);
+            let _ = std::fs::remove_dir_all(&agent_dir);
+        }
+    }
+
+    Ok(Response::AgentsPruned {
         pruned: to_prune,
         skipped,
     })

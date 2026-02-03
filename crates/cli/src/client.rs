@@ -634,6 +634,20 @@ impl DaemonClient {
         }
     }
 
+    /// Prune agent logs from terminal pipelines
+    pub async fn agent_prune(
+        &self,
+        all: bool,
+        dry_run: bool,
+    ) -> Result<(Vec<oj_daemon::AgentEntry>, usize), ClientError> {
+        let request = Request::AgentPrune { all, dry_run };
+        match self.send(&request).await? {
+            Response::AgentsPruned { pruned, skipped } => Ok((pruned, skipped)),
+            Response::Error { message } => Err(ClientError::Rejected(message)),
+            _ => Err(ClientError::UnexpectedResponse),
+        }
+    }
+
     /// Prune old workspaces from terminal pipelines
     pub async fn workspace_prune(
         &self,

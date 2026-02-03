@@ -3,7 +3,7 @@
 
 use super::*;
 
-use crate::event_bus::EventBus;
+use crate::event_bus::{EventBus, EventReader};
 use oj_adapters::{
     ClaudeAgentAdapter, DesktopNotifyAdapter, TmuxAdapter, TracedAgent, TracedSession,
 };
@@ -68,12 +68,19 @@ fn runbook_hash(runbook: &Runbook) -> String {
 ///
 /// Returns the state and a WAL path for verification.
 async fn setup_daemon_with_pipeline() -> (DaemonState, PathBuf) {
+    let (daemon, _, wal_path) = setup_daemon_with_pipeline_and_reader().await;
+    (daemon, wal_path)
+}
+
+/// Like `setup_daemon_with_pipeline` but also returns the EventReader
+/// so callers can simulate the main loop (mark_processed, etc.).
+async fn setup_daemon_with_pipeline_and_reader() -> (DaemonState, EventReader, PathBuf) {
     let dir = tempdir().unwrap();
     let dir_path = dir.keep();
 
     let wal_path = dir_path.join("test.wal");
     let wal = Wal::open(&wal_path, 0).unwrap();
-    let (event_bus, _event_reader) = EventBus::new(wal);
+    let (event_bus, event_reader) = EventBus::new(wal);
 
     // Build runbook and hash
     let runbook = test_runbook();
@@ -151,7 +158,7 @@ async fn setup_daemon_with_pipeline() -> (DaemonState, PathBuf) {
         orphans: Arc::new(Mutex::new(Vec::new())),
     };
 
-    (daemon, wal_path)
+    (daemon, event_reader, wal_path)
 }
 
 #[tokio::test]
@@ -676,4 +683,56 @@ fn reconcile_context_counts_running_workers() {
         .count();
 
     assert_eq!(worker_count, 1, "only running workers should be counted");
+}
+
+#[tokio::test]
+async fn shutdown_saves_final_snapshot() {
+    let (mut daemon, mut event_reader, _wal_path) = setup_daemon_with_pipeline_and_reader().await;
+    let snapshot_path = daemon.config.snapshot_path.clone();
+
+    // Process an event so the WAL has entries
+    daemon
+        .process_event(Event::ShellExited {
+            pipeline_id: PipelineId::new("pipe-1"),
+            step: "only-step".to_string(),
+            exit_code: 0,
+        })
+        .await
+        .unwrap();
+
+    // Simulate the main loop: read events from WAL and mark processed
+    daemon.event_bus.flush().unwrap();
+    loop {
+        match tokio::time::timeout(std::time::Duration::from_millis(50), event_reader.recv()).await
+        {
+            Ok(Ok(Some(entry))) => event_reader.mark_processed(entry.seq),
+            _ => break,
+        }
+    }
+
+    // No snapshot should exist yet
+    assert!(
+        !snapshot_path.exists(),
+        "snapshot should not exist before shutdown"
+    );
+
+    // Shutdown should save a final snapshot
+    daemon.shutdown().unwrap();
+
+    assert!(
+        snapshot_path.exists(),
+        "shutdown must save a final snapshot"
+    );
+
+    // Verify the snapshot contains the correct state
+    let snapshot = Snapshot::load(&snapshot_path).unwrap().unwrap();
+    assert!(
+        snapshot.seq > 0,
+        "snapshot seq should be non-zero after processing events"
+    );
+    let pipeline = snapshot.state.pipelines.get("pipe-1").unwrap();
+    assert!(
+        pipeline.is_terminal(),
+        "snapshot should contain the terminal pipeline state"
+    );
 }

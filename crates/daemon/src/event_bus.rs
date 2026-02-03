@@ -75,6 +75,12 @@ impl EventBus {
         let wal = self.wal.lock();
         wal.needs_flush()
     }
+
+    /// Return the last processed WAL sequence number.
+    pub fn processed_seq(&self) -> u64 {
+        let wal = self.wal.lock();
+        wal.processed_seq()
+    }
 }
 
 impl EventReader {

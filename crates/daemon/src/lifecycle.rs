@@ -189,6 +189,17 @@ impl DaemonState {
             warn!("Failed to flush WAL on shutdown: {}", e);
         }
 
+        // 0b. Save final snapshot so next startup doesn't need to replay WAL
+        let processed_seq = self.event_bus.processed_seq();
+        if processed_seq > 0 {
+            let state_clone = self.state.lock().clone();
+            let snapshot = Snapshot::new(processed_seq, state_clone);
+            match snapshot.save(&self.config.snapshot_path) {
+                Ok(()) => info!(seq = processed_seq, "saved final shutdown snapshot"),
+                Err(e) => warn!("Failed to save shutdown snapshot: {}", e),
+            }
+        }
+
         // 1. Remove socket file (listener task stops when tokio runtime exits)
         if self.config.socket_path.exists() {
             if let Err(e) = std::fs::remove_file(&self.config.socket_path) {

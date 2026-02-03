@@ -275,8 +275,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ = timer_check.tick() => {
                 let now = daemon.runtime.clock().now();
                 let timer_events = {
-                    let mut scheduler = daemon.scheduler.lock();
-                    scheduler.fired_timers(now)
+                    let scheduler = daemon.runtime.scheduler();
+                    let mut sched = scheduler.lock();
+                    sched.fired_timers(now)
                 };
                 for event in timer_events {
                     if let Err(e) = daemon.event_bus.send(event) {

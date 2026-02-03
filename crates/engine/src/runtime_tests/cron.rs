@@ -367,3 +367,146 @@ async fn cron_once_pipeline_steps_execute() {
         "pipeline should be terminal after all steps complete"
     );
 }
+
+// ---- Test 7: cron_timer_fired_reschedules_timer ----
+
+#[tokio::test]
+async fn cron_timer_fired_reschedules_timer() {
+    let ctx = setup_with_runbook(CRON_RUNBOOK).await;
+    let (runbook_json, runbook_hash) = hash_cron_runbook();
+
+    load_runbook(&ctx, &runbook_json, &runbook_hash).await;
+
+    // Start cron
+    ctx.runtime
+        .handle_event(Event::CronStarted {
+            cron_name: "janitor".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: runbook_hash.clone(),
+            interval: "30m".to_string(),
+            pipeline_name: "cleanup".to_string(),
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // Fire the timer (simulates the first interval expiring)
+    ctx.runtime
+        .handle_event(Event::TimerStart {
+            id: oj_core::TimerId::cron("janitor", ""),
+        })
+        .await
+        .unwrap();
+
+    // After firing, the handler should reschedule the timer for the next interval.
+    // Verify the scheduler has a new timer pending.
+    let scheduler = ctx.runtime.executor.scheduler();
+    let sched = scheduler.lock();
+    assert!(
+        sched.has_timers(),
+        "timer should be rescheduled after cron fires"
+    );
+}
+
+// ---- Test 8: cron_timer_fired_when_stopped_is_noop ----
+
+#[tokio::test]
+async fn cron_timer_fired_when_stopped_is_noop() {
+    let ctx = setup_with_runbook(CRON_RUNBOOK).await;
+    let (runbook_json, runbook_hash) = hash_cron_runbook();
+
+    load_runbook(&ctx, &runbook_json, &runbook_hash).await;
+
+    // Start and immediately stop the cron
+    ctx.runtime
+        .handle_event(Event::CronStarted {
+            cron_name: "janitor".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: runbook_hash.clone(),
+            interval: "30m".to_string(),
+            pipeline_name: "cleanup".to_string(),
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    ctx.runtime
+        .handle_event(Event::CronStopped {
+            cron_name: "janitor".to_string(),
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // Simulate a timer firing for the stopped cron (race condition scenario)
+    let events = ctx
+        .runtime
+        .handle_event(Event::TimerStart {
+            id: oj_core::TimerId::cron("janitor", ""),
+        })
+        .await
+        .unwrap();
+
+    // No pipeline should be created
+    let pipelines = ctx.runtime.pipelines();
+    assert!(
+        pipelines.is_empty(),
+        "no pipeline should be created for a stopped cron"
+    );
+
+    // No CronFired event should be emitted
+    let has_cron_fired = events.iter().any(|e| matches!(e, Event::CronFired { .. }));
+    assert!(
+        !has_cron_fired,
+        "no CronFired event should be emitted for stopped cron"
+    );
+}
+
+// ---- Test 9: cron_start_with_namespace ----
+
+#[tokio::test]
+async fn cron_start_with_namespace() {
+    let ctx = setup_with_runbook(CRON_RUNBOOK).await;
+    let (runbook_json, runbook_hash) = hash_cron_runbook();
+
+    load_runbook(&ctx, &runbook_json, &runbook_hash).await;
+
+    // Start cron with a namespace
+    ctx.runtime
+        .handle_event(Event::CronStarted {
+            cron_name: "janitor".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: runbook_hash.clone(),
+            interval: "30m".to_string(),
+            pipeline_name: "cleanup".to_string(),
+            namespace: "myproject".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Cron state should include namespace
+    {
+        let crons = ctx.runtime.cron_states.lock();
+        let state = crons.get("janitor").expect("cron state should exist");
+        assert_eq!(state.namespace, "myproject");
+    }
+
+    // Timer ID should include namespace prefix
+    let scheduler = ctx.runtime.executor.scheduler();
+    let mut sched = scheduler.lock();
+    ctx.clock
+        .advance(std::time::Duration::from_secs(30 * 60 + 1));
+    let fired = sched.fired_timers(ctx.clock.now());
+    let timer_ids: Vec<&str> = fired
+        .iter()
+        .filter_map(|e| match e {
+            Event::TimerStart { id } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        timer_ids.iter().any(|id| *id == "cron:myproject/janitor"),
+        "timer ID should include namespace: {:?}",
+        timer_ids
+    );
+}

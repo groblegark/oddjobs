@@ -17,7 +17,7 @@ use oj_adapters::{
 };
 use oj_core::{AgentId, AgentRunId, AgentRunStatus, Event, PipelineId, SystemClock};
 use oj_engine::breadcrumb::{self, Breadcrumb};
-use oj_engine::{AgentLogger, Runtime, RuntimeConfig, RuntimeDeps, Scheduler};
+use oj_engine::{AgentLogger, Runtime, RuntimeConfig, RuntimeDeps};
 use oj_storage::{MaterializedState, Snapshot, Wal};
 use thiserror::Error;
 use tokio::net::UnixListener;
@@ -92,8 +92,6 @@ pub struct DaemonState {
     pub state: Arc<Mutex<MaterializedState>>,
     /// Runtime for event processing (Arc for sharing with background reconciliation)
     pub runtime: Arc<DaemonRuntime>,
-    /// Scheduler for timers (shared with runtime)
-    pub scheduler: Arc<Mutex<Scheduler>>,
     /// Event bus for crash recovery
     pub event_bus: EventBus,
     /// When daemon started
@@ -432,7 +430,6 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
 
     // 8. Wrap state in Arc<Mutex>
     let state = Arc::new(Mutex::new(state));
-    let scheduler = Arc::new(Mutex::new(Scheduler::new()));
 
     // 9. Create runtime (runbook loaded on-demand per project)
     let runtime = Arc::new(Runtime::new(
@@ -489,7 +486,6 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
             lock_file,
             state,
             runtime: Arc::clone(&runtime),
-            scheduler,
             event_bus,
             start_time: Instant::now(),
             orphans,

@@ -105,6 +105,11 @@ where
         self.executor.clock()
     }
 
+    /// Get a shared reference to the scheduler (for timer checking in the daemon loop)
+    pub fn scheduler(&self) -> Arc<Mutex<Scheduler>> {
+        self.executor.scheduler()
+    }
+
     /// Get current pipelines
     pub fn pipelines(&self) -> HashMap<String, Pipeline> {
         self.lock_state(|state| state.pipelines.clone())

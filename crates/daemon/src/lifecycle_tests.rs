@@ -8,7 +8,7 @@ use oj_adapters::{
     ClaudeAgentAdapter, DesktopNotifyAdapter, TmuxAdapter, TracedAgent, TracedSession,
 };
 use oj_core::{Event, PipelineConfig, PipelineId, StepStatus, SystemClock};
-use oj_engine::{Runtime, RuntimeConfig, RuntimeDeps, Scheduler};
+use oj_engine::{Runtime, RuntimeConfig, RuntimeDeps};
 use oj_runbook::{PipelineDef, RunDirective, Runbook, StepDef};
 use oj_storage::{MaterializedState, Wal, WorkerRecord};
 use sha2::{Digest, Sha256};
@@ -111,7 +111,6 @@ async fn setup_daemon_with_pipeline_and_reader() -> (DaemonState, EventReader, P
     state.pipelines.get_mut("pipe-1").unwrap().step_status = StepStatus::Running;
 
     let state = Arc::new(Mutex::new(state));
-    let scheduler = Arc::new(Mutex::new(Scheduler::new()));
 
     // Create real adapters (won't be called for ShellExited → completion path)
     let session_adapter = TracedSession::new(TmuxAdapter::new());
@@ -152,7 +151,6 @@ async fn setup_daemon_with_pipeline_and_reader() -> (DaemonState, EventReader, P
         lock_file,
         state,
         runtime,
-        scheduler,
         event_bus,
         start_time: std::time::Instant::now(),
         orphans: Arc::new(Mutex::new(Vec::new())),

@@ -19,6 +19,8 @@ mod runtime;
 mod scheduler;
 mod spawn;
 mod steps;
+mod time_fmt;
+mod worker_logger;
 mod workspace;
 
 pub use agent_logger::AgentLogger;
@@ -27,4 +29,5 @@ pub use executor::{ExecuteError, Executor};
 pub use pipeline_logger::PipelineLogger;
 pub use runtime::{Runtime, RuntimeConfig, RuntimeDeps};
 pub use scheduler::Scheduler;
+pub use worker_logger::WorkerLogger;
 pub use workspace::prepare_for_agent;

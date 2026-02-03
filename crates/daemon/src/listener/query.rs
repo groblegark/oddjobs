@@ -483,6 +483,24 @@ pub(super) fn handle_query(
             Response::Agents { agents }
         }
 
+        Query::GetWorkerLogs {
+            name,
+            namespace,
+            lines,
+        } => {
+            use oj_engine::log_paths::worker_log_path;
+
+            let scoped_name = if namespace.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", namespace, name)
+            };
+
+            let log_path = worker_log_path(logs_path, &scoped_name);
+            let content = read_log_file(&log_path, lines);
+            Response::WorkerLogs { log_path, content }
+        }
+
         Query::ListWorkers => {
             let workers = state
                 .workers

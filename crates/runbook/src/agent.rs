@@ -59,6 +59,7 @@ impl PrimeDef {
     ///
     /// Only valid for `Script` and `Commands`. Panics on `PerSource` —
     /// use `render_per_source()` instead.
+    #[allow(clippy::panic)]
     pub fn render(&self, vars: &HashMap<String, String>) -> String {
         match self {
             PrimeDef::Script(s) => crate::template::interpolate(s, vars),

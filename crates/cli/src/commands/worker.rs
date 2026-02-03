@@ -7,7 +7,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::client::DaemonClient;
-use crate::output::OutputFormat;
+use crate::output::{display_log, OutputFormat};
 
 use oj_daemon::{Query, Request, Response};
 
@@ -31,6 +31,20 @@ pub enum WorkerCommand {
     Stop {
         /// Worker name from runbook
         name: String,
+        /// Project namespace override
+        #[arg(long = "project")]
+        project: Option<String>,
+    },
+    /// View worker activity log
+    Logs {
+        /// Worker name
+        name: String,
+        /// Stream live activity (like tail -f)
+        #[arg(long, short)]
+        follow: bool,
+        /// Number of recent lines to show (default: 50)
+        #[arg(short = 'n', long, default_value = "50")]
+        limit: usize,
         /// Project namespace override
         #[arg(long = "project")]
         project: Option<String>,
@@ -109,6 +123,21 @@ pub async fn handle(
                     anyhow::bail!("unexpected response from daemon");
                 }
             }
+        }
+        WorkerCommand::Logs {
+            name,
+            follow,
+            limit,
+            project,
+        } => {
+            let effective_namespace = project
+                .or_else(|| std::env::var("OJ_NAMESPACE").ok())
+                .unwrap_or_else(|| namespace.to_string());
+
+            let (log_path, content) = client
+                .get_worker_logs(&name, &effective_namespace, limit)
+                .await?;
+            display_log(&log_path, &content, follow, format, "worker", &name).await?;
         }
         WorkerCommand::List { project } => {
             // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace

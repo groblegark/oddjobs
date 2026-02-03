@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-//! Shared path builders for pipeline and agent log files.
+//! Shared path builders for pipeline, agent, and worker log files.
 //!
 //! Used by both the logger (writer) and daemon (reader) to construct
-//! consistent paths for logs in the directory structure:
+//! consistent paths for log files in the directory structure:
 //!   `<logs_dir>/pipeline/<pipeline_id>.log`
 //!   `<logs_dir>/agent/<agent_id>.log`
+//!   `<logs_dir>/worker/<worker_name>.log`
 
 use std::path::{Path, PathBuf};
 
@@ -50,6 +51,17 @@ pub fn agent_session_log_dir(logs_dir: &Path, agent_id: &str) -> PathBuf {
 /// Structure: `{logs_dir}/cron/{cron_name}.log`
 pub fn cron_log_path(logs_dir: &Path, cron_name: &str) -> PathBuf {
     logs_dir.join("cron").join(format!("{}.log", cron_name))
+}
+
+/// Build the path to a worker log file.
+///
+/// Structure: `{logs_dir}/worker/{worker_name}.log`
+///
+/// # Arguments
+/// * `logs_dir` - Base logs directory (e.g., `~/.local/state/oj/logs`)
+/// * `worker_name` - Worker name (may include namespace prefix, e.g., `ns/worker`)
+pub fn worker_log_path(logs_dir: &Path, worker_name: &str) -> PathBuf {
+    logs_dir.join("worker").join(format!("{}.log", worker_name))
 }
 
 /// Build the path to a pipeline breadcrumb file.

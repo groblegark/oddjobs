@@ -378,6 +378,26 @@ impl DaemonClient {
         }
     }
 
+    /// Get worker activity logs
+    pub async fn get_worker_logs(
+        &self,
+        name: &str,
+        namespace: &str,
+        lines: usize,
+    ) -> Result<(PathBuf, String), ClientError> {
+        let request = Request::Query {
+            query: Query::GetWorkerLogs {
+                name: name.to_string(),
+                namespace: namespace.to_string(),
+                lines,
+            },
+        };
+        match self.send(&request).await? {
+            Response::WorkerLogs { log_path, content } => Ok((log_path, content)),
+            other => Self::reject(other),
+        }
+    }
+
     /// Get cron logs
     pub async fn get_cron_logs(
         &self,

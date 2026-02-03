@@ -274,6 +274,14 @@ pub enum Query {
         #[serde(default)]
         status: Option<String>,
     },
+    /// Get worker activity logs
+    GetWorkerLogs {
+        name: String,
+        #[serde(default)]
+        namespace: String,
+        /// Number of most recent lines to return (0 = all)
+        lines: usize,
+    },
     /// List all workers and their status
     ListWorkers,
     /// List all crons and their status
@@ -456,6 +464,14 @@ pub enum Response {
 
     /// Queue items listing
     QueueItems { items: Vec<QueueItemSummary> },
+
+    /// Worker activity log contents
+    WorkerLogs {
+        /// Path to the log file (for --follow mode)
+        log_path: PathBuf,
+        /// Log content (most recent N lines)
+        content: String,
+    },
 
     /// List of workers
     Workers { workers: Vec<WorkerSummary> },

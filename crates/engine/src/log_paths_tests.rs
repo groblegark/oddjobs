@@ -31,6 +31,21 @@ fn cron_log_path_builds_expected_path() {
 }
 
 #[test]
+fn worker_log_path_builds_expected_path() {
+    let result = worker_log_path(Path::new("/state/logs"), "my-worker");
+    assert_eq!(result, PathBuf::from("/state/logs/worker/my-worker.log"));
+}
+
+#[test]
+fn worker_log_path_with_namespace() {
+    let result = worker_log_path(Path::new("/state/logs"), "myproject/my-worker");
+    assert_eq!(
+        result,
+        PathBuf::from("/state/logs/worker/myproject/my-worker.log")
+    );
+}
+
+#[test]
 fn breadcrumb_path_builds_expected_path() {
     let result = breadcrumb_path(Path::new("/state/logs"), "pipeline-001");
     assert_eq!(result, PathBuf::from("/state/logs/pipeline-001.crumb.json"));

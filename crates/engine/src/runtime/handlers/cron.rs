@@ -7,7 +7,7 @@ use super::super::Runtime;
 use super::CreatePipelineParams;
 use crate::error::RuntimeError;
 use crate::log_paths::cron_log_path;
-use crate::pipeline_logger::format_utc_now;
+use crate::time_fmt::format_utc_now;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{Clock, Effect, Event, IdGen, PipelineId, TimerId, UuidIdGen};
 use std::collections::HashMap;

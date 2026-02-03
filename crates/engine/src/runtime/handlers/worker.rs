@@ -14,6 +14,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Build a namespace-scoped worker name for log file paths.
+fn scoped_worker_name(namespace: &str, worker_name: &str) -> String {
+    if namespace.is_empty() {
+        worker_name.to_string()
+    } else {
+        format!("{}/{}", namespace, worker_name)
+    }
+}
+
 /// In-memory state for a running worker
 pub(crate) struct WorkerState {
     pub project_root: PathBuf,
@@ -114,6 +123,15 @@ where
             workers.insert(worker_name.to_string(), state);
         }
 
+        let scoped = scoped_worker_name(namespace, worker_name);
+        self.worker_logger.append(
+            &scoped,
+            &format!(
+                "started (queue={}, concurrency={})",
+                worker_def.source.queue, worker_def.concurrency
+            ),
+        );
+
         // Trigger initial poll
         match queue_type {
             QueueType::External => {
@@ -158,6 +176,15 @@ where
     ) -> Result<Vec<Event>, RuntimeError> {
         tracing::info!(worker = worker_name, "worker wake");
         let mut result_events = Vec::new();
+
+        // Log wake event
+        {
+            let workers = self.worker_states.lock();
+            if let Some(state) = workers.get(worker_name) {
+                let scoped = scoped_worker_name(&state.namespace, worker_name);
+                self.worker_logger.append(&scoped, "wake");
+            }
+        }
 
         // Refresh runbook from disk so edits after `oj worker start` are picked up
         if let Some(loaded_event) = self.refresh_worker_runbook(worker_name)? {
@@ -290,6 +317,11 @@ where
             let active = state.active_pipelines.len() as u32;
             let available = state.concurrency.saturating_sub(active);
             if available == 0 || items.is_empty() {
+                let scoped = scoped_worker_name(&state.namespace, worker_name);
+                self.worker_logger.append(
+                    &scoped,
+                    &format!("idle (active={}/{})", active, state.concurrency),
+                );
                 state.status = WorkerStatus::Running;
                 return Ok(result_events);
             }
@@ -357,6 +389,11 @@ where
                             worker = worker_name,
                             error = %e,
                             "take command failed, skipping item"
+                        );
+                        let scoped = scoped_worker_name(&worker_namespace, worker_name);
+                        self.worker_logger.append(
+                            &scoped,
+                            &format!("error: take command failed for item {}", item_id),
                         );
                         continue;
                     }
@@ -452,6 +489,16 @@ where
                     }])
                     .await?,
             );
+
+            let scoped = scoped_worker_name(&worker_namespace, worker_name);
+            self.worker_logger.append(
+                &scoped,
+                &format!(
+                    "dispatched item {} → pipeline {}",
+                    item_id,
+                    pipeline_id.as_str()
+                ),
+            );
         }
 
         Ok(result_events)
@@ -464,6 +511,8 @@ where
         let namespace = {
             let mut workers = self.worker_states.lock();
             if let Some(state) = workers.get_mut(worker_name) {
+                let scoped = scoped_worker_name(&state.namespace, worker_name);
+                self.worker_logger.append(&scoped, "stopped");
                 state.status = WorkerStatus::Stopped;
                 state.namespace.clone()
             } else {
@@ -561,6 +610,30 @@ where
             worker_namespace,
         )) = worker_info
         {
+            // Log pipeline completion
+            {
+                let workers = self.worker_states.lock();
+                let active = workers
+                    .get(&worker_name)
+                    .map(|s| s.active_pipelines.len())
+                    .unwrap_or(0);
+                let concurrency = workers
+                    .get(&worker_name)
+                    .map(|s| s.concurrency)
+                    .unwrap_or(0);
+                let scoped = scoped_worker_name(&worker_namespace, &worker_name);
+                self.worker_logger.append(
+                    &scoped,
+                    &format!(
+                        "pipeline {} completed (step={}), active={}/{}",
+                        pipeline_id.as_str(),
+                        terminal_step,
+                        active,
+                        concurrency,
+                    ),
+                );
+            }
+
             // Refresh runbook from disk so edits after `oj worker start` are picked up
             if let Some(loaded_event) = self.refresh_worker_runbook(&worker_name)? {
                 result_events.push(loaded_event);

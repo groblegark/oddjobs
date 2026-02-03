@@ -8,8 +8,8 @@ mod monitor;
 mod pipeline;
 
 use crate::{
-    breadcrumb::BreadcrumbWriter, error::RuntimeError, pipeline_logger::PipelineLogger, Executor,
-    Scheduler,
+    breadcrumb::BreadcrumbWriter, error::RuntimeError, pipeline_logger::PipelineLogger,
+    worker_logger::WorkerLogger, Executor, Scheduler,
 };
 use handlers::cron::CronState;
 use handlers::worker::WorkerState;
@@ -54,6 +54,7 @@ pub struct Runtime<S, A, N, C: Clock> {
     pub(crate) state_dir: PathBuf,
     pub(crate) _workspaces_root: PathBuf,
     pub(crate) logger: PipelineLogger,
+    pub(crate) worker_logger: WorkerLogger,
     pub(crate) breadcrumb: BreadcrumbWriter,
     pub(crate) agent_pipelines: Mutex<HashMap<AgentId, String>>,
     pub(crate) runbook_cache: Mutex<HashMap<String, Runbook>>,
@@ -85,6 +86,7 @@ where
             state_dir: config.state_dir,
             _workspaces_root: config.workspaces_root,
             logger: PipelineLogger::new(config.log_dir.clone()),
+            worker_logger: WorkerLogger::new(config.log_dir.clone()),
             breadcrumb: BreadcrumbWriter::new(config.log_dir),
             agent_pipelines: Mutex::new(HashMap::new()),
             runbook_cache: Mutex::new(HashMap::new()),

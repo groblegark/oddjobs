@@ -16,7 +16,7 @@ use oj_core::{AgentId, Event, PromptType};
 use crate::client::DaemonClient;
 use crate::color;
 use crate::exit_error::ExitError;
-use crate::output::{display_log, OutputFormat};
+use crate::output::{display_log, should_use_color, OutputFormat};
 
 use super::pipeline::parse_duration;
 
@@ -83,6 +83,16 @@ pub enum AgentCommand {
         /// Timeout duration (e.g. "5m", "30s", "1h")
         #[arg(long)]
         timeout: Option<String>,
+    },
+    /// Peek at the agent's tmux session output
+    Peek {
+        /// Agent ID (or prefix)
+        id: String,
+    },
+    /// Attach to the agent's tmux session
+    Attach {
+        /// Agent ID (or prefix)
+        id: String,
     },
     /// Remove agent logs from completed/failed/cancelled pipelines
     Prune {
@@ -311,6 +321,54 @@ pub async fn handle(
         }
         AgentCommand::Wait { agent_id, timeout } => {
             handle_wait(&agent_id, timeout.as_deref(), client).await?;
+        }
+        AgentCommand::Peek { id } => {
+            let agent = client
+                .get_agent(&id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Agent not found: {}", id))?;
+            let session_id = agent
+                .session_id
+                .ok_or_else(|| anyhow::anyhow!("Agent has no active session"))?;
+            let with_color = should_use_color();
+            match client.peek_session(&session_id, with_color).await {
+                Ok(output) => {
+                    println!("╭──── peek: {} ────", session_id);
+                    print!("{}", output);
+                    println!("╰──── end peek ────");
+                }
+                Err(crate::client::ClientError::Rejected(msg))
+                    if msg.starts_with("Session not found") =>
+                {
+                    let short_id = truncate(&agent.agent_id, 8);
+                    let is_terminal = agent.status == "completed"
+                        || agent.status == "failed"
+                        || agent.status == "cancelled";
+                    if is_terminal {
+                        println!("Agent {} is {}. No active session.", short_id, agent.status);
+                    } else {
+                        println!(
+                            "No active session for agent {} (status: {})",
+                            short_id, agent.status
+                        );
+                    }
+                    println!();
+                    println!("Try:");
+                    println!("    oj agent logs {}", short_id);
+                    println!("    oj agent show {}", short_id);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        AgentCommand::Attach { id } => {
+            let agent = client
+                .get_agent(&id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Agent not found: {}", id))?;
+            let session_id = agent
+                .session_id
+                .ok_or_else(|| anyhow::anyhow!("Agent has no active session"))?;
+            super::session::attach(&session_id)?;
         }
         AgentCommand::Prune { all, dry_run } => {
             let (pruned, skipped) = client.agent_prune(all, dry_run).await?;

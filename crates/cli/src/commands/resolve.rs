@@ -164,7 +164,15 @@ pub async fn handle_peek(client: &DaemonClient, id: &str, format: OutputFormat) 
             )
             .await
         }
-        EntityKind::Agent | EntityKind::Session => {
+        EntityKind::Agent => {
+            super::agent::handle(
+                super::agent::AgentCommand::Peek { id: entity.id },
+                client,
+                format,
+            )
+            .await
+        }
+        EntityKind::Session => {
             super::session::handle(
                 super::session::SessionCommand::Peek { id: entity.id },
                 client,
@@ -186,7 +194,15 @@ pub async fn handle_attach(client: &DaemonClient, id: &str) -> Result<()> {
             )
             .await
         }
-        EntityKind::Agent | EntityKind::Session => super::session::attach(&entity.id),
+        EntityKind::Agent => {
+            super::agent::handle(
+                super::agent::AgentCommand::Attach { id: entity.id },
+                client,
+                OutputFormat::Text,
+            )
+            .await
+        }
+        EntityKind::Session => super::session::attach(&entity.id),
     }
 }
 

@@ -1,6 +1,23 @@
 # TODO
 
 Recently landed:
+  - feat(cli): ANSI color support for clap help output (header/literal/context/muted)
+  - fix(cli): `oj run` with no arguments exits 0 (not error)
+  - fix(cli): `oj run errand -h` shows errand-specific help (not generic oj run help)
+  - fix(cli): remove vestigial -a/--arg and --daemon flags from `oj run`
+  - chore(cli): short IDs use 8 hex characters consistently (no hyphen suffix)
+  - chore(cli): --project flag on cron start/stop/once commands
+  - chore(cli): --project flag on worker list/prune commands
+  - chore(cli): --project flag on pipeline prune and workspace prune commands
+  - chore(cli): dynamic PROJECT column in `oj session list`
+  - feat(cli): `oj agent show <id>` — detail view for agents
+  - feat(cli): `oj cron prune` — clean up stopped cron entries
+  - feat(cli): `oj status --watch` — auto-refreshing status display
+  - feat(cli): `oj peek/attach/logs/show <id>` — top-level convenience commands
+  - feat(runbook): `poll` option on external queue blocks (30s, 5m, 8h durations)
+  - feat(cli): `oj worker logs`, `oj cron logs`, `oj queue logs` with -f/--follow, --project
+  - chore(cli): pipeline logs moved to {logs_dir}/pipeline/ subdir (consistent with agent/)
+  - chore(cli): `oj daemon logs` uses -n/--limit/--no-limit (consistent with other logs)
   - feat(engine): source-aware prime commands for agents (per-source SessionStart hooks)
   - feat(cli): `oj pipeline prune --orphans` — prune orphaned pipelines via breadcrumb files
   - fix(cli): `oj queue list` shows all queues across all project namespaces
@@ -65,28 +82,22 @@ Recently landed:
 
 Backlog (roughly priority-ordered):
 
-Core pipeline
-  1. Worker poll interval: optional poll_interval on worker blocks for periodic checks
-
 Crons and reliability
-  2. Cron runbooks: write janitor, reliability, security, architect cron runbooks
+  1. Cron runbooks: write janitor, reliability, security, architect cron runbooks
       See: docs/future/runbooks/{janitor,reliability,security,architect}.hcl
-  3. Default error handling for agent errors (rate limit → retry, no internet → retry,
+  2. Default error handling for agent errors (rate limit → retry, no internet → retry,
      out of credits → escalate, unauthorized → escalate). See design notes below.
 
 Human-in-the-loop
-  5. Human In The Loop: CLI-first commands for handling escalation
-  6. Terminal: Dedicated fullscreen TUI for "watching" status and interactive inbox
+  3. Human In The Loop: CLI-first commands for handling escalation
+  4. Terminal: Dedicated fullscreen TUI for status and interactive inbox
 
 CLI polish
-  7. CLI color output: detect tty, respect COLOR/NO_COLOR env vars
-      - Copy color conventions from ../quench and ../wok
-      - Colorize show, list, --help views and other human-facing output
-      - Ask human for preferences on color scheme before implementing
+  5. CLI color output: extend colors beyond help to list, show, status views
+      - Colors landed for clap help; next step is colorizing data output
 
 Multi-project
-  8. Shared queues: allow cross-project queue push (e.g. --project flag routing)
-  9. Remote daemon: coordinate jobs across multiple machines
+  6. Remote daemon: coordinate jobs across multiple machines
 
 ----
 
@@ -182,6 +193,17 @@ Key features landed:
   - Cross-namespace queue visibility: `oj queue list` shows all projects
   - External queue push fix: list command runs from project root
   - Retry count in pipeline list: visibility into step retry activity
+  - ANSI color support for clap help (matching wok/quench color conventions)
+  - Consistent --project flag across queue, worker, cron, pipeline prune, workspace prune
+  - Top-level convenience commands: oj peek/attach/logs/show with auto entity resolution
+  - oj agent show: detail view for individual agents
+  - oj cron prune: lifecycle cleanup for stopped crons
+  - oj status --watch: auto-refreshing dashboard
+  - Queue poll interval: timer-based wake for external queues
+  - Per-entity log commands: oj worker/cron/queue logs with instrumentation
+  - Pipeline logs moved to pipeline/ subdir (consistent with agent/)
+  - Consistent log flags: -n/--limit/--no-limit across all log commands
+  - Short IDs: 8 hex chars everywhere (no hyphen suffix)
 
 Patterns that work:
   - oj run {build,fix,chore,draft} → agent → submit/push. Full loop end-to-end.

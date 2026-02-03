@@ -4,6 +4,7 @@
 //! `oj status` — cross-project overview dashboard.
 
 use std::fmt::Write;
+use std::io::{IsTerminal, Write as _};
 
 use anyhow::Result;
 
@@ -32,9 +33,20 @@ pub async fn handle(args: StatusArgs, format: OutputFormat) -> Result<()> {
         anyhow::bail!("duration must be > 0");
     }
 
+    let is_tty = std::io::stdout().is_terminal();
+
     loop {
-        print!("\x1B[2J\x1B[H");
+        if is_tty {
+            // Move cursor to home; overwrite previous render in-place.
+            // Avoid \x1B[2J which pushes old content into terminal scrollback.
+            print!("\x1B[H");
+        }
         handle_once(format, Some(&args.interval)).await?;
+        if is_tty {
+            // Clear any leftover lines from a previous (longer) render.
+            print!("\x1B[J");
+            std::io::stdout().flush()?;
+        }
         tokio::time::sleep(interval).await;
     }
 }

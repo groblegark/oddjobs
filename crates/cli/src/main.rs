@@ -69,7 +69,7 @@ enum Commands {
     /// Project management
     Project(project::ProjectArgs),
     /// Show overview of active work across all projects
-    Status,
+    Status(status::StatusArgs),
     /// Peek at the active tmux session (auto-detects entity type)
     Peek {
         /// Entity ID (pipeline, agent, or session — prefix match supported)
@@ -295,8 +295,8 @@ async fn run() -> Result<()> {
         }
 
         // Status - top-level dashboard (query, graceful when daemon down)
-        Commands::Status => {
-            status::handle(format).await?;
+        Commands::Status(args) => {
+            status::handle(args, format).await?;
         }
 
         // Convenience commands - resolve entity type automatically (query)

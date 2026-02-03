@@ -10,7 +10,35 @@ use anyhow::Result;
 use crate::client::DaemonClient;
 use crate::output::OutputFormat;
 
-pub async fn handle(format: OutputFormat) -> Result<()> {
+#[derive(clap::Args)]
+pub struct StatusArgs {
+    /// Re-run status display in a loop (Ctrl+C to exit)
+    #[arg(long)]
+    pub watch: bool,
+
+    /// Refresh interval for --watch mode (e.g. 2s, 10s)
+    #[arg(long, default_value = "5s")]
+    pub interval: String,
+}
+
+pub async fn handle(args: StatusArgs, format: OutputFormat) -> Result<()> {
+    if !args.watch {
+        return handle_once(format).await;
+    }
+
+    let interval = crate::commands::pipeline::parse_duration(&args.interval)?;
+    if interval.is_zero() {
+        anyhow::bail!("duration must be > 0");
+    }
+
+    loop {
+        print!("\x1B[2J\x1B[H");
+        handle_once(format).await?;
+        tokio::time::sleep(interval).await;
+    }
+}
+
+async fn handle_once(format: OutputFormat) -> Result<()> {
     let client = match DaemonClient::connect() {
         Ok(c) => c,
         Err(_) => {

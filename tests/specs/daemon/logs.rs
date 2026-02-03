@@ -12,7 +12,7 @@ fn daemon_logs_shows_output() {
     temp.oj().args(&["daemon", "start"]).passes();
 
     temp.oj()
-        .args(&["daemon", "logs", "--lines", "10"])
+        .args(&["daemon", "logs", "-n", "10"])
         .passes()
         .stdout_has("ojd: starting");
 }

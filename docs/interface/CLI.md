@@ -32,7 +32,8 @@ oj daemon stop --kill        # Stop and terminate all sessions
 oj daemon status             # Health check
 oj daemon logs               # View daemon logs
 oj daemon logs --follow      # Stream logs (alias: -f)
-oj daemon logs --lines 50    # Show last N lines (default: 100)
+oj daemon logs -n 100        # Show last N lines (default: 50)
+oj daemon logs --no-limit    # Show all lines
 ```
 
 The daemon auto-starts on first command if not already running.

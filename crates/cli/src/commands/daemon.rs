@@ -41,9 +41,12 @@ pub enum DaemonCommand {
     },
     /// View daemon logs
     Logs {
-        /// Number of lines to show
-        #[arg(long, default_value = "100")]
-        lines: usize,
+        /// Number of recent lines to show (default: 50)
+        #[arg(short = 'n', long, default_value = "50")]
+        limit: usize,
+        /// Show all lines (no limit)
+        #[arg(long, conflicts_with = "limit")]
+        no_limit: bool,
         /// Follow log output
         #[arg(long, short)]
         follow: bool,
@@ -63,7 +66,11 @@ pub async fn daemon(args: DaemonArgs, format: OutputFormat) -> Result<()> {
         DaemonCommand::Stop { kill } => stop(kill).await,
         DaemonCommand::Restart { kill } => restart(kill).await,
         DaemonCommand::Status => status(format).await,
-        DaemonCommand::Logs { lines, follow } => logs(lines, follow, format).await,
+        DaemonCommand::Logs {
+            limit,
+            no_limit,
+            follow,
+        } => logs(limit, no_limit, follow, format).await,
         DaemonCommand::Orphans => orphans(format).await,
         DaemonCommand::DismissOrphan { id } => dismiss_orphan(id, format).await,
     }
@@ -205,7 +212,7 @@ async fn status(format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-async fn logs(lines: usize, follow: bool, format: OutputFormat) -> Result<()> {
+async fn logs(limit: usize, no_limit: bool, follow: bool, format: OutputFormat) -> Result<()> {
     let log_path = get_log_path()?;
 
     if !log_path.exists() {
@@ -222,8 +229,12 @@ async fn logs(lines: usize, follow: bool, format: OutputFormat) -> Result<()> {
         return Ok(());
     }
 
-    // Read the last N lines
-    let content = read_last_lines(&log_path, lines)?;
+    // Read the last N lines (or all lines with --no-limit)
+    let content = if no_limit {
+        std::fs::read_to_string(&log_path)?
+    } else {
+        read_last_lines(&log_path, limit)?
+    };
     display_log(&log_path, &content, follow, format, "daemon", "log").await
 }
 

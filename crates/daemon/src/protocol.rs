@@ -221,6 +221,12 @@ pub enum Query {
     ListWorkers,
     /// Get a cross-project status overview
     StatusOverview,
+    /// List orphaned pipelines detected from breadcrumbs at startup
+    ListOrphans,
+    /// Dismiss an orphaned pipeline by ID
+    DismissOrphan {
+        id: String,
+    },
 }
 
 /// Response from daemon to CLI
@@ -269,6 +275,8 @@ pub enum Response {
         uptime_secs: u64,
         pipelines_active: usize,
         sessions_active: usize,
+        #[serde(default)]
+        orphan_count: usize,
     },
 
     /// Error response
@@ -369,6 +377,9 @@ pub enum Response {
         uptime_secs: u64,
         namespaces: Vec<NamespaceStatus>,
     },
+
+    /// List of orphaned pipelines detected from breadcrumbs
+    Orphans { orphans: Vec<OrphanSummary> },
 }
 
 /// Summary of a pipeline for listing
@@ -596,6 +607,28 @@ pub struct AgentStatusEntry {
     pub pipeline_name: String,
     pub step_name: String,
     pub status: String,
+}
+
+/// Summary of an orphaned pipeline detected from a breadcrumb file
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OrphanSummary {
+    pub pipeline_id: String,
+    pub project: String,
+    pub kind: String,
+    pub name: String,
+    pub current_step: String,
+    pub step_status: String,
+    pub workspace_root: Option<PathBuf>,
+    pub agents: Vec<OrphanAgent>,
+    pub updated_at: String,
+}
+
+/// Agent info from an orphaned pipeline's breadcrumb
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OrphanAgent {
+    pub agent_id: String,
+    pub session_name: Option<String>,
+    pub log_path: PathBuf,
 }
 
 /// Protocol errors

@@ -16,6 +16,7 @@ use oj_adapters::{
     TracedSession,
 };
 use oj_core::{AgentId, Event, PipelineId, StepStatus, SystemClock};
+use oj_engine::breadcrumb::{self, Breadcrumb};
 use oj_engine::{AgentLogger, Runtime, RuntimeConfig, RuntimeDeps, Scheduler};
 use oj_storage::{MaterializedState, Snapshot, Wal};
 use thiserror::Error;
@@ -94,6 +95,8 @@ pub struct DaemonState {
     pub event_bus: EventBus,
     /// When daemon started
     pub start_time: Instant,
+    /// Orphaned pipelines detected from breadcrumbs at startup
+    pub orphans: Arc<Mutex<Vec<Breadcrumb>>>,
 }
 
 /// Result of daemon startup - includes both the daemon state and the listener.
@@ -347,6 +350,62 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
     let listener = UnixListener::bind(&config.socket_path)
         .map_err(|e| LifecycleError::BindFailed(config.socket_path.clone(), e))?;
 
+    // 7b. Detect orphaned pipelines from breadcrumb files
+    let breadcrumbs = breadcrumb::scan_breadcrumbs(&config.logs_path);
+    let stale_threshold = std::time::Duration::from_secs(7 * 24 * 60 * 60); // 7 days
+    let mut orphans = Vec::new();
+    for bc in breadcrumbs {
+        if let Some(pipeline) = state.pipelines.get(&bc.pipeline_id) {
+            // Pipeline exists in recovered state — clean up stale breadcrumbs
+            // for terminal pipelines (crash between terminal and breadcrumb delete)
+            if pipeline.is_terminal() {
+                let path =
+                    oj_engine::log_paths::breadcrumb_path(&config.logs_path, &bc.pipeline_id);
+                let _ = std::fs::remove_file(&path);
+            }
+        } else {
+            // No matching pipeline — check if breadcrumb is stale (> 7 days)
+            let is_stale = {
+                let path =
+                    oj_engine::log_paths::breadcrumb_path(&config.logs_path, &bc.pipeline_id);
+                match path.metadata() {
+                    Ok(meta) => meta
+                        .modified()
+                        .ok()
+                        .and_then(|mtime: std::time::SystemTime| mtime.elapsed().ok())
+                        .map(|age| age > stale_threshold)
+                        .unwrap_or(false),
+                    Err(_) => false,
+                }
+            };
+            if is_stale {
+                warn!(
+                    pipeline_id = %bc.pipeline_id,
+                    "auto-dismissing stale orphan breadcrumb (> 7 days old)"
+                );
+                let path =
+                    oj_engine::log_paths::breadcrumb_path(&config.logs_path, &bc.pipeline_id);
+                let _ = std::fs::remove_file(&path);
+            } else {
+                warn!(
+                    pipeline_id = %bc.pipeline_id,
+                    project = %bc.project,
+                    kind = %bc.kind,
+                    step = %bc.current_step,
+                    "orphaned pipeline detected"
+                );
+                orphans.push(bc);
+            }
+        }
+    }
+    if !orphans.is_empty() {
+        warn!(
+            "{} orphaned pipeline(s) detected from breadcrumbs",
+            orphans.len()
+        );
+    }
+    let orphans = Arc::new(Mutex::new(orphans));
+
     // 8. Wrap state in Arc<Mutex>
     let state = Arc::new(Mutex::new(state));
     let scheduler = Arc::new(Mutex::new(Scheduler::new()));
@@ -398,6 +457,7 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
             scheduler,
             event_bus,
             start_time: Instant::now(),
+            orphans,
         },
         listener,
         event_reader,

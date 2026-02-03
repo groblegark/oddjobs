@@ -193,6 +193,11 @@ where
         self.logger
             .append(pipeline_id.as_str(), "init", "pipeline created");
 
+        // Write initial breadcrumb after pipeline is persisted
+        if let Some(pipeline) = self.get_pipeline(pipeline_id.as_str()) {
+            self.breadcrumb.write(&pipeline);
+        }
+
         // Emit on_start notification if configured
         if let Some(template) = &notify_config.on_start {
             let mut notify_vars: HashMap<String, String> = vars

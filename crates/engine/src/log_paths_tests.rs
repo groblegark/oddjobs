@@ -14,3 +14,9 @@ fn agent_session_log_dir_builds_expected_path() {
     let result = agent_session_log_dir(Path::new("/state/logs"), "abc-123-def");
     assert_eq!(result, PathBuf::from("/state/logs/agent/abc-123-def"));
 }
+
+#[test]
+fn breadcrumb_path_builds_expected_path() {
+    let result = breadcrumb_path(Path::new("/state/logs"), "pipeline-001");
+    assert_eq!(result, PathBuf::from("/state/logs/pipeline-001.crumb.json"));
+}

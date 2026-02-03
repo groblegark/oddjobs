@@ -45,6 +45,11 @@ where
         self.logger
             .append(pipeline_id.as_str(), step_name, "step started");
 
+        // Write breadcrumb after step status change (captures agent info)
+        if let Some(pipeline) = self.get_pipeline(pipeline_id.as_str()) {
+            self.breadcrumb.write(&pipeline);
+        }
+
         // Dispatch based on run directive
         match &step_def.run {
             RunDirective::Shell(cmd) => {
@@ -245,6 +250,7 @@ where
                     // Cancel cleanup step completed; go to terminal "cancelled"
                     let effects = steps::cancellation_effects(pipeline);
                     result_events.extend(self.executor.execute_all(effects).await?);
+                    self.breadcrumb.delete(&pipeline.id);
                 } else {
                     let effects = steps::step_transition_effects(pipeline, "done");
                     result_events.extend(self.executor.execute_all(effects).await?);
@@ -358,13 +364,16 @@ where
                     .await?,
                 );
             } else {
-                // Already at the pipeline on_fail target; fail normally
+                // Already at the pipeline on_fail target; terminal failure
                 let effects = steps::failure_effects(pipeline, error);
                 result_events.extend(self.executor.execute_all(effects).await?);
+                self.breadcrumb.delete(&pipeline.id);
             }
         } else {
+            // Terminal failure — no on_fail handler
             let effects = steps::failure_effects(pipeline, error);
             result_events.extend(self.executor.execute_all(effects).await?);
+            self.breadcrumb.delete(&pipeline.id);
 
             // Emit on_fail notification only on terminal failure (not on_fail transition)
             if let Some(pipeline_def) = pipeline_def.as_ref() {
@@ -388,6 +397,7 @@ where
     ) -> Result<Vec<Event>, RuntimeError> {
         self.logger
             .append(&pipeline.id, &pipeline.step, "pipeline completed");
+        self.breadcrumb.delete(&pipeline.id);
         let mut effects = steps::completion_effects(pipeline);
 
         // Clean up ephemeral workspaces on successful completion
@@ -586,11 +596,13 @@ where
                 // Already at the cancel target; go terminal
                 let effects = steps::cancellation_effects(pipeline);
                 result_events.extend(self.executor.execute_all(effects).await?);
+                self.breadcrumb.delete(&pipeline.id);
             }
         } else {
             // No on_cancel configured; terminal cancellation as before
             let effects = steps::cancellation_effects(pipeline);
             result_events.extend(self.executor.execute_all(effects).await?);
+            self.breadcrumb.delete(&pipeline.id);
         }
 
         tracing::info!(pipeline_id = %pipeline.id, "cancelled pipeline");

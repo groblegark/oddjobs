@@ -145,6 +145,7 @@ async fn setup_daemon_with_pipeline() -> (DaemonState, PathBuf) {
         scheduler,
         event_bus,
         start_time: std::time::Instant::now(),
+        orphans: Arc::new(Mutex::new(Vec::new())),
     };
 
     (daemon, wal_path)

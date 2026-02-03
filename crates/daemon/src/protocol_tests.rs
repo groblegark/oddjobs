@@ -34,6 +34,7 @@ fn encode_decode_roundtrip_response() {
         uptime_secs: 3600,
         pipelines_active: 5,
         sessions_active: 3,
+        orphan_count: 0,
     };
 
     let encoded = encode(&response).expect("encode failed");
@@ -330,6 +331,84 @@ fn encode_decode_queues_response_empty() {
     let decoded: Response = decode(&encoded).expect("decode failed");
 
     assert_eq!(response, decoded);
+}
+
+#[test]
+fn encode_decode_list_orphans_query() {
+    let request = Request::Query {
+        query: Query::ListOrphans,
+    };
+
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+
+    assert_eq!(request, decoded);
+}
+
+#[test]
+fn encode_decode_dismiss_orphan_query() {
+    let request = Request::Query {
+        query: Query::DismissOrphan {
+            id: "pipe-abc".to_string(),
+        },
+    };
+
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+
+    assert_eq!(request, decoded);
+}
+
+#[test]
+fn encode_decode_orphans_response() {
+    let response = Response::Orphans {
+        orphans: vec![OrphanSummary {
+            pipeline_id: "pipe-orphan".to_string(),
+            project: "myproject".to_string(),
+            kind: "deploy".to_string(),
+            name: "deploy-staging".to_string(),
+            current_step: "build".to_string(),
+            step_status: "Running".to_string(),
+            workspace_root: Some(std::path::PathBuf::from("/tmp/ws")),
+            agents: vec![OrphanAgent {
+                agent_id: "pipe-orphan-build".to_string(),
+                session_name: Some("oj-pipe-orphan-build".to_string()),
+                log_path: std::path::PathBuf::from("/state/logs/agent/pipe-orphan-build.log"),
+            }],
+            updated_at: "2026-01-30T08:14:09Z".to_string(),
+        }],
+    };
+
+    let encoded = encode(&response).expect("encode failed");
+    let decoded: Response = decode(&encoded).expect("decode failed");
+
+    assert_eq!(response, decoded);
+}
+
+#[test]
+fn encode_decode_status_with_orphans() {
+    let response = Response::Status {
+        uptime_secs: 100,
+        pipelines_active: 2,
+        sessions_active: 1,
+        orphan_count: 3,
+    };
+
+    let encoded = encode(&response).expect("encode failed");
+    let decoded: Response = decode(&encoded).expect("decode failed");
+
+    assert_eq!(response, decoded);
+}
+
+#[test]
+fn status_orphan_count_defaults_to_zero() {
+    // Test backward compatibility: old Status without orphan_count should deserialize
+    let json = r#"{"type":"Status","uptime_secs":60,"pipelines_active":1,"sessions_active":0}"#;
+    let decoded: Response = serde_json::from_str(json).expect("deserialize failed");
+    match decoded {
+        Response::Status { orphan_count, .. } => assert_eq!(orphan_count, 0),
+        _ => panic!("Expected Status response"),
+    }
 }
 
 #[tokio::test]

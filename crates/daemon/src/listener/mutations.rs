@@ -8,6 +8,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use oj_core::{AgentId, Event, PipelineId, SessionId, WorkspaceId};
+use oj_engine::breadcrumb::Breadcrumb;
 use oj_storage::MaterializedState;
 
 use crate::event_bus::EventBus;
@@ -18,6 +19,7 @@ use super::ConnectionError;
 /// Handle a status request.
 pub(super) fn handle_status(
     state: &Arc<Mutex<MaterializedState>>,
+    orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
     start_time: std::time::Instant,
 ) -> Response {
     let uptime_secs = start_time.elapsed().as_secs();
@@ -31,11 +33,13 @@ pub(super) fn handle_status(
         let sessions = state.sessions.len();
         (active, sessions)
     };
+    let orphan_count = orphans.lock().len();
 
     Response::Status {
         uptime_secs,
         pipelines_active,
         sessions_active,
+        orphan_count,
     }
 }
 
@@ -328,9 +332,11 @@ pub(super) fn handle_pipeline_prune(
                 .send(event)
                 .map_err(|_| ConnectionError::WalError)?;
 
-            // Best-effort cleanup of pipeline log file
+            // Best-effort cleanup of pipeline log and breadcrumb files
             let log_file = logs_path.join(format!("{}.log", entry.id));
             let _ = std::fs::remove_file(&log_file);
+            let crumb_file = oj_engine::log_paths::breadcrumb_path(logs_path, &entry.id);
+            let _ = std::fs::remove_file(&crumb_file);
 
             // Best-effort cleanup of agent log files for this pipeline's steps
             // Agent logs are at logs_path/agent/<agent_id>.log

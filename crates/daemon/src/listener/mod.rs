@@ -27,6 +27,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, warn};
 
 use crate::event_bus::EventBus;
+use oj_engine::breadcrumb::Breadcrumb;
 
 use crate::protocol::{self, Request, Response, DEFAULT_TIMEOUT, PROTOCOL_VERSION};
 
@@ -35,6 +36,7 @@ pub struct Listener {
     socket: UnixListener,
     event_bus: EventBus,
     state: Arc<Mutex<MaterializedState>>,
+    orphans: Arc<Mutex<Vec<Breadcrumb>>>,
     logs_path: std::path::PathBuf,
     start_time: Instant,
     shutdown: Arc<Notify>,
@@ -59,6 +61,7 @@ impl Listener {
         socket: UnixListener,
         event_bus: EventBus,
         state: Arc<Mutex<MaterializedState>>,
+        orphans: Arc<Mutex<Vec<Breadcrumb>>>,
         logs_path: std::path::PathBuf,
         start_time: Instant,
         shutdown: Arc<Notify>,
@@ -67,6 +70,7 @@ impl Listener {
             socket,
             event_bus,
             state,
+            orphans,
             logs_path,
             start_time,
             shutdown,
@@ -80,13 +84,14 @@ impl Listener {
                 Ok((stream, _)) => {
                     let event_bus = self.event_bus.clone();
                     let state = Arc::clone(&self.state);
+                    let orphans = Arc::clone(&self.orphans);
                     let logs_path = self.logs_path.clone();
                     let start_time = self.start_time;
                     let shutdown = Arc::clone(&self.shutdown);
 
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
-                            stream, event_bus, state, logs_path, start_time, shutdown,
+                            stream, event_bus, state, orphans, logs_path, start_time, shutdown,
                         )
                         .await
                         {
@@ -115,6 +120,7 @@ async fn handle_connection(
     stream: UnixStream,
     event_bus: EventBus,
     state: Arc<Mutex<MaterializedState>>,
+    orphans: Arc<Mutex<Vec<Breadcrumb>>>,
     logs_path: std::path::PathBuf,
     start_time: Instant,
     shutdown: Arc<Notify>,
@@ -133,7 +139,7 @@ async fn handle_connection(
 
     // Handle request
     let response = handle_request(
-        request, &event_bus, &state, &logs_path, start_time, &shutdown,
+        request, &event_bus, &state, &orphans, &logs_path, start_time, &shutdown,
     )
     .await?;
 
@@ -150,6 +156,7 @@ async fn handle_request(
     request: Request,
     event_bus: &EventBus,
     state: &Arc<Mutex<MaterializedState>>,
+    orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
     logs_path: &std::path::Path,
     start_time: Instant,
     shutdown: &Notify,
@@ -168,7 +175,9 @@ async fn handle_request(
             Ok(Response::Ok)
         }
 
-        Request::Query { query } => Ok(query::handle_query(query, state, logs_path, start_time)),
+        Request::Query { query } => {
+            Ok(query::handle_query(query, state, orphans, logs_path, start_time))
+        }
 
         Request::Shutdown { kill } => {
             if kill {
@@ -178,7 +187,7 @@ async fn handle_request(
             Ok(Response::ShuttingDown)
         }
 
-        Request::Status => Ok(mutations::handle_status(state, start_time)),
+        Request::Status => Ok(mutations::handle_status(state, orphans, start_time)),
 
         Request::SessionSend { id, input } => {
             mutations::handle_session_send(state, event_bus, id, input)

@@ -7,7 +7,10 @@ mod handlers;
 mod monitor;
 mod pipeline;
 
-use crate::{error::RuntimeError, pipeline_logger::PipelineLogger, Executor, Scheduler};
+use crate::{
+    breadcrumb::BreadcrumbWriter, error::RuntimeError, pipeline_logger::PipelineLogger, Executor,
+    Scheduler,
+};
 use handlers::worker::WorkerState;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{AgentId, Clock, Pipeline};
@@ -45,6 +48,7 @@ pub struct Runtime<S, A, N, C: Clock> {
     pub(crate) executor: Executor<S, A, N, C>,
     pub(crate) _workspaces_root: PathBuf,
     pub(crate) logger: PipelineLogger,
+    pub(crate) breadcrumb: BreadcrumbWriter,
     pub(crate) agent_pipelines: Mutex<HashMap<AgentId, String>>,
     pub(crate) runbook_cache: Mutex<HashMap<String, Runbook>>,
     pub(crate) worker_states: Mutex<HashMap<String, WorkerState>>,
@@ -72,7 +76,8 @@ where
                 event_tx,
             ),
             _workspaces_root: config.workspaces_root,
-            logger: PipelineLogger::new(config.log_dir),
+            logger: PipelineLogger::new(config.log_dir.clone()),
+            breadcrumb: BreadcrumbWriter::new(config.log_dir),
             agent_pipelines: Mutex::new(HashMap::new()),
             runbook_cache: Mutex::new(HashMap::new()),
             worker_states: Mutex::new(HashMap::new()),

@@ -9,6 +9,7 @@
 //! Odd Jobs execution engine
 
 mod agent_logger;
+pub mod breadcrumb;
 mod error;
 mod executor;
 pub mod log_paths;

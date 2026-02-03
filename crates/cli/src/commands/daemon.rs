@@ -48,6 +48,13 @@ pub enum DaemonCommand {
         #[arg(long, short)]
         follow: bool,
     },
+    /// List orphaned pipelines detected at startup
+    Orphans,
+    /// Dismiss an orphaned pipeline (delete its breadcrumb)
+    DismissOrphan {
+        /// Pipeline ID (or prefix) to dismiss
+        id: String,
+    },
 }
 
 pub async fn daemon(args: DaemonArgs, format: OutputFormat) -> Result<()> {
@@ -57,6 +64,8 @@ pub async fn daemon(args: DaemonArgs, format: OutputFormat) -> Result<()> {
         DaemonCommand::Restart { kill } => restart(kill).await,
         DaemonCommand::Status => status(format).await,
         DaemonCommand::Logs { lines, follow } => logs(lines, follow, format).await,
+        DaemonCommand::Orphans => orphans(format).await,
+        DaemonCommand::DismissOrphan { id } => dismiss_orphan(id, format).await,
     }
 }
 
@@ -73,7 +82,7 @@ async fn start(foreground: bool) -> Result<()> {
 
     // Check if already running
     if let Ok(client) = DaemonClient::connect() {
-        if let Ok((uptime, _, _)) = client.status().await {
+        if let Ok((uptime, _, _, _)) = client.status().await {
             println!("Daemon already running (uptime: {}s)", uptime);
             return Ok(());
         }
@@ -144,7 +153,7 @@ async fn status(format: OutputFormat) -> Result<()> {
     };
 
     // Handle connection errors (socket exists but daemon not running)
-    let (uptime, pipelines, sessions) = match client.status().await {
+    let (uptime, pipelines, sessions, orphan_count) = match client.status().await {
         Ok(result) => result,
         Err(crate::client::ClientError::DaemonNotRunning) => return not_running(),
         Err(crate::client::ClientError::Io(ref e))
@@ -170,6 +179,14 @@ async fn status(format: OutputFormat) -> Result<()> {
             println!("Uptime: {}", uptime_str);
             println!("Pipelines: {} active", pipelines);
             println!("Sessions: {} active", sessions);
+            if orphan_count > 0 {
+                println!();
+                println!(
+                    "\u{26a0} {} orphaned pipeline(s) detected (missing from WAL/snapshot)",
+                    orphan_count
+                );
+                println!("  Run `oj daemon orphans` for details");
+            }
         }
         OutputFormat::Json => {
             let obj = serde_json::json!({
@@ -179,6 +196,7 @@ async fn status(format: OutputFormat) -> Result<()> {
                 "uptime": format_uptime(uptime),
                 "pipelines_active": pipelines,
                 "sessions_active": sessions,
+                "orphan_count": orphan_count,
             });
             println!("{}", serde_json::to_string_pretty(&obj)?);
         }
@@ -207,6 +225,99 @@ async fn logs(lines: usize, follow: bool, format: OutputFormat) -> Result<()> {
     // Read the last N lines
     let content = read_last_lines(&log_path, lines)?;
     display_log(&log_path, &content, follow, format, "daemon", "log").await
+}
+
+async fn orphans(format: OutputFormat) -> Result<()> {
+    let client = DaemonClient::connect().map_err(|e| anyhow!("{}", e))?;
+    let orphans = client.list_orphans().await.map_err(|e| anyhow!("{}", e))?;
+
+    match format {
+        OutputFormat::Text => {
+            if orphans.is_empty() {
+                println!("No orphaned pipelines detected.");
+                return Ok(());
+            }
+
+            println!("Orphaned Pipelines (not in recovered state):\n");
+            println!(
+                "{:<14} {:<12} {:<10} {:<20} {:<12} {:<10} LAST UPDATED",
+                "ID", "PROJECT", "KIND", "NAME", "STEP", "STATUS"
+            );
+
+            for o in &orphans {
+                let short_id = if o.pipeline_id.len() > 12 {
+                    &o.pipeline_id[..12]
+                } else {
+                    &o.pipeline_id
+                };
+                println!(
+                    "{:<14} {:<12} {:<10} {:<20} {:<12} {:<10} {}",
+                    short_id,
+                    truncate(&o.project, 12),
+                    truncate(&o.kind, 10),
+                    truncate(&o.name, 20),
+                    truncate(&o.current_step, 12),
+                    truncate(&o.step_status, 10),
+                    o.updated_at,
+                );
+            }
+
+            println!("\nInvestigation commands:");
+            for o in &orphans {
+                let short_id = if o.pipeline_id.len() > 8 {
+                    &o.pipeline_id[..8]
+                } else {
+                    &o.pipeline_id
+                };
+                println!(
+                    "  oj pipeline peek {}     # View last tmux output",
+                    short_id
+                );
+                println!(
+                    "  oj pipeline attach {}   # Attach to tmux session",
+                    short_id
+                );
+                println!("  oj pipeline logs {}     # View pipeline log", short_id);
+            }
+
+            if !orphans.is_empty() {
+                println!("\nTo dismiss an orphan after investigation:");
+                println!("  oj daemon dismiss-orphan <id>");
+            }
+        }
+        OutputFormat::Json => {
+            let obj = serde_json::json!({ "orphans": orphans });
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+    }
+
+    Ok(())
+}
+
+async fn dismiss_orphan(id: String, format: OutputFormat) -> Result<()> {
+    let client = DaemonClient::connect().map_err(|e| anyhow!("{}", e))?;
+    client
+        .dismiss_orphan(&id)
+        .await
+        .map_err(|e| anyhow!("{}", e))?;
+
+    match format {
+        OutputFormat::Text => println!("Orphan dismissed: {}", id),
+        OutputFormat::Json => {
+            let obj = serde_json::json!({ "dismissed": id });
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() > max {
+        format!("{}...", &s[..max.saturating_sub(3)])
+    } else {
+        s.to_string()
+    }
 }
 
 fn read_last_lines(path: &std::path::Path, n: usize) -> Result<String> {

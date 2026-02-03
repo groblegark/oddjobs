@@ -31,6 +31,13 @@ pub fn agent_session_log_dir(logs_dir: &Path, agent_id: &str) -> PathBuf {
     logs_dir.join("agent").join(agent_id)
 }
 
+/// Build the path to a pipeline breadcrumb file.
+///
+/// Structure: `{logs_dir}/{pipeline_id}.crumb.json`
+pub fn breadcrumb_path(logs_dir: &Path, pipeline_id: &str) -> PathBuf {
+    logs_dir.join(format!("{}.crumb.json", pipeline_id))
+}
+
 #[cfg(test)]
 #[path = "log_paths_tests.rs"]
 mod tests;

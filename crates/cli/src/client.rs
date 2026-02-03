@@ -354,13 +354,14 @@ impl DaemonClient {
     }
 
     /// Get daemon status
-    pub async fn status(&self) -> Result<(u64, usize, usize), ClientError> {
+    pub async fn status(&self) -> Result<(u64, usize, usize, usize), ClientError> {
         match self.send(&Request::Status).await? {
             Response::Status {
                 uptime_secs,
                 pipelines_active,
                 sessions_active,
-            } => Ok((uptime_secs, pipelines_active, sessions_active)),
+                orphan_count,
+            } => Ok((uptime_secs, pipelines_active, sessions_active, orphan_count)),
             Response::Error { message } => Err(ClientError::Rejected(message)),
             _ => Err(ClientError::UnexpectedResponse),
         }
@@ -699,6 +700,30 @@ impl DaemonClient {
                 kind,
                 message,
             }),
+            Response::Error { message } => Err(ClientError::Rejected(message)),
+            _ => Err(ClientError::UnexpectedResponse),
+        }
+    }
+
+    /// List orphaned pipelines detected at startup
+    pub async fn list_orphans(&self) -> Result<Vec<oj_daemon::OrphanSummary>, ClientError> {
+        let request = Request::Query {
+            query: Query::ListOrphans,
+        };
+        match self.send(&request).await? {
+            Response::Orphans { orphans } => Ok(orphans),
+            Response::Error { message } => Err(ClientError::Rejected(message)),
+            _ => Err(ClientError::UnexpectedResponse),
+        }
+    }
+
+    /// Dismiss an orphaned pipeline by deleting its breadcrumb
+    pub async fn dismiss_orphan(&self, id: &str) -> Result<(), ClientError> {
+        let request = Request::Query {
+            query: Query::DismissOrphan { id: id.to_string() },
+        };
+        match self.send(&request).await? {
+            Response::Ok => Ok(()),
             Response::Error { message } => Err(ClientError::Rejected(message)),
             _ => Err(ClientError::UnexpectedResponse),
         }

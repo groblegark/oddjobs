@@ -84,12 +84,12 @@ pub enum AgentCommand {
         #[arg(long)]
         timeout: Option<String>,
     },
-    /// Peek at the agent's tmux session output
+    /// Peek at an agent's tmux session output
     Peek {
         /// Agent ID (or prefix)
         id: String,
     },
-    /// Attach to the agent's tmux session
+    /// Attach to an agent's tmux session
     Attach {
         /// Agent ID (or prefix)
         id: String,
@@ -305,31 +305,16 @@ pub async fn handle(
                 }
             }
         }
-        AgentCommand::Send { agent_id, message } => {
-            client.agent_send(&agent_id, &message).await?;
-            println!("Sent to agent {}", agent_id);
-        }
-        AgentCommand::Logs {
-            id,
-            step,
-            follow,
-            limit,
-        } => {
-            let (log_path, content, _steps) =
-                client.get_agent_logs(&id, step.as_deref(), limit).await?;
-            display_log(&log_path, &content, follow, format, "agent", &id).await?;
-        }
-        AgentCommand::Wait { agent_id, timeout } => {
-            handle_wait(&agent_id, timeout.as_deref(), client).await?;
-        }
         AgentCommand::Peek { id } => {
             let agent = client
                 .get_agent(&id)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("Agent not found: {}", id))?;
+
             let session_id = agent
                 .session_id
                 .ok_or_else(|| anyhow::anyhow!("Agent has no active session"))?;
+
             let with_color = should_use_color();
             match client.peek_session(&session_id, with_color).await {
                 Ok(output) => {
@@ -344,6 +329,7 @@ pub async fn handle(
                     let is_terminal = agent.status == "completed"
                         || agent.status == "failed"
                         || agent.status == "cancelled";
+
                     if is_terminal {
                         println!("Agent {} is {}. No active session.", short_id, agent.status);
                     } else {
@@ -365,10 +351,29 @@ pub async fn handle(
                 .get_agent(&id)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("Agent not found: {}", id))?;
+
             let session_id = agent
                 .session_id
                 .ok_or_else(|| anyhow::anyhow!("Agent has no active session"))?;
+
             super::session::attach(&session_id)?;
+        }
+        AgentCommand::Send { agent_id, message } => {
+            client.agent_send(&agent_id, &message).await?;
+            println!("Sent to agent {}", agent_id);
+        }
+        AgentCommand::Logs {
+            id,
+            step,
+            follow,
+            limit,
+        } => {
+            let (log_path, content, _steps) =
+                client.get_agent_logs(&id, step.as_deref(), limit).await?;
+            display_log(&log_path, &content, follow, format, "agent", &id).await?;
+        }
+        AgentCommand::Wait { agent_id, timeout } => {
+            handle_wait(&agent_id, timeout.as_deref(), client).await?;
         }
         AgentCommand::Prune { all, dry_run } => {
             let (pruned, skipped) = client.agent_prune(all, dry_run).await?;

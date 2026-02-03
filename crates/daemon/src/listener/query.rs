@@ -812,6 +812,8 @@ pub(super) fn handle_query(
                         if !candidates.contains(&cname) {
                             candidates.push(cname);
                         }
+                    }
+                }
 
                 let candidate_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
                 let similar = suggest::find_similar(&name, &candidate_refs);

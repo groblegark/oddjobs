@@ -28,6 +28,7 @@ async fn spawn_rejects_nonexistent_cwd() {
         pipeline_name: "test-pipeline".to_string(),
         pipeline_id: "pipe-1".to_string(),
         project_root: project_dir.path().to_path_buf(),
+        session_config: HashMap::new(),
     };
 
     let result = adapter.spawn(config, tx).await;

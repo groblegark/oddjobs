@@ -13,6 +13,7 @@ test-support = []  # Enables FakeAdapter exports for other crates' tests
 
 [dependencies]
 oj-core = { path = "../core", version = "0.1.0" }
+oj-runbook = { path = "../runbook", version = "0.1.0" }
 async-trait.workspace = true
 dirs = "5.0"
 parking_lot.workspace = true

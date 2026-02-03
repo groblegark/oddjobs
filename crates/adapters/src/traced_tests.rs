@@ -105,6 +105,7 @@ fn test_spawn_config(cwd: Option<PathBuf>) -> AgentSpawnConfig {
         pipeline_name: "test-pipeline".to_string(),
         pipeline_id: "pipe-1".to_string(),
         project_root: PathBuf::from("/project"),
+        session_config: std::collections::HashMap::new(),
     }
 }
 

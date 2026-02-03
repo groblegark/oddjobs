@@ -8,6 +8,31 @@ use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 
+/// Valid tmux status bar colors
+pub const VALID_SESSION_COLORS: &[&str] =
+    &["red", "green", "blue", "cyan", "magenta", "yellow", "white"];
+
+/// Status bar text configuration
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SessionStatusConfig {
+    pub left: Option<String>,
+    pub right: Option<String>,
+}
+
+/// Tmux-specific session configuration
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TmuxSessionConfig {
+    /// Status bar background color (red, green, blue, cyan, magenta, yellow, white)
+    #[serde(default)]
+    pub color: Option<String>,
+    /// Window title string
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Status bar left/right text
+    #[serde(default)]
+    pub status: Option<SessionStatusConfig>,
+}
+
 /// Valid SessionStart source values for matcher filtering.
 pub const VALID_PRIME_SOURCES: &[&str] = &["startup", "resume", "clear", "compact"];
 
@@ -196,6 +221,11 @@ pub struct AgentDef {
     /// Notification messages for agent lifecycle events
     #[serde(default)]
     pub notify: crate::pipeline::NotifyConfig,
+
+    /// Adapter-specific session configuration (e.g., session "tmux" { ... })
+    /// Keyed by provider name. Unknown providers are ignored.
+    #[serde(default)]
+    pub session: HashMap<String, TmuxSessionConfig>,
 }
 
 /// Action configuration - simple or with options
@@ -491,6 +521,7 @@ impl Default for AgentDef {
             on_prompt: default_on_prompt(),
             on_error: default_on_error(),
             notify: Default::default(),
+            session: HashMap::new(),
         }
     }
 }

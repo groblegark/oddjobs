@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use super::*;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[tokio::test]
@@ -20,6 +21,7 @@ async fn spawn_and_kill() {
         pipeline_name: "test".to_string(),
         pipeline_id: "pipe-1".to_string(),
         project_root: PathBuf::from("/project"),
+        session_config: HashMap::new(),
     };
 
     let handle = adapter.spawn(config, tx).await.unwrap();
@@ -46,6 +48,7 @@ async fn state_changes() {
         pipeline_name: "test".to_string(),
         pipeline_id: "pipe-1".to_string(),
         project_root: PathBuf::from("/project"),
+        session_config: HashMap::new(),
     };
 
     adapter.spawn(config, tx).await.unwrap();
@@ -98,6 +101,7 @@ async fn error_injection() {
         pipeline_name: "test".to_string(),
         pipeline_id: "pipe-1".to_string(),
         project_root: PathBuf::from("/project"),
+        session_config: HashMap::new(),
     };
 
     let result = adapter.spawn(config, tx).await;
@@ -120,6 +124,7 @@ async fn call_recording() {
         pipeline_name: "test".to_string(),
         pipeline_id: "pipe-1".to_string(),
         project_root: PathBuf::from("/project"),
+        session_config: HashMap::new(),
     };
 
     adapter.spawn(config, tx).await.unwrap();

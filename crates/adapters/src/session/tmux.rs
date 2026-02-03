@@ -231,6 +231,34 @@ impl SessionAdapter for TmuxAdapter {
         Ok(output.status.success())
     }
 
+    async fn configure(&self, id: &str, config: &serde_json::Value) -> Result<(), SessionError> {
+        let tmux_config: oj_runbook::TmuxSessionConfig = serde_json::from_value(config.clone())
+            .map_err(|e| SessionError::CommandFailed(format!("invalid tmux config: {}", e)))?;
+
+        // Apply status bar background color
+        if let Some(ref color) = tmux_config.color {
+            run_tmux_set_option(id, "status-style", &format!("bg={},fg=black", color)).await?;
+        }
+
+        // Apply window title
+        if let Some(ref title) = tmux_config.title {
+            run_tmux_set_option(id, "set-titles", "on").await?;
+            run_tmux_set_option(id, "set-titles-string", title).await?;
+        }
+
+        // Apply status bar text
+        if let Some(ref status) = tmux_config.status {
+            if let Some(ref left) = status.left {
+                run_tmux_set_option(id, "status-left", &format!(" {} ", left)).await?;
+            }
+            if let Some(ref right) = status.right {
+                run_tmux_set_option(id, "status-right", &format!(" {} ", right)).await?;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn get_exit_code(&self, id: &str) -> Result<Option<i32>, SessionError> {
         // Query the pane's dead status (exit code when process has exited)
         let output = Command::new("tmux")
@@ -255,6 +283,26 @@ impl SessionAdapter for TmuxAdapter {
             Err(_) => Ok(None),
         }
     }
+}
+
+async fn run_tmux_set_option(
+    session_id: &str,
+    option: &str,
+    value: &str,
+) -> Result<(), SessionError> {
+    let output = Command::new("tmux")
+        .args(["set-option", "-t", session_id, option, value])
+        .output()
+        .await
+        .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::warn!(session_id, option, value, stderr = %stderr, "tmux set-option failed");
+        // Non-fatal: session works even if styling fails
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

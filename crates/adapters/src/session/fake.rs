@@ -45,6 +45,10 @@ pub enum SessionCall {
         id: String,
         pattern: String,
     },
+    Configure {
+        id: String,
+        config: serde_json::Value,
+    },
 }
 
 /// Fake session state
@@ -283,6 +287,21 @@ impl SessionAdapter for FakeSessionAdapter {
             Some(session) => Ok(session.exit_code),
             None => Ok(None),
         }
+    }
+
+    async fn configure(&self, id: &str, config: &serde_json::Value) -> Result<(), SessionError> {
+        let mut inner = self.inner.lock();
+
+        inner.calls.push(SessionCall::Configure {
+            id: id.to_string(),
+            config: config.clone(),
+        });
+
+        if !inner.sessions.contains_key(id) {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+
+        Ok(())
     }
 }
 

@@ -527,3 +527,146 @@ fn build_spawn_effects_exposes_locals_in_prompt() {
         panic!("Expected SpawnAgent effect");
     }
 }
+
+// =============================================================================
+// Session Config Tests
+// =============================================================================
+
+#[test]
+fn build_spawn_effects_includes_default_status() {
+    let workspace = TempDir::new().unwrap();
+    let agent = test_agent_def();
+    let mut pipeline = test_pipeline();
+    pipeline.namespace = "myproject".to_string();
+
+    let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
+    let effects = build_spawn_effects(
+        &agent,
+        &ctx,
+        "worker",
+        &HashMap::new(),
+        workspace.path(),
+        workspace.path(),
+    )
+    .unwrap();
+
+    if let Effect::SpawnAgent {
+        session_config,
+        agent_id,
+        ..
+    } = &effects[0]
+    {
+        // Should have tmux config with default status
+        let tmux = session_config
+            .get("tmux")
+            .expect("tmux config should exist");
+        let tmux_obj = tmux.as_object().unwrap();
+        let status = tmux_obj.get("status").unwrap().as_object().unwrap();
+
+        // Default left: "<namespace> <name>/<agent_name>"
+        let left = status.get("left").unwrap().as_str().unwrap();
+        assert!(
+            left.contains("myproject"),
+            "default status-left should contain namespace, got: {}",
+            left
+        );
+        assert!(
+            left.contains("test-feature/worker"),
+            "default status-left should contain name/agent, got: {}",
+            left
+        );
+
+        // Default right: first 8 chars of agent_id
+        let right = status.get("right").unwrap().as_str().unwrap();
+        assert_eq!(right.len(), 8);
+        assert_eq!(right, &agent_id.as_str()[..8]);
+    } else {
+        panic!("Expected SpawnAgent effect");
+    }
+}
+
+#[test]
+fn build_spawn_effects_explicit_session_overrides_defaults() {
+    let workspace = TempDir::new().unwrap();
+    let mut agent = test_agent_def();
+    agent.session.insert(
+        "tmux".to_string(),
+        oj_runbook::TmuxSessionConfig {
+            color: Some("cyan".to_string()),
+            title: Some("my-title".to_string()),
+            status: Some(oj_runbook::SessionStatusConfig {
+                left: Some("custom left".to_string()),
+                right: None, // right not overridden, should use default
+            }),
+        },
+    );
+    let mut pipeline = test_pipeline();
+    pipeline.namespace = "ns".to_string();
+
+    let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
+    let effects = build_spawn_effects(
+        &agent,
+        &ctx,
+        "worker",
+        &HashMap::new(),
+        workspace.path(),
+        workspace.path(),
+    )
+    .unwrap();
+
+    if let Effect::SpawnAgent { session_config, .. } = &effects[0] {
+        let tmux = session_config.get("tmux").unwrap();
+        let tmux_obj = tmux.as_object().unwrap();
+
+        // Color and title from explicit config
+        assert_eq!(tmux_obj.get("color").unwrap().as_str().unwrap(), "cyan");
+        assert_eq!(tmux_obj.get("title").unwrap().as_str().unwrap(), "my-title");
+
+        // Explicit left overrides default
+        let status = tmux_obj.get("status").unwrap().as_object().unwrap();
+        assert_eq!(status.get("left").unwrap().as_str().unwrap(), "custom left");
+
+        // Right not set in explicit config, should get default (short ID)
+        assert!(
+            status.get("right").is_some(),
+            "right should have default value"
+        );
+    } else {
+        panic!("Expected SpawnAgent effect");
+    }
+}
+
+#[test]
+fn build_spawn_effects_no_session_block_gets_defaults() {
+    let workspace = TempDir::new().unwrap();
+    let agent = test_agent_def();
+    let pipeline = test_pipeline();
+
+    let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
+    let effects = build_spawn_effects(
+        &agent,
+        &ctx,
+        "worker",
+        &HashMap::new(),
+        workspace.path(),
+        workspace.path(),
+    )
+    .unwrap();
+
+    if let Effect::SpawnAgent { session_config, .. } = &effects[0] {
+        // Even without a session block, tmux config should exist with defaults
+        assert!(
+            session_config.contains_key("tmux"),
+            "tmux config should be present even without session block"
+        );
+        let tmux = session_config.get("tmux").unwrap().as_object().unwrap();
+        let status = tmux.get("status").unwrap().as_object().unwrap();
+        assert!(status.contains_key("left"));
+        assert!(status.contains_key("right"));
+    } else {
+        panic!("Expected SpawnAgent effect");
+    }
+}

@@ -100,6 +100,7 @@ fn agent_build_command_with_prompt_field() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars: HashMap<String, String> = HashMap::new();
@@ -124,6 +125,7 @@ fn agent_build_command_with_inline_prompt() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars: HashMap<String, String> = [("prompt".to_string(), "Add login".to_string())]
@@ -148,6 +150,7 @@ fn agent_build_command_print_mode() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars: HashMap<String, String> = HashMap::new();
@@ -176,6 +179,7 @@ fn agent_build_env() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars: HashMap<String, String> = [
@@ -205,6 +209,7 @@ fn agent_get_prompt_from_field() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars: HashMap<String, String> = [
@@ -233,6 +238,7 @@ fn agent_get_prompt_empty_when_unset() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars = HashMap::new();
@@ -261,6 +267,7 @@ fn agent_get_prompt_from_file() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars: HashMap<String, String> = [
@@ -289,6 +296,7 @@ fn agent_get_prompt_file_not_found() {
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
         notify: Default::default(),
+        session: HashMap::new(),
     };
 
     let vars = HashMap::new();
@@ -799,4 +807,107 @@ fn on_prompt_trigger_validation() {
     // Invalid actions for OnPrompt
     assert!(!AgentAction::Nudge.is_valid_for_trigger(ActionTrigger::OnPrompt));
     assert!(!AgentAction::Recover.is_valid_for_trigger(ActionTrigger::OnPrompt));
+}
+
+// =============================================================================
+// Session Config Tests
+// =============================================================================
+
+#[test]
+fn session_config_parses_from_toml() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+
+        [session.tmux]
+        color = "cyan"
+        title = "mayor"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    let tmux = agent.session.get("tmux").unwrap();
+    assert_eq!(tmux.color.as_deref(), Some("cyan"));
+    assert_eq!(tmux.title.as_deref(), Some("mayor"));
+    assert!(tmux.status.is_none());
+}
+
+#[test]
+fn session_config_parses_with_status() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+
+        [session.tmux]
+        color = "green"
+
+        [session.tmux.status]
+        left = "myproject merge/check"
+        right = "custom-id"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    let tmux = agent.session.get("tmux").unwrap();
+    assert_eq!(tmux.color.as_deref(), Some("green"));
+    let status = tmux.status.as_ref().unwrap();
+    assert_eq!(status.left.as_deref(), Some("myproject merge/check"));
+    assert_eq!(status.right.as_deref(), Some("custom-id"));
+}
+
+#[test]
+fn session_config_empty_when_absent() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    assert!(agent.session.is_empty());
+}
+
+#[test]
+fn session_config_unknown_provider_parses() {
+    // Unknown providers should parse without error (ignored at adapter level)
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+
+        [session.zellij]
+        color = "red"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    // "zellij" is treated as TmuxSessionConfig since the map value type is fixed
+    assert!(agent.session.contains_key("zellij"));
+}
+
+#[test]
+fn session_config_partial_fields() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+
+        [session.tmux]
+        title = "my-worker"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    let tmux = agent.session.get("tmux").unwrap();
+    assert!(tmux.color.is_none());
+    assert_eq!(tmux.title.as_deref(), Some("my-worker"));
+    assert!(tmux.status.is_none());
+}
+
+#[test]
+fn session_config_serialization_roundtrip() {
+    let config = TmuxSessionConfig {
+        color: Some("blue".to_string()),
+        title: Some("test".to_string()),
+        status: Some(SessionStatusConfig {
+            left: Some("left text".to_string()),
+            right: Some("right text".to_string()),
+        }),
+    };
+
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: TmuxSessionConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.color.as_deref(), Some("blue"));
+    assert_eq!(parsed.title.as_deref(), Some("test"));
+    let status = parsed.status.unwrap();
+    assert_eq!(status.left.as_deref(), Some("left text"));
+    assert_eq!(status.right.as_deref(), Some("right text"));
 }

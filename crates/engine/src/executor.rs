@@ -127,6 +127,7 @@ where
                 command,
                 env,
                 cwd,
+                session_config,
             } => {
                 // Build agent configuration from effect fields
                 let config = AgentSpawnConfig {
@@ -143,6 +144,7 @@ where
                         .unwrap_or_else(|| pipeline_id.to_string()),
                     pipeline_id: pipeline_id.to_string(),
                     project_root: workspace_path,
+                    session_config,
                 };
 
                 // Spawn agent (this starts the watcher that emits events)

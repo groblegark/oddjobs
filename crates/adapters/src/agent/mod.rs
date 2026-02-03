@@ -89,6 +89,8 @@ pub struct AgentSpawnConfig {
     pub pipeline_id: String,
     /// Root of the project
     pub project_root: PathBuf,
+    /// Adapter-specific session configuration (provider -> config as JSON)
+    pub session_config: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Handle to a running agent

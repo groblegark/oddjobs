@@ -241,6 +241,33 @@ pub fn build_spawn_effects(
         "spawn effects prepared"
     );
 
+    // Build session config with defaults
+    let session_config = {
+        let mut config: HashMap<String, serde_json::Value> = HashMap::new();
+        if let Some(tmux_cfg) = agent_def.session.get("tmux") {
+            if let Ok(val) = serde_json::to_value(tmux_cfg) {
+                config.insert("tmux".to_string(), val);
+            }
+        }
+        // Always ensure tmux has default status bars (even without explicit session block)
+        let tmux_value = config
+            .entry("tmux".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if let serde_json::Value::Object(ref mut map) = tmux_value {
+            let status = map.entry("status").or_insert_with(|| serde_json::json!({}));
+            if let serde_json::Value::Object(ref mut status_map) = status {
+                let short_id = &agent_id[..8];
+                status_map.entry("left").or_insert_with(|| {
+                    serde_json::json!(format!("{} {}/{}", ctx.namespace, ctx.name, agent_name))
+                });
+                status_map
+                    .entry("right")
+                    .or_insert_with(|| serde_json::json!(short_id));
+            }
+        }
+        config
+    };
+
     // Build liveness timer keyed to the right owner
     let liveness_timer_id = if let Some(ar_id) = ctx.agent_run_id {
         TimerId::liveness_agent_run(ar_id)
@@ -259,6 +286,7 @@ pub fn build_spawn_effects(
             command,
             env,
             cwd: Some(effective_cwd),
+            session_config,
         },
         // Start liveness monitoring timer
         Effect::SetTimer {

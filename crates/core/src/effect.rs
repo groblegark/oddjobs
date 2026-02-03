@@ -39,6 +39,9 @@ pub enum Effect {
         env: Vec<(String, String)>,
         /// Working directory override
         cwd: Option<PathBuf>,
+        /// Adapter-specific session configuration (provider -> config as JSON)
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        session_config: HashMap<String, serde_json::Value>,
     },
 
     /// Send input to an agent

@@ -926,3 +926,149 @@ queue "items" {
         msg
     );
 }
+
+// =============================================================================
+// Session Config Validation Tests
+// =============================================================================
+
+#[test]
+fn session_config_hcl_parses_with_color() {
+    let hcl = r#"
+agent "mayor" {
+  run = "claude"
+
+  session "tmux" {
+    color = "cyan"
+    title = "mayor"
+  }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let agent = runbook.get_agent("mayor").unwrap();
+    let tmux = agent.session.get("tmux").unwrap();
+    assert_eq!(tmux.color.as_deref(), Some("cyan"));
+    assert_eq!(tmux.title.as_deref(), Some("mayor"));
+}
+
+#[test]
+fn session_config_hcl_parses_with_status() {
+    let hcl = r#"
+agent "mayor" {
+  run = "claude"
+
+  session "tmux" {
+    color = "green"
+    status {
+      left  = "myproject merge/check"
+      right = "custom-id"
+    }
+  }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let agent = runbook.get_agent("mayor").unwrap();
+    let tmux = agent.session.get("tmux").unwrap();
+    assert_eq!(tmux.color.as_deref(), Some("green"));
+    let status = tmux.status.as_ref().unwrap();
+    assert_eq!(status.left.as_deref(), Some("myproject merge/check"));
+    assert_eq!(status.right.as_deref(), Some("custom-id"));
+}
+
+#[test]
+fn session_config_hcl_no_session_block() {
+    let hcl = r#"
+agent "worker" {
+  run = "claude"
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let agent = runbook.get_agent("worker").unwrap();
+    assert!(agent.session.is_empty());
+}
+
+#[test]
+fn session_config_hcl_unknown_provider() {
+    let hcl = r#"
+agent "worker" {
+  run = "claude"
+
+  session "zellij" {
+    color = "red"
+  }
+}
+"#;
+    // Unknown providers parse without error
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let agent = runbook.get_agent("worker").unwrap();
+    assert!(agent.session.contains_key("zellij"));
+}
+
+#[test]
+fn session_config_rejects_invalid_color() {
+    let hcl = r#"
+agent "worker" {
+  run = "claude"
+
+  session "tmux" {
+    color = "purple"
+  }
+}
+"#;
+    let err = parse_runbook_with_format(hcl, Format::Hcl).unwrap_err();
+    assert!(matches!(err, ParseError::InvalidFormat { .. }));
+    let msg = err.to_string();
+    assert!(
+        msg.contains("unknown color 'purple'"),
+        "error should mention invalid color: {}",
+        msg
+    );
+}
+
+#[test]
+fn session_config_accepts_all_valid_colors() {
+    for color in &["red", "green", "blue", "cyan", "magenta", "yellow", "white"] {
+        let hcl = format!(
+            r#"
+agent "worker" {{
+  run = "claude"
+
+  session "tmux" {{
+    color = "{}"
+  }}
+}}
+"#,
+            color
+        );
+        let result = parse_runbook_with_format(&hcl, Format::Hcl);
+        assert!(
+            result.is_ok(),
+            "color '{}' should be valid, got: {:?}",
+            color,
+            result.err()
+        );
+    }
+}
+
+#[test]
+fn session_config_toml_roundtrip() {
+    let toml = r#"
+[agent.worker]
+run = "claude"
+
+[agent.worker.session.tmux]
+color = "blue"
+title = "my-worker"
+
+[agent.worker.session.tmux.status]
+left = "project build/execute"
+right = "abc12345"
+"#;
+    let runbook = parse_runbook(toml).unwrap();
+    let agent = runbook.get_agent("worker").unwrap();
+    let tmux = agent.session.get("tmux").unwrap();
+    assert_eq!(tmux.color.as_deref(), Some("blue"));
+    assert_eq!(tmux.title.as_deref(), Some("my-worker"));
+    let status = tmux.status.as_ref().unwrap();
+    assert_eq!(status.left.as_deref(), Some("project build/execute"));
+    assert_eq!(status.right.as_deref(), Some("abc12345"));
+}

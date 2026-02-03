@@ -348,7 +348,8 @@ where
             | Event::PipelineCancelling { .. }
             | Event::PipelineUpdated { .. }
             | Event::WorkerItemDispatched { .. }
-            | Event::CronFired { .. } => {}
+            | Event::CronFired { .. }
+            | Event::CronDeleted { .. } => {}
 
             // Queue retry/dead: log lifecycle events
             Event::QueueItemRetry {

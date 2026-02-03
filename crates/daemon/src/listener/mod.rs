@@ -279,6 +279,10 @@ async fn handle_request(
             namespace,
         } => mutations::handle_worker_prune(state, event_bus, all, dry_run, namespace.as_deref()),
 
+        Request::CronPrune { all, dry_run } => {
+            mutations::handle_cron_prune(state, event_bus, all, dry_run)
+        }
+
         Request::WorkerStart {
             project_root,
             namespace,

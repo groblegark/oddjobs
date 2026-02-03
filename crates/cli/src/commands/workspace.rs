@@ -207,11 +207,11 @@ pub async fn handle(
         }
         WorkspaceCommand::Drop { id, failed, all } => {
             let dropped = if all {
-                client.workspace_drop_all().await?
+                client.workspace_drop(None, false).await?
             } else if failed {
-                client.workspace_drop_failed().await?
+                client.workspace_drop(None, true).await?
             } else if let Some(id) = id {
-                client.workspace_drop(&id).await?
+                client.workspace_drop(Some(&id), false).await?
             } else {
                 anyhow::bail!("specify a workspace ID, --failed, or --all");
             };

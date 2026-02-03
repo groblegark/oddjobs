@@ -13,7 +13,7 @@
 pub mod protocol;
 
 pub use protocol::{
-    AgentDetail, AgentEntry, AgentStatusEntry, AgentSummary, NamespaceStatus, OrphanAgent,
+    AgentDetail, AgentEntry, AgentStatusEntry, AgentSummary, CronEntry, NamespaceStatus, OrphanAgent,
     OrphanSummary, PipelineDetail, PipelineEntry, PipelineStatusEntry, PipelineSummary,
     ProjectSummary, Query, QueueItemSummary, QueueStatus, QueueSummary, Request, Response,
     SessionSummary, StepRecordDetail, WorkerEntry, WorkerSummary, WorkspaceDetail, WorkspaceEntry,

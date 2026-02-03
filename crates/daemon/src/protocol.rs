@@ -15,8 +15,8 @@ use thiserror::Error;
 #[path = "protocol_status.rs"]
 mod status;
 pub use status::{
-    AgentEntry, AgentStatusEntry, CronSummary, NamespaceStatus, OrphanAgent, OrphanSummary,
-    PipelineEntry, PipelineStatusEntry, ProjectSummary, QueueStatus, WorkerEntry,
+    AgentEntry, AgentStatusEntry, CronEntry, CronSummary, NamespaceStatus, OrphanAgent,
+    OrphanSummary, PipelineEntry, PipelineStatusEntry, ProjectSummary, QueueStatus, WorkerEntry,
 };
 
 /// Request from CLI to daemon
@@ -180,6 +180,14 @@ pub enum Request {
         cron_name: String,
         #[serde(default)]
         namespace: String,
+    },
+
+    /// Prune stopped crons from daemon state
+    CronPrune {
+        /// Prune all stopped crons (accepts for consistency)
+        all: bool,
+        /// Preview only -- don't actually delete
+        dry_run: bool,
     },
 
     /// Run the cron's pipeline once immediately (no timer)
@@ -422,6 +430,12 @@ pub enum Response {
     /// Worker prune result
     WorkersPruned {
         pruned: Vec<WorkerEntry>,
+        skipped: usize,
+    },
+
+    /// Cron prune result
+    CronsPruned {
+        pruned: Vec<CronEntry>,
         skipped: usize,
     },
 

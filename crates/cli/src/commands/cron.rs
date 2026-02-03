@@ -59,6 +59,16 @@ pub enum CronCommand {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Remove stopped crons from daemon state
+    Prune {
+        /// Prune all stopped crons (currently same as default)
+        #[arg(long)]
+        all: bool,
+
+        /// Show what would be pruned without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 pub async fn handle(
@@ -151,6 +161,38 @@ pub async fn handle(
                 .unwrap_or_else(|| namespace.to_string());
             let (log_path, content) = client.get_cron_logs(&name, limit).await?;
             display_log(&log_path, &content, follow, format, "cron", &name).await?;
+        }
+        CronCommand::Prune { all, dry_run } => {
+            let (pruned, skipped) = client.cron_prune(all, dry_run).await?;
+
+            match format {
+                OutputFormat::Text => {
+                    if dry_run {
+                        println!("Dry run — no changes made\n");
+                    }
+
+                    for entry in &pruned {
+                        let label = if dry_run { "Would prune" } else { "Pruned" };
+                        let ns = if entry.namespace.is_empty() {
+                            "(no project)".to_string()
+                        } else {
+                            entry.namespace.clone()
+                        };
+                        println!("{} cron '{}' ({})", label, entry.name, ns);
+                    }
+
+                    let verb = if dry_run { "would be pruned" } else { "pruned" };
+                    println!("\n{} cron(s) {}, {} skipped", pruned.len(), verb, skipped);
+                }
+                OutputFormat::Json => {
+                    let obj = serde_json::json!({
+                        "dry_run": dry_run,
+                        "pruned": pruned,
+                        "skipped": skipped,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                }
+            }
         }
         CronCommand::List {} => {
             let request = Request::Query {

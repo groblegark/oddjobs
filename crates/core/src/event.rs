@@ -282,6 +282,13 @@ pub enum Event {
         namespace: String,
     },
 
+    #[serde(rename = "cron:deleted")]
+    CronDeleted {
+        cron_name: String,
+        #[serde(default)]
+        namespace: String,
+    },
+
     // -- worker --
     #[serde(rename = "worker:started")]
     WorkerStarted {
@@ -473,6 +480,7 @@ impl Event {
             Event::CronStarted { .. } => "cron:started",
             Event::CronStopped { .. } => "cron:stopped",
             Event::CronFired { .. } => "cron:fired",
+            Event::CronDeleted { .. } => "cron:deleted",
             Event::WorkerStarted { .. } => "worker:started",
             Event::WorkerWake { .. } => "worker:wake",
             Event::WorkerPollComplete { .. } => "worker:poll_complete",
@@ -594,6 +602,16 @@ impl Event {
                 pipeline_id,
                 ..
             } => format!("{t} cron={cron_name} pipeline={pipeline_id}"),
+            Event::CronDeleted {
+                cron_name,
+                namespace,
+            } => {
+                if namespace.is_empty() {
+                    format!("{t} cron={cron_name}")
+                } else {
+                    format!("{t} cron={cron_name} ns={namespace}")
+                }
+            }
             Event::WorkerStarted { worker_name, .. } => {
                 format!("{t} worker={worker_name}")
             }

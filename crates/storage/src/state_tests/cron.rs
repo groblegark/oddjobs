@@ -78,6 +78,64 @@ fn cron_started_is_idempotent() {
 }
 
 #[test]
+fn cron_deleted_removes_record() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::CronStarted {
+        cron_name: "janitor".to_string(),
+        project_root: PathBuf::from("/test/project"),
+        runbook_hash: "abc123".to_string(),
+        interval: "30m".to_string(),
+        pipeline_name: "cleanup".to_string(),
+        namespace: "myns".to_string(),
+    });
+
+    assert!(state.crons.contains_key("myns/janitor"));
+
+    state.apply_event(&Event::CronStopped {
+        cron_name: "janitor".to_string(),
+        namespace: "myns".to_string(),
+    });
+    assert_eq!(state.crons["myns/janitor"].status, "stopped");
+
+    state.apply_event(&Event::CronDeleted {
+        cron_name: "janitor".to_string(),
+        namespace: "myns".to_string(),
+    });
+    assert!(!state.crons.contains_key("myns/janitor"));
+}
+
+#[test]
+fn cron_deleted_empty_namespace() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::CronStarted {
+        cron_name: "janitor".to_string(),
+        project_root: PathBuf::from("/test/project"),
+        runbook_hash: "abc123".to_string(),
+        interval: "30m".to_string(),
+        pipeline_name: "cleanup".to_string(),
+        namespace: String::new(),
+    });
+
+    assert!(state.crons.contains_key("janitor"));
+
+    state.apply_event(&Event::CronDeleted {
+        cron_name: "janitor".to_string(),
+        namespace: String::new(),
+    });
+    assert!(!state.crons.contains_key("janitor"));
+}
+
+#[test]
+fn cron_deleted_nonexistent_is_noop() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::CronDeleted {
+        cron_name: "nonexistent".to_string(),
+        namespace: String::new(),
+    });
+    assert!(state.crons.is_empty());
+}
+
+#[test]
 fn cron_fired_is_noop_for_state() {
     let mut state = MaterializedState::default();
     state.apply_event(&Event::CronFired {

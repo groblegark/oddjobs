@@ -700,6 +700,14 @@ impl MaterializedState {
             // CronFired is a tracking event; pipeline creation is handled by PipelineCreated
             Event::CronFired { .. } => {}
 
+            Event::CronDeleted {
+                cron_name,
+                namespace,
+            } => {
+                let key = scoped_key(namespace, cron_name);
+                self.crons.remove(&key);
+            }
+
             // Events that don't affect persisted state
             // (These are action/signal events handled by the runtime)
             Event::Custom

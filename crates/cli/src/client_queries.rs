@@ -358,6 +358,18 @@ impl DaemonClient {
         }
     }
 
+    /// Prune stopped crons from daemon state
+    pub async fn cron_prune(
+        &self,
+        all: bool,
+        dry_run: bool,
+    ) -> Result<(Vec<oj_daemon::CronEntry>, usize), ClientError> {
+        match self.send(&Request::CronPrune { all, dry_run }).await? {
+            Response::CronsPruned { pruned, skipped } => Ok((pruned, skipped)),
+            other => Self::reject(other),
+        }
+    }
+
     /// Prune stopped workers from daemon state
     pub async fn worker_prune(
         &self,

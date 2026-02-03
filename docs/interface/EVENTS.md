@@ -76,6 +76,17 @@ Applied via `MaterializedState::apply_event()` to update in-memory state. All ev
 | `workspace:failed` | WorkspaceFailed | `id`, `reason` |
 | `workspace:deleted` | WorkspaceDeleted | `id` |
 
+### Cron lifecycle
+
+| Type tag | Variant | Fields |
+|----------|---------|--------|
+| `cron:started` | CronStarted | `cron_name`, `project_root`, `runbook_hash`, `interval`, `pipeline_name`, `namespace` |
+| `cron:stopped` | CronStopped | `cron_name`, `namespace` |
+| `cron:fired` | CronFired | `cron_name`, `pipeline_id`, `namespace` |
+| `cron:deleted` | CronDeleted | `cron_name`, `namespace` |
+
+`cron:fired` is a tracking event — it does not mutate state directly (pipeline creation is handled by `pipeline:created`).
+
 ### Worker lifecycle
 
 | Type tag | Variant | Fields |

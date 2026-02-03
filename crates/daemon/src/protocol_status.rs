@@ -111,6 +111,13 @@ pub struct WorkerEntry {
     pub namespace: String,
 }
 
+/// Cron entry for prune responses
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CronEntry {
+    pub name: String,
+    pub namespace: String,
+}
+
 /// Summary of a project with active work
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectSummary {

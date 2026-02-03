@@ -12,7 +12,9 @@ use oj_engine::breadcrumb::Breadcrumb;
 use oj_storage::MaterializedState;
 
 use crate::event_bus::EventBus;
-use crate::protocol::{AgentEntry, PipelineEntry, Response, WorkerEntry, WorkspaceEntry};
+use crate::protocol::{
+    AgentEntry, CronEntry, PipelineEntry, Response, WorkerEntry, WorkspaceEntry,
+};
 
 use super::ConnectionError;
 
@@ -671,6 +673,52 @@ pub(super) fn handle_worker_prune(
     }
 
     Ok(Response::WorkersPruned {
+        pruned: to_prune,
+        skipped,
+    })
+}
+
+/// Handle cron prune requests.
+///
+/// Removes all stopped crons from state by emitting CronDeleted events.
+/// Crons are either "running" or "stopped" — all stopped crons are eligible
+/// for pruning with no age threshold.
+pub(super) fn handle_cron_prune(
+    state: &Arc<Mutex<MaterializedState>>,
+    event_bus: &EventBus,
+    _all: bool,
+    dry_run: bool,
+) -> Result<Response, ConnectionError> {
+    let mut to_prune = Vec::new();
+    let mut skipped = 0usize;
+
+    {
+        let state_guard = state.lock();
+        for record in state_guard.crons.values() {
+            if record.status != "stopped" {
+                skipped += 1;
+                continue;
+            }
+            to_prune.push(CronEntry {
+                name: record.name.clone(),
+                namespace: record.namespace.clone(),
+            });
+        }
+    }
+
+    if !dry_run {
+        for entry in &to_prune {
+            let event = Event::CronDeleted {
+                cron_name: entry.name.clone(),
+                namespace: entry.namespace.clone(),
+            };
+            event_bus
+                .send(event)
+                .map_err(|_| ConnectionError::WalError)?;
+        }
+    }
+
+    Ok(Response::CronsPruned {
         pruned: to_prune,
         skipped,
     })

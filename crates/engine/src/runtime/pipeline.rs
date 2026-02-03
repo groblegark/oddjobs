@@ -291,6 +291,11 @@ where
                     let effects = steps::cancellation_effects(pipeline);
                     result_events.extend(self.executor.execute_all(effects).await?);
                     self.breadcrumb.delete(&pipeline.id);
+                    // Update queue item status immediately (don't rely on event loop)
+                    result_events.extend(
+                        self.check_worker_pipeline_complete(&pipeline_id, "cancelled")
+                            .await?,
+                    );
                 } else {
                     let effects = steps::step_transition_effects(pipeline, "done");
                     result_events.extend(self.executor.execute_all(effects).await?);
@@ -408,12 +413,23 @@ where
                 let effects = steps::failure_effects(pipeline, error);
                 result_events.extend(self.executor.execute_all(effects).await?);
                 self.breadcrumb.delete(&pipeline.id);
+                // Update queue item status immediately (don't rely on event loop)
+                result_events.extend(
+                    self.check_worker_pipeline_complete(&pipeline_id, "failed")
+                        .await?,
+                );
             }
         } else {
             // Terminal failure — no on_fail handler
             let effects = steps::failure_effects(pipeline, error);
             result_events.extend(self.executor.execute_all(effects).await?);
             self.breadcrumb.delete(&pipeline.id);
+
+            // Update queue item status immediately (don't rely on event loop)
+            result_events.extend(
+                self.check_worker_pipeline_complete(&pipeline_id, "failed")
+                    .await?,
+            );
 
             // Emit on_fail notification only on terminal failure (not on_fail transition)
             if let Some(pipeline_def) = pipeline_def.as_ref() {
@@ -457,6 +473,13 @@ where
         }
 
         let mut result_events = self.executor.execute_all(effects).await?;
+
+        // Update queue item status immediately (don't rely on event loop)
+        let pipeline_id = PipelineId::new(&pipeline.id);
+        result_events.extend(
+            self.check_worker_pipeline_complete(&pipeline_id, "done")
+                .await?,
+        );
 
         // Emit on_done notification if configured
         if let Ok(runbook) = self.cached_runbook(&pipeline.runbook_hash) {
@@ -637,12 +660,22 @@ where
                 let effects = steps::cancellation_effects(pipeline);
                 result_events.extend(self.executor.execute_all(effects).await?);
                 self.breadcrumb.delete(&pipeline.id);
+                // Update queue item status immediately (don't rely on event loop)
+                result_events.extend(
+                    self.check_worker_pipeline_complete(&pipeline_id, "cancelled")
+                        .await?,
+                );
             }
         } else {
             // No on_cancel configured; terminal cancellation as before
             let effects = steps::cancellation_effects(pipeline);
             result_events.extend(self.executor.execute_all(effects).await?);
             self.breadcrumb.delete(&pipeline.id);
+            // Update queue item status immediately (don't rely on event loop)
+            result_events.extend(
+                self.check_worker_pipeline_complete(&pipeline_id, "cancelled")
+                    .await?,
+            );
         }
 
         tracing::info!(pipeline_id = %pipeline.id, "cancelled pipeline");

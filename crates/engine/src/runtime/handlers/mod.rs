@@ -215,6 +215,9 @@ where
             }
 
             // Pipeline terminal state -> check worker re-poll
+            // NOTE: check_worker_pipeline_complete is also called directly from
+            // fail_pipeline/cancel_pipeline/complete_pipeline for immediate queue
+            // item updates. This handler is a no-op safety net (idempotent).
             Event::PipelineAdvanced { id, step }
                 if step == "done" || step == "failed" || step == "cancelled" =>
             {

@@ -749,3 +749,127 @@ async fn worker_no_refresh_when_runbook_unchanged() {
         assert_eq!(workers["fixer"].runbook_hash, hash);
     }
 }
+
+/// Helper: get the status of a queue item by id from materialized state.
+fn queue_item_status(
+    ctx: &TestContext,
+    queue_name: &str,
+    item_id: &str,
+) -> Option<oj_storage::QueueItemStatus> {
+    ctx.runtime.lock_state(|state| {
+        state
+            .queue_items
+            .get(queue_name)
+            .and_then(|items| items.iter().find(|i| i.id == item_id))
+            .map(|i| i.status.clone())
+    })
+}
+
+/// When a worker pipeline completes ("done"), the queue item should transition
+/// from Active to Completed.
+#[tokio::test]
+async fn queue_item_completed_on_pipeline_done() {
+    let ctx = setup_with_runbook(CONCURRENT_WORKER_RUNBOOK).await;
+    push_persisted_items(&ctx, "bugs", 1);
+
+    let events = start_worker_and_poll(&ctx, CONCURRENT_WORKER_RUNBOOK, "fixer", 1).await;
+    assert_eq!(count_dispatched(&events), 1);
+
+    // Verify item is Active
+    assert_eq!(
+        queue_item_status(&ctx, "bugs", "item-1"),
+        Some(oj_storage::QueueItemStatus::Active),
+        "item should be Active after dispatch"
+    );
+
+    let dispatched = dispatched_pipeline_ids(&events);
+    let pipeline_id = &dispatched[0];
+
+    // Complete the pipeline
+    ctx.runtime
+        .handle_event(Event::PipelineAdvanced {
+            id: pipeline_id.clone(),
+            step: "done".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Queue item should now be Completed
+    assert_eq!(
+        queue_item_status(&ctx, "bugs", "item-1"),
+        Some(oj_storage::QueueItemStatus::Completed),
+        "item should be Completed after pipeline done"
+    );
+}
+
+/// When a worker pipeline fails, the queue item should transition from Active
+/// to Failed (and then Dead if no retry config).
+#[tokio::test]
+async fn queue_item_failed_on_pipeline_failure() {
+    let ctx = setup_with_runbook(CONCURRENT_WORKER_RUNBOOK).await;
+    push_persisted_items(&ctx, "bugs", 1);
+
+    let events = start_worker_and_poll(&ctx, CONCURRENT_WORKER_RUNBOOK, "fixer", 1).await;
+    assert_eq!(count_dispatched(&events), 1);
+
+    assert_eq!(
+        queue_item_status(&ctx, "bugs", "item-1"),
+        Some(oj_storage::QueueItemStatus::Active),
+    );
+
+    let dispatched = dispatched_pipeline_ids(&events);
+    let pipeline_id = &dispatched[0];
+
+    // Simulate shell failure which triggers fail_pipeline
+    ctx.runtime
+        .handle_event(Event::ShellExited {
+            pipeline_id: pipeline_id.clone(),
+            step: "init".to_string(),
+            exit_code: 1,
+        })
+        .await
+        .unwrap();
+
+    // Queue item should no longer be Active
+    let status = queue_item_status(&ctx, "bugs", "item-1");
+    assert!(
+        status != Some(oj_storage::QueueItemStatus::Active),
+        "item should not be Active after pipeline failure, got {:?}",
+        status
+    );
+}
+
+/// When a worker pipeline is cancelled, the queue item should transition from
+/// Active to Failed (and then Dead if no retry config).
+#[tokio::test]
+async fn queue_item_failed_on_pipeline_cancel() {
+    let ctx = setup_with_runbook(CONCURRENT_WORKER_RUNBOOK).await;
+    push_persisted_items(&ctx, "bugs", 1);
+
+    let events = start_worker_and_poll(&ctx, CONCURRENT_WORKER_RUNBOOK, "fixer", 1).await;
+    assert_eq!(count_dispatched(&events), 1);
+
+    assert_eq!(
+        queue_item_status(&ctx, "bugs", "item-1"),
+        Some(oj_storage::QueueItemStatus::Active),
+    );
+
+    let dispatched = dispatched_pipeline_ids(&events);
+    let pipeline_id = &dispatched[0];
+
+    // Cancel the pipeline
+    ctx.runtime
+        .handle_event(Event::PipelineCancel {
+            id: pipeline_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Queue item should no longer be Active
+    let status = queue_item_status(&ctx, "bugs", "item-1");
+    assert!(
+        status != Some(oj_storage::QueueItemStatus::Active),
+        "item should not be Active after pipeline cancel, got {:?}",
+        status
+    );
+}

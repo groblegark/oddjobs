@@ -240,13 +240,18 @@ async fn run() -> Result<()> {
             }
         }
 
-        // Agent commands - mixed action/query
+        // Agent commands - mixed action/query/signal
         Commands::Agent(args) => {
             use agent::AgentCommand;
             match &args.command {
                 // Action: sends input to an agent
                 AgentCommand::Send { .. } => {
                     let client = DaemonClient::for_action()?;
+                    agent::handle(args.command, &client, format).await?
+                }
+                // Signal: agent-initiated hooks (stop, pretooluse) - no restart
+                AgentCommand::Hook { .. } => {
+                    let client = DaemonClient::for_signal()?;
                     agent::handle(args.command, &client, format).await?
                 }
                 // Query: reads agent state

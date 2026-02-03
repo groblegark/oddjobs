@@ -639,6 +639,45 @@ fn build_spawn_effects_explicit_session_overrides_defaults() {
 }
 
 #[test]
+fn build_spawn_effects_always_passes_oj_state_dir() {
+    let workspace = TempDir::new().unwrap();
+    let state_dir = TempDir::new().unwrap();
+    let agent = test_agent_def();
+    let pipeline = test_pipeline();
+
+    // Ensure OJ_STATE_DIR is NOT set in the current environment
+    // (simulates daemon that resolved state_dir via XDG_STATE_HOME or $HOME fallback)
+    std::env::remove_var("OJ_STATE_DIR");
+
+    let pid = PipelineId::new("pipe-1");
+    let ctx = SpawnContext::from_pipeline(&pipeline, &pid);
+    let effects = build_spawn_effects(
+        &agent,
+        &ctx,
+        "worker",
+        &HashMap::new(),
+        workspace.path(),
+        state_dir.path(),
+    )
+    .unwrap();
+
+    if let Effect::SpawnAgent { env, .. } = &effects[0] {
+        let oj_state = env
+            .iter()
+            .find(|(k, _)| k == "OJ_STATE_DIR")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(
+            oj_state,
+            Some(state_dir.path().to_str().unwrap()),
+            "OJ_STATE_DIR must always be passed from state_dir parameter, \
+             not conditionally from env var"
+        );
+    } else {
+        panic!("Expected SpawnAgent effect");
+    }
+}
+
+#[test]
 fn build_spawn_effects_no_session_block_gets_defaults() {
     let workspace = TempDir::new().unwrap();
     let agent = test_agent_def();

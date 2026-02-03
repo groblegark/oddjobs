@@ -167,10 +167,15 @@ pub fn build_spawn_effects(
         env.push(("OJ_NAMESPACE".to_string(), ctx.namespace.to_string()));
     }
 
-    // Pass OJ_STATE_DIR so `oj` commands can connect to the right daemon socket
-    if let Ok(state_dir) = std::env::var("OJ_STATE_DIR") {
-        env.push(("OJ_STATE_DIR".to_string(), state_dir));
-    }
+    // Always pass OJ_STATE_DIR so `oj` commands (including hooks) connect to
+    // the right daemon socket. Use the state_dir parameter — the daemon's actual
+    // state directory — rather than reading from the environment. The daemon may
+    // have resolved its state_dir via XDG_STATE_HOME or $HOME fallback without
+    // OJ_STATE_DIR being set, so the env var alone is unreliable.
+    env.push((
+        "OJ_STATE_DIR".to_string(),
+        state_dir.to_string_lossy().into_owned(),
+    ));
 
     // Pass OJ_DAEMON_BINARY so agents can find the correct daemon binary when
     // running `oj` commands (prevents tmux environment inheritance issues)

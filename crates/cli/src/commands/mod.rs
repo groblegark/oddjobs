@@ -11,6 +11,7 @@ pub mod pipeline;
 mod pipeline_wait;
 pub mod project;
 pub mod queue;
+pub mod resolve;
 pub mod run;
 pub mod session;
 pub mod status;

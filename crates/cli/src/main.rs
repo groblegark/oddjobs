@@ -16,7 +16,8 @@ use output::OutputFormat;
 use anyhow::Result;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use commands::{
-    agent, cron, daemon, emit, pipeline, project, queue, run, session, status, worker, workspace,
+    agent, cron, daemon, emit, pipeline, project, queue, resolve, run, session, status, worker,
+    workspace,
 };
 use std::path::{Path, PathBuf};
 
@@ -69,6 +70,38 @@ enum Commands {
     Project(project::ProjectArgs),
     /// Show overview of active work across all projects
     Status,
+    /// Peek at the active tmux session (auto-detects entity type)
+    Peek {
+        /// Entity ID (pipeline, agent, or session — prefix match supported)
+        id: String,
+    },
+    /// Attach to a tmux session (auto-detects entity type)
+    Attach {
+        /// Entity ID (pipeline, agent, or session — prefix match supported)
+        id: String,
+    },
+    /// View logs for a pipeline or agent (auto-detects entity type)
+    Logs {
+        /// Entity ID (pipeline or agent — prefix match supported)
+        id: String,
+        /// Stream live activity (like tail -f)
+        #[arg(long, short)]
+        follow: bool,
+        /// Number of recent lines to show (default: 50)
+        #[arg(short = 'n', long, default_value = "50")]
+        limit: usize,
+        /// Show only a specific step's log (agent logs only)
+        #[arg(long, short = 's')]
+        step: Option<String>,
+    },
+    /// Show details of a pipeline, agent, or session (auto-detects entity type)
+    Show {
+        /// Entity ID (pipeline, agent, or session — prefix match supported)
+        id: String,
+        /// Show full variable values without truncation
+        #[arg(long, short = 'v')]
+        verbose: bool,
+    },
 }
 
 #[tokio::main]
@@ -264,6 +297,29 @@ async fn run() -> Result<()> {
         // Status - top-level dashboard (query, graceful when daemon down)
         Commands::Status => {
             status::handle(format).await?;
+        }
+
+        // Convenience commands - resolve entity type automatically (query)
+        Commands::Peek { id } => {
+            let client = DaemonClient::for_query()?;
+            resolve::handle_peek(&client, &id, format).await?
+        }
+        Commands::Attach { id } => {
+            let client = DaemonClient::for_query()?;
+            resolve::handle_attach(&client, &id).await?
+        }
+        Commands::Logs {
+            id,
+            follow,
+            limit,
+            step,
+        } => {
+            let client = DaemonClient::for_query()?;
+            resolve::handle_logs(&client, &id, follow, limit, step.as_deref(), format).await?
+        }
+        Commands::Show { id, verbose } => {
+            let client = DaemonClient::for_query()?;
+            resolve::handle_show(&client, &id, verbose, format).await?
         }
 
         Commands::Daemon(_) => unreachable!(),

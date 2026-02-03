@@ -1,72 +1,98 @@
-# Plan and implement a feature, then submit to the merge queue.
+# Plan and implement exploratory work, pushed to a draft branch (no merge).
+#
+# Drafts are pushed to draft/<name> branches for later review.
+# Use 'oj run drafts' to list or close drafts.
 #
 # Examples:
-#   oj run build auth "Add user authentication with JWT tokens"
-#   oj run build dark-mode "Implement dark mode theme" --base develop
+#   oj run draft inline-commands "Execute shell commands locally instead of via daemon"
+#   oj run draft new-parser "Prototype a new TOML-based runbook parser"
 
-command "build" {
-  args = "<name> <instructions> [--base <branch>] [--rebase] [--new <folder>]"
-  run  = { pipeline = "build" }
+command "draft" {
+  args = "<name> <instructions> [--base <branch>]"
+  run  = { pipeline = "draft" }
 
   defaults = {
-    base   = "main"
-    rebase = ""
-    new    = ""
+    base = "main"
   }
 }
 
-pipeline "build" {
+# List open draft branches, or close one.
+#
+# Examples:
+#   oj run drafts
+#   oj run drafts --close inline-commands
+command "drafts" {
+  args = "[--close <name>]"
+  run  = <<-SHELL
+    if test -n "${args.close}"; then
+      branch=$(git branch -r --list "origin/draft/${args.close}*" | head -1 | tr -d ' ')
+      test -n "$branch" || { echo "No draft matching '${args.close}'"; exit 1; }
+      short=$(echo "$branch" | sed 's|^origin/||')
+      git push origin --delete "$short"
+      echo "Closed $short"
+    else
+      git fetch --prune origin 2>&1 || true
+      branches=$(git branch -r --list 'origin/draft/*' | tr -d ' ')
+      if test -z "$branches"; then
+        echo "  No open drafts"
+      else
+        echo "$branches" | while read branch; do
+          msg=$(git log -1 --format='%s (%ar)' "$branch")
+          short=$(echo "$branch" | sed 's|^origin/||')
+          echo "  $short — $msg"
+        done
+      fi
+    fi
+  SHELL
+
+  defaults = {
+    close = ""
+  }
+}
+
+pipeline "draft" {
   name      = "${var.name}"
-  vars      = ["name", "instructions", "base", "rebase", "new"]
+  vars      = ["name", "instructions", "base"]
   workspace = "ephemeral"
 
   locals {
     repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
-    branch = "feature/${var.name}-${workspace.nonce}"
-    title  = "feat(${var.name}): ${var.instructions}"
+    branch = "draft/${var.name}-${workspace.nonce}"
+    title  = "draft(${var.name}): ${var.instructions}"
   }
 
   notify {
-    on_start = "Building: ${var.name}"
-    on_done  = "Build landed: ${var.name}"
-    on_fail  = "Build failed: ${var.name}"
+    on_start = "Drafting: ${var.name}"
+    on_done  = "Draft ready: ${var.name}"
+    on_fail  = "Draft failed: ${var.name}"
   }
 
-  # Initialize workspace: worktree with shared build cache via .cargo/config.toml
   step "init" {
     run = <<-SHELL
-      if test -n "${var.new}"; then
-        git init
-        mkdir -p ${var.new}
-      else
-        git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
-        mkdir -p .cargo
-        echo "[build]" > .cargo/config.toml
-        echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
-      fi
+      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
+      mkdir -p .cargo
+      echo "[build]" > .cargo/config.toml
+      echo "target-dir = \"${local.repo}/target\"" >> .cargo/config.toml
       mkdir -p plans
     SHELL
     on_done = { step = "plan" }
   }
 
-  # Ask agent to create plan
   step "plan" {
     run     = { agent = "plan" }
     on_done = { step = "implement" }
   }
 
-  # Ask agent to implement plan
   step "implement" {
     run     = { agent = "implement" }
-    on_done = { step = "submit" }
+    on_done = { step = "push" }
   }
 
-  step "submit" {
+  step "push" {
     run = <<-SHELL
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
       git -C "${local.repo}" push origin "${local.branch}"
-      oj queue push merges --var branch="${local.branch}" --var title="${local.title}"
     SHELL
   }
 }
@@ -127,6 +153,9 @@ agent "implement" {
 
   prompt = <<-PROMPT
     Implement the plan in `plans/${var.name}.md`.
+
+    This is a DRAFT — exploratory work that won't be merged yet.
+    Focus on getting a working implementation, but don't cut corners on tests.
 
     ## Steps
 

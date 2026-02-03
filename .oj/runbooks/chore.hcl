@@ -1,10 +1,10 @@
-# Chore Runbook
+# File a chore and dispatch it to a worker.
 #
-# Worker pool: worker pulls tasks from wok → do → verify → push
+# Worker pulls chores from wok, completes them, and submits to the merge queue.
 #
-# Usage:
-#   oj run chore <description>       # File a task and start the worker
-#   oj worker start chore            # Start worker
+# Examples:
+#   oj run chore "Update dependencies to latest versions"
+#   oj run chore "Add missing test coverage for auth module"
 
 command "chore" {
   args = "<description>"

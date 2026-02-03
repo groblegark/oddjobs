@@ -62,13 +62,17 @@ fn print_command_help(
     std::process::exit(0);
 }
 
-fn print_available_commands(project_root: &Path) -> Result<()> {
+/// Build the help text for `oj run` showing available runbook commands.
+pub fn available_commands_help(project_root: &Path) -> String {
     let runbook_dir = project_root.join(".oj/runbooks");
     let commands = oj_runbook::collect_all_commands(&runbook_dir).unwrap_or_default();
-
     let mut help = crate::color::HelpPrinter::new();
     format_available_commands(&mut help, &commands);
-    print!("{}", help.finish());
+    help.finish()
+}
+
+fn print_available_commands(project_root: &Path) -> Result<()> {
+    print!("{}", available_commands_help(project_root));
     Ok(())
 }
 

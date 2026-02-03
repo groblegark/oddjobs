@@ -27,6 +27,7 @@ use crate::client::DaemonClient;
 #[command(
     name = "oj",
     version,
+    disable_version_flag = true,
     about = "Odd Jobs - Agentic development automation"
 )]
 struct Cli {
@@ -148,8 +149,25 @@ fn format_error(err: &anyhow::Error) -> String {
     buf
 }
 
+fn cli_command() -> clap::Command {
+    let project_root = find_project_root();
+    let run_help = commands::run::available_commands_help(&project_root);
+
+    Cli::command()
+        .styles(color::styles())
+        .arg(
+            clap::Arg::new("version")
+                .short('v')
+                .short_alias('V')
+                .long("version")
+                .action(clap::ArgAction::Version)
+                .help("Print version"),
+        )
+        .mut_subcommand("run", |sub| sub.override_help(run_help))
+}
+
 async fn run() -> Result<()> {
-    let matches = Cli::command().styles(color::styles()).get_matches();
+    let matches = cli_command().get_matches();
     let cli = Cli::from_arg_matches(&matches)?;
     let format = cli.output;
 
@@ -157,8 +175,7 @@ async fn run() -> Result<()> {
         Some(cmd) => cmd,
         None => {
             // No subcommand provided — print help and exit 0
-            use clap::CommandFactory;
-            Cli::command().styles(color::styles()).print_help()?;
+            cli_command().print_help()?;
             println!();
             return Ok(());
         }
@@ -423,3 +440,7 @@ fn resolve_main_worktree(path: &Path) -> Option<PathBuf> {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "main_tests.rs"]
+mod tests;

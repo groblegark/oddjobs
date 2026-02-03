@@ -100,7 +100,11 @@ cron "janitor" {
 
 Start with `oj cron start <name>`, test with `oj cron once <name>`.
 
-**Prime** — inject context at agent session start to reduce tool calls:
+**Prime** — inject context at agent session start to reduce tool calls.
+Prime commands run as SessionStart hooks. Their output becomes context the
+agent can reference immediately without running discovery commands itself.
+
+Array form — cleaner for pure command sequences:
 
 ```hcl
 agent "medic" {
@@ -113,8 +117,21 @@ agent "medic" {
 }
 ```
 
-Prime commands run as SessionStart hooks. Their output becomes context the
-agent can reference immediately without running discovery commands itself.
+Script form — natural for mixed static text and dynamic commands:
+
+```hcl
+agent "mayor" {
+  prime = <<-SHELL
+    cat <<'ROLE'
+    ## Mayor — Project Coordinator
+    You coordinate development across projects...
+    ROLE
+
+    echo '## Current Status'
+    oj status 2>/dev/null || echo 'daemon not running'
+  SHELL
+}
+```
 
 **Persisted queues as inboxes** — queues aren't just for dispatch. Use them
 to collect items for later human review:
@@ -126,6 +143,29 @@ queue "symptoms" {
 ```
 
 Agents push structured findings; humans review with `oj queue items`.
+
+**Standalone agents** — commands can run agents directly without a pipeline:
+
+```hcl
+command "mayor" {
+  run = { agent = "mayor" }
+}
+```
+
+Standalone agents are top-level WAL entities. They run in the invoking
+directory (no ephemeral worktree) and are visible via `oj agent list`.
+
+**Crew** — long-lived standalone agents designed for ongoing, interactive
+roles (coordinators, triagers, reviewers). Unlike pipeline agents that
+complete a task and exit, crew agents may idle waiting for user input.
+
+Key patterns for crew agents:
+- `on_idle = { action = "escalate" }` — notify the user instead of nudging
+- Put the agent's role, responsibilities, and reference material in `prime`,
+  not the prompt. Prime content anchors context summaries when the agent
+  compacts. The prompt should be a simple initial instruction.
+- Use `--disallowed-tools EnterPlanMode,ExitPlanMode` but allow
+  AskUserQuestion so the agent can ask for clarification.
 
 ## Best Practices
 
@@ -140,7 +180,8 @@ Agents push structured findings; humans review with `oj queue items`.
 - Use gates (`on_idle = { action = "gate", run = "..." }`) to verify completion
 - Keep prompts focused; the orchestrator handles lifecycle
 - Use `--disallowed-tools EnterPlanMode,ExitPlanMode` for quick agents (fixes, chores, triage)
-- Use `prime = [...]` to inject system state so agents start with context
+- For crew agents, put role/responsibilities in prime (survives compaction), keep prompt minimal
+- Use prime to inject system state so agents start with context
 
 **Steps:**
 - `on_done = { step = "next" }` for explicit transitions

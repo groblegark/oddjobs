@@ -211,7 +211,7 @@ fn format_text(
                     elapsed,
                 );
                 if let Some(ref reason) = p.waiting_reason {
-                    let _ = writeln!(out, "      → {}", reason);
+                    let _ = writeln!(out, "      → {}", truncate_reason(reason, 72));
                 }
             }
             out.push('\n');
@@ -337,6 +337,23 @@ fn truncate_id(id: &str, max_len: usize) -> &str {
         id
     } else {
         &id[..max_len]
+    }
+}
+
+fn truncate_reason(reason: &str, max_len: usize) -> String {
+    // Take only the first line, then truncate to max_len
+    let first_line = reason.lines().next().unwrap_or(reason);
+    let multiline = reason.contains('\n');
+    if first_line.len() <= max_len && !multiline {
+        first_line.to_string()
+    } else {
+        let limit = max_len.saturating_sub(3);
+        let truncated = if first_line.len() > limit {
+            &first_line[..limit]
+        } else {
+            first_line
+        };
+        format!("{}...", truncated)
     }
 }
 

@@ -1,7 +1,7 @@
 use oj_daemon::NamespaceStatus;
 use serial_test::serial;
 
-use super::{format_duration, format_text};
+use super::{format_duration, format_text, truncate_reason};
 
 #[test]
 #[serial]
@@ -226,5 +226,79 @@ fn orphaned_pipeline_shows_kind_not_name() {
     assert!(
         !output.contains("ijkl9012-uuid"),
         "output should not contain the UUID name:\n{output}"
+    );
+}
+
+#[test]
+fn truncate_reason_short_unchanged() {
+    assert_eq!(
+        truncate_reason("gate check failed", 72),
+        "gate check failed"
+    );
+}
+
+#[test]
+fn truncate_reason_long_single_line() {
+    let long = "a".repeat(100);
+    let result = truncate_reason(&long, 72);
+    assert_eq!(result.len(), 72);
+    assert!(result.ends_with("..."));
+    assert_eq!(result, format!("{}...", "a".repeat(69)));
+}
+
+#[test]
+fn truncate_reason_multiline_takes_first_line() {
+    let reason = "first line\nsecond line\nthird line";
+    let result = truncate_reason(reason, 72);
+    assert_eq!(result, "first line...");
+    assert!(!result.contains("second"));
+}
+
+#[test]
+fn truncate_reason_multiline_long_first_line() {
+    let first_line = "x".repeat(100);
+    let reason = format!("{}\nsecond line", first_line);
+    let result = truncate_reason(&reason, 72);
+    assert_eq!(result.len(), 72);
+    assert!(result.ends_with("..."));
+    assert_eq!(result, format!("{}...", "x".repeat(69)));
+}
+
+#[test]
+#[serial]
+fn escalated_pipeline_truncates_long_reason() {
+    std::env::set_var("NO_COLOR", "1");
+    std::env::remove_var("COLOR");
+
+    let long_reason = "e".repeat(200);
+    let ns = NamespaceStatus {
+        namespace: "myproject".to_string(),
+        active_pipelines: vec![],
+        escalated_pipelines: vec![oj_daemon::PipelineStatusEntry {
+            id: "efgh5678".to_string(),
+            name: "efgh5678-uuid".to_string(),
+            kind: "deploy".to_string(),
+            step: "test".to_string(),
+            step_status: "Waiting".to_string(),
+            elapsed_ms: 60_000,
+            waiting_reason: Some(long_reason.clone()),
+        }],
+        orphaned_pipelines: vec![],
+        workers: vec![],
+        queues: vec![],
+        active_agents: vec![],
+    };
+
+    let output = format_text(30, &[ns], None);
+
+    // The full 200-char reason should NOT appear
+    assert!(
+        !output.contains(&long_reason),
+        "output should not contain the full long reason:\n{output}"
+    );
+    // Should contain the truncated version with "..."
+    assert!(
+        output.contains("..."),
+        "output should contain truncation indicator '...':\n{output}"
     );
 }

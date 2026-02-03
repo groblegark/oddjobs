@@ -13,7 +13,7 @@ use oj_storage::{MaterializedState, Wal};
 use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
-use super::{handle_queue_drop, handle_queue_push};
+use super::{handle_queue_drop, handle_queue_push, handle_queue_retry};
 
 /// Helper: create an EventBus backed by a temp WAL, returning the bus, reader WAL arc, and path.
 fn test_event_bus(dir: &std::path::Path) -> (EventBus, Arc<Mutex<Wal>>, PathBuf) {
@@ -397,5 +397,214 @@ fn push_external_queue_auto_starts_stopped_worker() {
         ),
         "second event should be WorkerStarted, got: {:?}",
         events[1]
+    );
+}
+
+/// Helper: push an item and mark it as Dead so it can be retried.
+fn push_and_mark_dead(
+    state: &Arc<Mutex<MaterializedState>>,
+    namespace: &str,
+    queue_name: &str,
+    item_id: &str,
+    data: &[(&str, &str)],
+) {
+    let data_map = data
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    state.lock().apply_event(&Event::QueuePushed {
+        queue_name: queue_name.to_string(),
+        item_id: item_id.to_string(),
+        data: data_map,
+        pushed_at_epoch_ms: 1_000_000,
+        namespace: namespace.to_string(),
+    });
+    state.lock().apply_event(&Event::QueueItemDead {
+        queue_name: queue_name.to_string(),
+        item_id: item_id.to_string(),
+        namespace: namespace.to_string(),
+    });
+}
+
+#[test]
+fn drop_with_prefix_resolves_unique_match() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, wal, _) = test_event_bus(wal_dir.path());
+
+    let mut initial_state = MaterializedState::default();
+    initial_state.apply_event(&Event::QueuePushed {
+        queue_name: "jobs".to_string(),
+        item_id: "abc12345-0000-0000-0000-000000000000".to_string(),
+        data: [("task".to_string(), "test".to_string())]
+            .into_iter()
+            .collect(),
+        pushed_at_epoch_ms: 1_000_000,
+        namespace: String::new(),
+    });
+    let state = Arc::new(Mutex::new(initial_state));
+
+    let result =
+        handle_queue_drop(project.path(), "", "jobs", "abc12", &event_bus, &state).unwrap();
+
+    assert!(
+        matches!(
+            result,
+            Response::QueueDropped { ref item_id, .. }
+            if item_id == "abc12345-0000-0000-0000-000000000000"
+        ),
+        "expected QueueDropped with full ID, got {:?}",
+        result
+    );
+
+    let events = drain_events(&wal);
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        Event::QueueDropped { item_id, .. }
+        if item_id == "abc12345-0000-0000-0000-000000000000"
+    ));
+}
+
+#[test]
+fn drop_ambiguous_prefix_returns_error() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
+
+    let mut initial_state = MaterializedState::default();
+    for suffix in ["aaa", "bbb"] {
+        initial_state.apply_event(&Event::QueuePushed {
+            queue_name: "jobs".to_string(),
+            item_id: format!("abc-{}", suffix),
+            data: [("task".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            pushed_at_epoch_ms: 1_000_000,
+            namespace: String::new(),
+        });
+    }
+    let state = Arc::new(Mutex::new(initial_state));
+
+    let result = handle_queue_drop(project.path(), "", "jobs", "abc", &event_bus, &state).unwrap();
+
+    assert!(
+        matches!(result, Response::Error { ref message } if message.contains("ambiguous")),
+        "expected ambiguous error, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn retry_with_prefix_resolves_unique_match() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, wal, _) = test_event_bus(wal_dir.path());
+    let state = Arc::new(Mutex::new(MaterializedState::default()));
+
+    push_and_mark_dead(
+        &state,
+        "",
+        "jobs",
+        "def98765-0000-0000-0000-000000000000",
+        &[("task", "retry-me")],
+    );
+
+    let result =
+        handle_queue_retry(project.path(), "", "jobs", "def98", &event_bus, &state).unwrap();
+
+    assert!(
+        matches!(
+            result,
+            Response::QueueRetried { ref item_id, .. }
+            if item_id == "def98765-0000-0000-0000-000000000000"
+        ),
+        "expected QueueRetried with full ID, got {:?}",
+        result
+    );
+
+    let events = drain_events(&wal);
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::QueueItemRetry { item_id, .. } if item_id == "def98765-0000-0000-0000-000000000000")));
+}
+
+#[test]
+fn retry_with_exact_id_still_works() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
+    let state = Arc::new(Mutex::new(MaterializedState::default()));
+
+    push_and_mark_dead(&state, "", "jobs", "exact-id-1234", &[("task", "retry-me")]);
+
+    let result = handle_queue_retry(
+        project.path(),
+        "",
+        "jobs",
+        "exact-id-1234",
+        &event_bus,
+        &state,
+    )
+    .unwrap();
+
+    assert!(
+        matches!(
+            result,
+            Response::QueueRetried { ref item_id, .. }
+            if item_id == "exact-id-1234"
+        ),
+        "expected QueueRetried, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn retry_ambiguous_prefix_returns_error() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
+    let state = Arc::new(Mutex::new(MaterializedState::default()));
+
+    for suffix in ["aaa", "bbb"] {
+        push_and_mark_dead(
+            &state,
+            "",
+            "jobs",
+            &format!("abc-{}", suffix),
+            &[("task", "test")],
+        );
+    }
+
+    let result = handle_queue_retry(project.path(), "", "jobs", "abc", &event_bus, &state).unwrap();
+
+    assert!(
+        matches!(result, Response::Error { ref message } if message.contains("ambiguous")),
+        "expected ambiguous error, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn retry_no_match_returns_not_found() {
+    let project = project_with_queue_only();
+    let wal_dir = tempdir().unwrap();
+    let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
+    let state = Arc::new(Mutex::new(MaterializedState::default()));
+
+    let result = handle_queue_retry(
+        project.path(),
+        "",
+        "jobs",
+        "nonexistent",
+        &event_bus,
+        &state,
+    )
+    .unwrap();
+
+    assert!(
+        matches!(result, Response::Error { ref message } if message.contains("not found")),
+        "expected not found error, got {:?}",
+        result
     );
 }

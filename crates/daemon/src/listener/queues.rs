@@ -232,6 +232,53 @@ fn wake_attached_workers(
     Ok(())
 }
 
+/// Resolve a queue item ID by exact match or unique prefix.
+///
+/// Returns the full item ID on success, or an error response if the item
+/// is not found or the prefix is ambiguous.
+fn resolve_queue_item_id(
+    state: &Arc<Mutex<MaterializedState>>,
+    namespace: &str,
+    queue_name: &str,
+    item_id: &str,
+) -> Result<String, Response> {
+    let state = state.lock();
+    let key = if namespace.is_empty() {
+        queue_name.to_string()
+    } else {
+        format!("{}/{}", namespace, queue_name)
+    };
+    let items = state.queue_items.get(&key);
+
+    // Try exact match first
+    if let Some(item) = items.and_then(|items| items.iter().find(|i| i.id == item_id)) {
+        return Ok(item.id.clone());
+    }
+
+    // Try prefix match
+    let matches: Vec<_> = items
+        .map(|items| {
+            items
+                .iter()
+                .filter(|i| i.id.starts_with(item_id))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    match matches.len() {
+        1 => Ok(matches[0].id.clone()),
+        0 => Err(Response::Error {
+            message: format!("item '{}' not found in queue '{}'", item_id, queue_name),
+        }),
+        n => Err(Response::Error {
+            message: format!(
+                "ambiguous item ID '{}': {} matches in queue '{}'",
+                item_id, n, queue_name
+            ),
+        }),
+    }
+}
+
 /// Handle a QueueDrop request.
 pub(super) fn handle_queue_drop(
     project_root: &Path,
@@ -264,30 +311,16 @@ pub(super) fn handle_queue_drop(
         });
     }
 
-    // Validate item exists in state
-    {
-        let state = state.lock();
-        let key = if namespace.is_empty() {
-            queue_name.to_string()
-        } else {
-            format!("{}/{}", namespace, queue_name)
-        };
-        let item_exists = state
-            .queue_items
-            .get(&key)
-            .map(|items| items.iter().any(|i| i.id == item_id))
-            .unwrap_or(false);
-        if !item_exists {
-            return Ok(Response::Error {
-                message: format!("item '{}' not found in queue '{}'", item_id, queue_name),
-            });
-        }
-    }
+    // Resolve item ID (exact or prefix match)
+    let resolved_id = match resolve_queue_item_id(state, namespace, queue_name, item_id) {
+        Ok(id) => id,
+        Err(resp) => return Ok(resp),
+    };
 
     // Emit QueueDropped event
     let event = Event::QueueDropped {
         queue_name: queue_name.to_string(),
-        item_id: item_id.to_string(),
+        item_id: resolved_id.clone(),
         namespace: namespace.to_string(),
     };
     event_bus
@@ -296,7 +329,7 @@ pub(super) fn handle_queue_drop(
 
     Ok(Response::QueueDropped {
         queue_name: queue_name.to_string(),
-        item_id: item_id.to_string(),
+        item_id: resolved_id,
     })
 }
 
@@ -332,7 +365,13 @@ pub(super) fn handle_queue_retry(
         });
     }
 
-    // Validate item exists and is in Dead or Failed status
+    // Resolve item ID (exact or prefix match)
+    let resolved_id = match resolve_queue_item_id(state, namespace, queue_name, item_id) {
+        Ok(id) => id,
+        Err(resp) => return Ok(resp),
+    };
+
+    // Validate item is in Dead or Failed status
     {
         let state = state.lock();
         let key = if namespace.is_empty() {
@@ -343,23 +382,16 @@ pub(super) fn handle_queue_retry(
         let item = state
             .queue_items
             .get(&key)
-            .and_then(|items| items.iter().find(|i| i.id == item_id));
-        match item {
-            None => {
+            .and_then(|items| items.iter().find(|i| i.id == resolved_id));
+        if let Some(item) = item {
+            use oj_storage::QueueItemStatus;
+            if item.status != QueueItemStatus::Dead && item.status != QueueItemStatus::Failed {
                 return Ok(Response::Error {
-                    message: format!("item '{}' not found in queue '{}'", item_id, queue_name),
+                    message: format!(
+                        "item '{}' is {:?}, only dead or failed items can be retried",
+                        resolved_id, item.status
+                    ),
                 });
-            }
-            Some(item) => {
-                use oj_storage::QueueItemStatus;
-                if item.status != QueueItemStatus::Dead && item.status != QueueItemStatus::Failed {
-                    return Ok(Response::Error {
-                        message: format!(
-                            "item '{}' is {:?}, only dead or failed items can be retried",
-                            item_id, item.status
-                        ),
-                    });
-                }
             }
         }
     }
@@ -367,7 +399,7 @@ pub(super) fn handle_queue_retry(
     // Emit QueueItemRetry event
     let event = Event::QueueItemRetry {
         queue_name: queue_name.to_string(),
-        item_id: item_id.to_string(),
+        item_id: resolved_id.clone(),
         namespace: namespace.to_string(),
     };
     event_bus
@@ -386,7 +418,7 @@ pub(super) fn handle_queue_retry(
 
     Ok(Response::QueueRetried {
         queue_name: queue_name.to_string(),
-        item_id: item_id.to_string(),
+        item_id: resolved_id,
     })
 }
 

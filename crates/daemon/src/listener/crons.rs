@@ -3,7 +3,6 @@
 
 //! Cron request handlers.
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -186,15 +185,15 @@ pub(super) async fn handle_cron_once(
         namespace,
     );
 
-    // Emit CommandRun-style event to create pipeline directly
-    let event = Event::CommandRun {
+    // Emit CronOnce event to create pipeline via the cron code path
+    let event = Event::CronOnce {
+        cron_name: cron_name.to_string(),
         pipeline_id: pipeline_id.clone(),
         pipeline_name: pipeline_display_name.clone(),
+        pipeline_kind: pipeline_name.clone(),
         project_root: project_root.to_path_buf(),
-        invoke_dir: project_root.to_path_buf(),
+        runbook_hash: runbook_hash.clone(),
         namespace: namespace.to_string(),
-        command: pipeline_name.clone(),
-        args: HashMap::new(),
     };
 
     event_bus

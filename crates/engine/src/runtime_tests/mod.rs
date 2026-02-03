@@ -3,6 +3,7 @@
 
 //! Runtime tests
 
+mod cron;
 mod directives;
 mod errors;
 mod monitoring;

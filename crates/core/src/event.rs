@@ -274,6 +274,18 @@ pub enum Event {
         namespace: String,
     },
 
+    #[serde(rename = "cron:once")]
+    CronOnce {
+        cron_name: String,
+        pipeline_id: PipelineId,
+        pipeline_name: String,
+        pipeline_kind: String,
+        project_root: PathBuf,
+        runbook_hash: String,
+        #[serde(default)]
+        namespace: String,
+    },
+
     #[serde(rename = "cron:fired")]
     CronFired {
         cron_name: String,
@@ -479,6 +491,7 @@ impl Event {
             Event::WorkspaceDrop { .. } => "workspace:drop",
             Event::CronStarted { .. } => "cron:started",
             Event::CronStopped { .. } => "cron:stopped",
+            Event::CronOnce { .. } => "cron:once",
             Event::CronFired { .. } => "cron:fired",
             Event::CronDeleted { .. } => "cron:deleted",
             Event::WorkerStarted { .. } => "worker:started",
@@ -597,6 +610,11 @@ impl Event {
             Event::WorkspaceDrop { id, .. } => format!("{t} id={id}"),
             Event::CronStarted { cron_name, .. } => format!("{t} cron={cron_name}"),
             Event::CronStopped { cron_name, .. } => format!("{t} cron={cron_name}"),
+            Event::CronOnce {
+                cron_name,
+                pipeline_id,
+                ..
+            } => format!("{t} cron={cron_name} pipeline={pipeline_id}"),
             Event::CronFired {
                 cron_name,
                 pipeline_id,
@@ -691,7 +709,9 @@ impl Event {
             | Event::PipelineCancel { id, .. }
             | Event::PipelineDeleted { id, .. } => Some(id),
             Event::WorkerItemDispatched { pipeline_id, .. } => Some(pipeline_id),
-            Event::CronFired { pipeline_id, .. } => Some(pipeline_id),
+            Event::CronOnce { pipeline_id, .. } | Event::CronFired { pipeline_id, .. } => {
+                Some(pipeline_id)
+            }
             _ => None,
         }
     }

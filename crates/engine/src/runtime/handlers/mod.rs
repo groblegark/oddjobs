@@ -164,6 +164,28 @@ where
                 result_events.extend(self.handle_cron_stopped(cron_name, namespace).await?);
             }
 
+            Event::CronOnce {
+                cron_name,
+                pipeline_id,
+                pipeline_name,
+                pipeline_kind,
+                runbook_hash,
+                namespace,
+                ..
+            } => {
+                result_events.extend(
+                    self.handle_cron_once(
+                        cron_name,
+                        pipeline_id,
+                        pipeline_name,
+                        pipeline_kind,
+                        runbook_hash,
+                        namespace,
+                    )
+                    .await?,
+                );
+            }
+
             // -- worker events --
             Event::WorkerStarted {
                 worker_name,

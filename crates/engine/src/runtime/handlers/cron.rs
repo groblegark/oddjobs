@@ -128,6 +128,51 @@ where
         Ok(vec![])
     }
 
+    /// Handle a one-shot cron execution: create and start the pipeline immediately.
+    pub(crate) async fn handle_cron_once(
+        &self,
+        cron_name: &str,
+        pipeline_id: &PipelineId,
+        pipeline_name: &str,
+        pipeline_kind: &str,
+        runbook_hash: &str,
+        namespace: &str,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let runbook = self.cached_runbook(runbook_hash)?;
+
+        let mut result_events = Vec::new();
+
+        // Create and start pipeline (same path as handle_cron_timer_fired)
+        result_events.extend(
+            self.create_and_start_pipeline(CreatePipelineParams {
+                pipeline_id: pipeline_id.clone(),
+                pipeline_name: pipeline_name.to_string(),
+                pipeline_kind: pipeline_kind.to_string(),
+                vars: HashMap::new(),
+                runbook_hash: runbook_hash.to_string(),
+                runbook_json: None,
+                runbook,
+                namespace: namespace.to_string(),
+            })
+            .await?,
+        );
+
+        // Emit CronFired tracking event
+        result_events.extend(
+            self.executor
+                .execute_all(vec![Effect::Emit {
+                    event: Event::CronFired {
+                        cron_name: cron_name.to_string(),
+                        pipeline_id: pipeline_id.clone(),
+                        namespace: namespace.to_string(),
+                    },
+                }])
+                .await?,
+        );
+
+        Ok(result_events)
+    }
+
     /// Handle a cron timer firing: spawn pipeline and reschedule timer.
     pub(crate) async fn handle_cron_timer_fired(
         &self,

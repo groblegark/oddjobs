@@ -585,6 +585,7 @@ pub(super) fn handle_worker_prune(
     event_bus: &EventBus,
     _all: bool,
     dry_run: bool,
+    namespace: Option<&str>,
 ) -> Result<Response, ConnectionError> {
     let mut to_prune = Vec::new();
     let mut skipped = 0usize;
@@ -592,6 +593,12 @@ pub(super) fn handle_worker_prune(
     {
         let state_guard = state.lock();
         for record in state_guard.workers.values() {
+            // Filter by namespace if specified
+            if let Some(ns) = namespace {
+                if record.namespace != ns {
+                    continue;
+                }
+            }
             if record.status != "stopped" {
                 skipped += 1;
                 continue;

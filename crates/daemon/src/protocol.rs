@@ -134,6 +134,9 @@ pub enum Request {
         all: bool,
         /// Preview only -- don't actually delete
         dry_run: bool,
+        /// Optional namespace filter — prune only workers in this namespace
+        #[serde(default)]
+        namespace: Option<String>,
     },
 
     /// Start a worker to process queue items

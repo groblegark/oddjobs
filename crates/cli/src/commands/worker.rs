@@ -36,7 +36,11 @@ pub enum WorkerCommand {
         project: Option<String>,
     },
     /// List all workers and their status
-    List {},
+    List {
+        /// Project namespace override
+        #[arg(long = "project")]
+        project: Option<String>,
+    },
     /// Remove stopped workers from daemon state
     Prune {
         /// Prune all stopped workers (currently same as default)
@@ -46,6 +50,10 @@ pub enum WorkerCommand {
         /// Show what would be pruned without making changes
         #[arg(long)]
         dry_run: bool,
+
+        /// Project namespace override
+        #[arg(long = "project")]
+        project: Option<String>,
     },
 }
 
@@ -102,12 +110,19 @@ pub async fn handle(
                 }
             }
         }
-        WorkerCommand::List {} => {
+        WorkerCommand::List { project } => {
+            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
+            let filter_namespace = project.or_else(|| std::env::var("OJ_NAMESPACE").ok());
+
             let request = Request::Query {
                 query: Query::ListWorkers,
             };
             match client.send(&request).await? {
                 Response::Workers { mut workers } => {
+                    // Filter by namespace if --project was specified or OJ_NAMESPACE is set
+                    if let Some(ref ns) = filter_namespace {
+                        workers.retain(|w| w.namespace == *ns);
+                    }
                     workers.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
                     match format {
                         OutputFormat::Json => {
@@ -207,8 +222,17 @@ pub async fn handle(
                 _ => anyhow::bail!("unexpected response from daemon"),
             }
         }
-        WorkerCommand::Prune { all, dry_run } => {
-            let (pruned, skipped) = client.worker_prune(all, dry_run).await?;
+        WorkerCommand::Prune {
+            all,
+            dry_run,
+            project,
+        } => {
+            // Namespace resolution: --project flag > OJ_NAMESPACE env > None (all namespaces)
+            let filter_namespace = project.or_else(|| std::env::var("OJ_NAMESPACE").ok());
+
+            let (pruned, skipped) = client
+                .worker_prune(all, dry_run, filter_namespace.as_deref())
+                .await?;
 
             match format {
                 OutputFormat::Text => {

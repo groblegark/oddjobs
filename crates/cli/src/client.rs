@@ -651,8 +651,16 @@ impl DaemonClient {
         &self,
         all: bool,
         dry_run: bool,
+        namespace: Option<&str>,
     ) -> Result<(Vec<oj_daemon::WorkerEntry>, usize), ClientError> {
-        match self.send(&Request::WorkerPrune { all, dry_run }).await? {
+        match self
+            .send(&Request::WorkerPrune {
+                all,
+                dry_run,
+                namespace: namespace.map(String::from),
+            })
+            .await?
+        {
             Response::WorkersPruned { pruned, skipped } => Ok((pruned, skipped)),
             other => Self::reject(other),
         }

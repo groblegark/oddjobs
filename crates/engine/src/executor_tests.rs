@@ -397,10 +397,13 @@ async fn delete_workspace_removes_git_worktree() {
     let wt_dir = base.join("worktree");
     std::fs::create_dir_all(&repo_dir).unwrap();
 
-    // Initialize a git repo with an initial commit
+    // Initialize a git repo with an initial commit.
+    // Clear GIT_DIR/GIT_WORK_TREE so this works inside worktrees.
     let init = std::process::Command::new("git")
         .args(["init"])
         .current_dir(&repo_dir)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
         .output()
         .unwrap();
     assert!(init.status.success(), "git init failed");
@@ -408,6 +411,8 @@ async fn delete_workspace_removes_git_worktree() {
     let commit = std::process::Command::new("git")
         .args(["commit", "--allow-empty", "-m", "init"])
         .current_dir(&repo_dir)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
         .output()
         .unwrap();
     assert!(commit.status.success(), "git commit failed");
@@ -416,6 +421,8 @@ async fn delete_workspace_removes_git_worktree() {
     let add_wt = std::process::Command::new("git")
         .args(["worktree", "add", wt_dir.to_str().unwrap(), "HEAD"])
         .current_dir(&repo_dir)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
         .output()
         .unwrap();
     assert!(add_wt.status.success(), "git worktree add failed");
@@ -460,6 +467,8 @@ async fn delete_workspace_removes_git_worktree() {
     let list = std::process::Command::new("git")
         .args(["worktree", "list"])
         .current_dir(&repo_dir)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
         .output()
         .unwrap();
     let output = String::from_utf8_lossy(&list.stdout);

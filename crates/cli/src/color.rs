@@ -78,12 +78,7 @@ impl HelpPrinter {
     pub fn usage(&mut self, rest: &str) {
         use std::fmt::Write;
         if self.colorize {
-            let _ = writeln!(
-                self.buf,
-                "{}Usage:{} {rest}",
-                fg256(codes::HEADER),
-                RESET,
-            );
+            let _ = writeln!(self.buf, "{}Usage:{} {rest}", fg256(codes::HEADER), RESET,);
         } else {
             let _ = writeln!(self.buf, "Usage: {rest}");
         }

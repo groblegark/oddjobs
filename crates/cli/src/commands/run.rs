@@ -106,12 +106,24 @@ fn print_available_commands(project_root: &Path) -> Result<()> {
     let runbook_dir = project_root.join(".oj/runbooks");
     let commands = oj_runbook::collect_all_commands(&runbook_dir).unwrap_or_default();
 
-    eprintln!("Usage: oj run <COMMAND> [ARGS]...");
-    eprintln!();
+    let mut buf = String::new();
+    format_available_commands(&mut buf, &commands);
+    eprint!("{buf}");
+    std::process::exit(2);
+}
 
-    if !commands.is_empty() {
-        eprintln!("Available Commands:");
-        for (name, cmd) in &commands {
+fn format_available_commands(buf: &mut String, commands: &[(String, oj_runbook::CommandDef)]) {
+    use std::fmt::Write;
+
+    let _ = writeln!(buf, "Usage: oj run <COMMAND> [ARGS]...");
+    let _ = writeln!(buf);
+
+    if commands.is_empty() {
+        let _ = writeln!(buf, "No commands found.");
+        let _ = writeln!(buf, "Define commands in .oj/runbooks/*.hcl");
+    } else {
+        let _ = writeln!(buf, "Available Commands:");
+        for (name, cmd) in commands {
             let args_str = cmd.args.usage_line();
             let line = if args_str.is_empty() {
                 name.to_string()
@@ -119,16 +131,15 @@ fn print_available_commands(project_root: &Path) -> Result<()> {
                 format!("{name} {args_str}")
             };
             if let Some(desc) = &cmd.description {
-                eprintln!("  {line:<40} {desc}");
+                let _ = writeln!(buf, "  {line:<40} {desc}");
             } else {
-                eprintln!("  {line}");
+                let _ = writeln!(buf, "  {line}");
             }
         }
-        eprintln!();
     }
 
-    eprintln!("For more information, try '--help'.");
-    std::process::exit(2);
+    let _ = writeln!(buf);
+    let _ = writeln!(buf, "For more information, try '--help'.");
 }
 
 pub async fn handle(

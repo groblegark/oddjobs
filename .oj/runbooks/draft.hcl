@@ -94,6 +94,11 @@ pipeline "draft" {
       git diff --cached --quiet || git commit -m "${local.title}"
       git -C "${local.repo}" push origin "${local.branch}"
     SHELL
+    on_done = { step = "cleanup" }
+  }
+
+  step "cleanup" {
+    run = "git -C \"${local.repo}\" worktree remove --force \"${workspace.root}\" 2>/dev/null || true"
   }
 }
 

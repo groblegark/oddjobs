@@ -68,6 +68,11 @@ pipeline "build" {
       git -C "${local.repo}" push origin "${local.branch}"
       oj queue push merges --var branch="${local.branch}" --var title="${local.title}"
     SHELL
+    on_done = { step = "cleanup" }
+  }
+
+  step "cleanup" {
+    run = "git -C \"${local.repo}\" worktree remove --force \"${workspace.root}\" 2>/dev/null || true"
   }
 }
 

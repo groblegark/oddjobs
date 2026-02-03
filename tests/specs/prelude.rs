@@ -143,6 +143,12 @@ impl CliBuilder {
             cmd.env(key, value);
         }
 
+        // Prevent parent environment from leaking into tests.
+        // OJ_NAMESPACE is used by list commands to filter by project;
+        // inheriting it from the parent process causes test pipelines
+        // (which use temp-dir-based namespaces) to be filtered out.
+        cmd.env_remove("OJ_NAMESPACE");
+
         cmd
     }
 

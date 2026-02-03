@@ -1093,6 +1093,8 @@ fn get_pipeline_orphan_session_id_from_non_first_agent() {
         workspace_id: None,
         workspace_root: None,
         updated_at: "2026-01-15T10:30:00Z".to_string(),
+        runbook_hash: String::new(),
+        cwd: None,
     }]));
 
     let response = handle_query(

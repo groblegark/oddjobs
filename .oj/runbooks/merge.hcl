@@ -73,6 +73,8 @@ pipeline "merge" {
 
   step "push" {
     run = <<-SHELL
+      git add -A
+      git diff --cached --quiet || git commit --amend --no-edit
       git -C "${local.repo}" fetch origin ${var.mr.base}
       git rebase origin/${var.mr.base}
       git -C "${local.repo}" push origin ${local.branch}:${var.mr.base}

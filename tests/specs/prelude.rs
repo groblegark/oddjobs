@@ -139,6 +139,11 @@ impl CliBuilder {
             cmd.current_dir(dir);
         }
 
+        // Clear env vars that leak from the host and break test isolation.
+        // OJ_NAMESPACE is used for client-side namespace filtering in list
+        // commands; inheriting the host's value would filter out test pipelines.
+        cmd.env_remove("OJ_NAMESPACE");
+
         for (key, value) in self.envs {
             cmd.env(key, value);
         }

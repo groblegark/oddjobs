@@ -203,7 +203,7 @@ fn status_overview_separates_escalated() {
                 "feat/auth",
                 "oddjobs",
                 "test",
-                StepStatus::Waiting,
+                StepStatus::Waiting(None),
                 StepOutcome::Waiting("gate check failed (exit 1)".to_string()),
                 Some("agent-2"),
                 2000,

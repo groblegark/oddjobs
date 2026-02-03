@@ -16,8 +16,8 @@ use output::OutputFormat;
 use anyhow::Result;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use commands::{
-    agent, cron, daemon, emit, pipeline, project, queue, resolve, run, session, status, worker,
-    workspace,
+    agent, cron, daemon, decision, emit, pipeline, project, queue, resolve, run, session, status,
+    worker, workspace,
 };
 use std::path::{Path, PathBuf};
 
@@ -64,6 +64,13 @@ enum Commands {
     Worker(worker::WorkerArgs),
     /// Cron management
     Cron(cron::CronArgs),
+    /// Decision management
+    Decision(decision::DecisionArgs),
+    /// List pending decisions (shorthand for `oj decision list`)
+    Decisions {
+        #[arg(long = "project")]
+        project: Option<String>,
+    },
     /// Emit events to the daemon (for agents)
     Emit(emit::EmitArgs),
     /// Project management
@@ -284,6 +291,31 @@ async fn run() -> Result<()> {
                 cron::handle(args.command, &client, &project_root, &namespace, format).await?
             }
         },
+
+        // Decision commands - mixed action/query
+        Commands::Decision(args) => {
+            use decision::DecisionCommand;
+            match &args.command {
+                DecisionCommand::Resolve { .. } => {
+                    let client = DaemonClient::for_action()?;
+                    decision::handle(args.command, &client, &namespace, format).await?
+                }
+                DecisionCommand::List { .. } | DecisionCommand::Show { .. } => {
+                    let client = DaemonClient::for_query()?;
+                    decision::handle(args.command, &client, &namespace, format).await?
+                }
+            }
+        }
+        Commands::Decisions { project } => {
+            let client = DaemonClient::for_query()?;
+            decision::handle(
+                decision::DecisionCommand::List { project },
+                &client,
+                &namespace,
+                format,
+            )
+            .await?
+        }
 
         // Signal commands - operational, agent-initiated
         Commands::Emit(args) => {

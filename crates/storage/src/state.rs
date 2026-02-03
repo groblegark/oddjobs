@@ -4,8 +4,8 @@
 //! Materialized state from WAL replay
 
 use oj_core::{
-    pipeline::AgentSignal, Event, Pipeline, PipelineConfig, StepOutcome, StepStatus,
-    WorkspaceStatus,
+    pipeline::AgentSignal, Decision, DecisionId, Event, Pipeline, PipelineConfig, StepOutcome,
+    StepStatus, WorkspaceStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -140,6 +140,8 @@ pub struct MaterializedState {
     pub queue_items: HashMap<String, Vec<QueueItem>>,
     #[serde(default)]
     pub crons: HashMap<String, CronRecord>,
+    #[serde(default)]
+    pub decisions: HashMap<String, Decision>,
 }
 
 /// Build a composite key for namespace-scoped lookups.
@@ -181,6 +183,23 @@ impl MaterializedState {
         self.pipelines
             .values_mut()
             .find(|p| p.step_history.last().and_then(|r| r.agent_id.as_deref()) == Some(agent_id))
+    }
+
+    /// Get a decision by ID or unique prefix
+    pub fn get_decision(&self, id: &str) -> Option<&Decision> {
+        if let Some(decision) = self.decisions.get(id) {
+            return Some(decision);
+        }
+        let matches: Vec<_> = self
+            .decisions
+            .iter()
+            .filter(|(k, _)| k.starts_with(id))
+            .collect();
+        if matches.len() == 1 {
+            Some(matches[0].1)
+        } else {
+            None
+        }
     }
 
     /// Apply an event to derive state changes.
@@ -363,10 +382,11 @@ impl MaterializedState {
             Event::StepWaiting {
                 pipeline_id,
                 reason,
+                decision_id,
                 ..
             } => {
                 if let Some(pipeline) = self.pipelines.get_mut(pipeline_id.as_str()) {
-                    pipeline.step_status = StepStatus::Waiting;
+                    pipeline.step_status = StepStatus::Waiting(decision_id.clone());
                     if reason.is_some() {
                         pipeline.error.clone_from(reason);
                     }
@@ -732,6 +752,57 @@ impl MaterializedState {
             } => {
                 let key = scoped_key(namespace, cron_name);
                 self.crons.remove(&key);
+            }
+
+            // -- decision events --
+            Event::DecisionCreated {
+                id,
+                pipeline_id,
+                agent_id,
+                source,
+                context,
+                options,
+                created_at_ms,
+                namespace,
+            } => {
+                // Idempotency: skip if already exists
+                if !self.decisions.contains_key(id) {
+                    self.decisions.insert(
+                        id.clone(),
+                        Decision {
+                            id: DecisionId::new(id.clone()),
+                            pipeline_id: pipeline_id.to_string(),
+                            agent_id: agent_id.clone(),
+                            source: source.clone(),
+                            context: context.clone(),
+                            options: options.clone(),
+                            chosen: None,
+                            message: None,
+                            created_at_ms: *created_at_ms,
+                            resolved_at_ms: None,
+                            namespace: namespace.clone(),
+                        },
+                    );
+                }
+
+                // Update pipeline step status to Waiting with decision_id
+                if let Some(pipeline) = self.pipelines.get_mut(pipeline_id.as_str()) {
+                    pipeline.step_status = StepStatus::Waiting(Some(id.clone()));
+                }
+            }
+
+            Event::DecisionResolved {
+                id,
+                chosen,
+                message,
+                resolved_at_ms,
+                ..
+            } => {
+                if let Some(decision) = self.decisions.get_mut(id) {
+                    decision.chosen = *chosen;
+                    decision.message.clone_from(message);
+                    decision.resolved_at_ms = Some(*resolved_at_ms);
+                }
             }
 
             // Events that don't affect persisted state

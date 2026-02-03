@@ -434,7 +434,7 @@ async fn gate_idle_escalates_when_command_fails() {
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     // Gate failed → escalate → Waiting status (pipeline does NOT advance)
     assert_eq!(pipeline.step, "work");
-    assert_eq!(pipeline.step_status, StepStatus::Waiting);
+    assert!(pipeline.step_status.is_waiting());
 }
 
 #[tokio::test]
@@ -469,7 +469,7 @@ async fn agent_signal_complete_overrides_gate_escalation() {
 
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     assert_eq!(pipeline.step, "work");
-    assert_eq!(pipeline.step_status, StepStatus::Waiting);
+    assert!(pipeline.step_status.is_waiting());
 
     // Agent signals complete — this should override the gate escalation
     let result = ctx

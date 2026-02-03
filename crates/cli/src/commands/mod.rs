@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod cron;
 pub mod daemon;
+pub mod decision;
 pub mod emit;
 pub mod pipeline;
 mod pipeline_wait;

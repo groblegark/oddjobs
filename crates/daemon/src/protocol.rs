@@ -224,6 +224,17 @@ pub enum Request {
         queue_name: String,
         item_id: String,
     },
+
+    /// Resolve a pending decision
+    DecisionResolve {
+        id: String,
+        /// 1-indexed option choice
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chosen: Option<usize>,
+        /// Freeform message
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
 }
 
 /// Query types for reading daemon state
@@ -318,6 +329,15 @@ pub enum Query {
         namespace: String,
         /// Number of most recent lines to return (0 = all)
         lines: usize,
+    },
+    /// List pending decisions (optionally filtered by namespace)
+    ListDecisions {
+        #[serde(default)]
+        namespace: String,
+    },
+    /// Get a single decision by ID (prefix match supported)
+    GetDecision {
+        id: String,
     },
 }
 
@@ -520,6 +540,17 @@ pub enum Response {
         /// Log content (most recent N lines)
         content: String,
     },
+
+    /// List of decisions
+    Decisions { decisions: Vec<DecisionSummary> },
+
+    /// Single decision detail
+    Decision {
+        decision: Option<Box<DecisionDetail>>,
+    },
+
+    /// Decision resolved successfully
+    DecisionResolved { id: String },
 }
 
 /// Summary of a pipeline for listing
@@ -694,6 +725,46 @@ pub struct QueueSummary {
     pub queue_type: String,
     pub item_count: usize,
     pub workers: Vec<String>,
+}
+
+/// Summary of a decision for listing
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DecisionSummary {
+    pub id: String,
+    pub pipeline_id: String,
+    pub pipeline_name: String,
+    pub source: String,
+    pub summary: String,
+    pub created_at_ms: u64,
+    #[serde(default)]
+    pub namespace: String,
+}
+
+/// Detailed decision information
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DecisionDetail {
+    pub id: String,
+    pub pipeline_id: String,
+    pub pipeline_name: String,
+    pub agent_id: Option<String>,
+    pub source: String,
+    pub context: String,
+    pub options: Vec<DecisionOptionDetail>,
+    pub chosen: Option<usize>,
+    pub message: Option<String>,
+    pub created_at_ms: u64,
+    pub resolved_at_ms: Option<u64>,
+    #[serde(default)]
+    pub namespace: String,
+}
+
+/// A single decision option for display
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DecisionOptionDetail {
+    pub number: usize,
+    pub label: String,
+    pub description: Option<String>,
+    pub recommended: bool,
 }
 
 /// Summary of a worker for listing

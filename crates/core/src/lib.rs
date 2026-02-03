@@ -10,6 +10,7 @@
 
 pub mod agent;
 pub mod clock;
+pub mod decision;
 pub mod effect;
 pub mod event;
 pub mod id;
@@ -23,6 +24,7 @@ pub mod workspace;
 
 pub use agent::{AgentError, AgentId, AgentState};
 pub use clock::{Clock, FakeClock, SystemClock};
+pub use decision::{Decision, DecisionId, DecisionOption, DecisionSource};
 pub use effect::Effect;
 pub use event::{AgentSignalKind, Event, PromptType};
 pub use id::{IdGen, SequentialIdGen, UuidIdGen};

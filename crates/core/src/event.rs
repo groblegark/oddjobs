@@ -4,6 +4,7 @@
 //! Event types for the Odd Jobs system
 
 use crate::agent::{AgentError, AgentId, AgentState};
+use crate::decision::{DecisionOption, DecisionSource};
 use crate::pipeline::PipelineId;
 use crate::session::SessionId;
 use crate::timer::TimerId;
@@ -208,6 +209,9 @@ pub enum Event {
         /// Reason for waiting (e.g., gate failure message)
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
+        /// Decision ID if this waiting state is associated with a decision
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decision_id: Option<String>,
     },
 
     /// Step completed successfully
@@ -412,6 +416,36 @@ pub enum Event {
         namespace: String,
     },
 
+    // -- decision --
+    #[serde(rename = "decision:created")]
+    DecisionCreated {
+        id: String,
+        pipeline_id: PipelineId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
+        source: DecisionSource,
+        context: String,
+        #[serde(default)]
+        options: Vec<DecisionOption>,
+        created_at_ms: u64,
+        #[serde(default)]
+        namespace: String,
+    },
+
+    #[serde(rename = "decision:resolved")]
+    DecisionResolved {
+        id: String,
+        /// 1-indexed choice picking a numbered option
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chosen: Option<usize>,
+        /// Freeform text (nudge message, custom answer)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        resolved_at_ms: u64,
+        #[serde(default)]
+        namespace: String,
+    },
+
     /// Catch-all for unknown event types (extensibility)
     #[serde(other, skip_serializing)]
     Custom,
@@ -507,6 +541,8 @@ impl Event {
             Event::QueueDropped { .. } => "queue:dropped",
             Event::QueueItemRetry { .. } => "queue:item_retry",
             Event::QueueItemDead { .. } => "queue:item_dead",
+            Event::DecisionCreated { .. } => "decision:created",
+            Event::DecisionResolved { .. } => "decision:resolved",
             Event::Custom => "custom",
         }
     }
@@ -689,6 +725,19 @@ impl Event {
                 item_id,
                 ..
             } => format!("{t} queue={queue_name} item={item_id}"),
+            Event::DecisionCreated {
+                id,
+                pipeline_id,
+                source,
+                ..
+            } => format!("{t} id={id} pipeline={pipeline_id} source={source:?}"),
+            Event::DecisionResolved { id, chosen, .. } => {
+                if let Some(c) = chosen {
+                    format!("{t} id={id} chosen={c}")
+                } else {
+                    format!("{t} id={id}")
+                }
+            }
         }
     }
 
@@ -712,6 +761,7 @@ impl Event {
             Event::CronOnce { pipeline_id, .. } | Event::CronFired { pipeline_id, .. } => {
                 Some(pipeline_id)
             }
+            Event::DecisionCreated { pipeline_id, .. } => Some(pipeline_id),
             _ => None,
         }
     }

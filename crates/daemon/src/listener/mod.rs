@@ -9,6 +9,7 @@
 
 mod commands;
 mod crons;
+mod decisions;
 mod mutations;
 mod query;
 mod queues;
@@ -368,6 +369,12 @@ async fn handle_request(
             event_bus,
             state,
         ),
+
+        Request::DecisionResolve {
+            id,
+            chosen,
+            message,
+        } => decisions::handle_decision_resolve(&id, chosen, message, event_bus, state),
     }
 }
 

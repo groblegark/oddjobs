@@ -371,7 +371,9 @@ where
             | Event::PipelineUpdated { .. }
             | Event::WorkerItemDispatched { .. }
             | Event::CronFired { .. }
-            | Event::CronDeleted { .. } => {}
+            | Event::CronDeleted { .. }
+            | Event::DecisionCreated { .. }
+            | Event::DecisionResolved { .. } => {}
 
             // Queue retry/dead: log lifecycle events
             Event::QueueItemRetry {

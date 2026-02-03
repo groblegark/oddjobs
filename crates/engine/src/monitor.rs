@@ -206,6 +206,7 @@ pub fn build_action_effects(
                         pipeline_id: pipeline_id.clone(),
                         step: pipeline.step.clone(),
                         reason: None,
+                        decision_id: None,
                     },
                 },
                 // Stop monitoring timers (human will intervene)

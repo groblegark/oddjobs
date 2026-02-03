@@ -15,7 +15,7 @@ use oj_adapters::{
     ClaudeAgentAdapter, DesktopNotifyAdapter, SessionAdapter, TmuxAdapter, TracedAgent,
     TracedSession,
 };
-use oj_core::{AgentId, Event, PipelineId, StepStatus, SystemClock};
+use oj_core::{AgentId, Event, PipelineId, SystemClock};
 use oj_engine::breadcrumb::{self, Breadcrumb};
 use oj_engine::{AgentLogger, Runtime, RuntimeConfig, RuntimeDeps, Scheduler};
 use oj_storage::{MaterializedState, Snapshot, Wal};
@@ -623,7 +623,7 @@ pub(crate) async fn reconcile_state(
 
     for pipeline in &non_terminal {
         // Skip pipelines in Waiting status — already escalated to human
-        if pipeline.step_status == StepStatus::Waiting {
+        if pipeline.step_status.is_waiting() {
             info!(
                 pipeline_id = %pipeline.id,
                 "skipping Waiting pipeline (already escalated)"

@@ -176,6 +176,7 @@ fn event_step_waiting_roundtrip() {
         pipeline_id: PipelineId::new("pipe-1"),
         step: "review".to_string(),
         reason: Some("gate failed".to_string()),
+        decision_id: None,
     };
     let json: serde_json::Value = serde_json::to_value(&event).unwrap();
     assert_eq!(json["type"], "step:waiting");
@@ -642,4 +643,112 @@ fn event_agent_prompt_name() {
         prompt_type: super::PromptType::Permission,
     };
     assert_eq!(event.name(), "agent:prompt");
+}
+
+// =============================================================================
+// Decision Event Tests
+// =============================================================================
+
+#[test]
+fn event_decision_created_roundtrip() {
+    use super::{DecisionOption, DecisionSource};
+
+    let event = Event::DecisionCreated {
+        id: "dec-abc123".to_string(),
+        pipeline_id: PipelineId::new("pipe-1"),
+        agent_id: Some("agent-1".to_string()),
+        source: DecisionSource::Gate,
+        context: "Gate check failed".to_string(),
+        options: vec![
+            DecisionOption {
+                label: "Approve".to_string(),
+                description: None,
+                recommended: true,
+            },
+            DecisionOption {
+                label: "Reject".to_string(),
+                description: Some("Stop pipeline".to_string()),
+                recommended: false,
+            },
+        ],
+        created_at_ms: 2_000_000,
+        namespace: "myns".to_string(),
+    };
+    let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+    assert_eq!(json["type"], "decision:created");
+    assert_eq!(json["id"], "dec-abc123");
+    assert_eq!(json["pipeline_id"], "pipe-1");
+    assert_eq!(json["agent_id"], "agent-1");
+    assert_eq!(json["source"], "gate");
+    assert_eq!(json["options"].as_array().unwrap().len(), 2);
+
+    let json_str = serde_json::to_string(&event).unwrap();
+    let parsed: Event = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(event, parsed);
+}
+
+#[test]
+fn event_decision_resolved_roundtrip() {
+    let event = Event::DecisionResolved {
+        id: "dec-abc123".to_string(),
+        chosen: Some(1),
+        message: Some("Approved".to_string()),
+        resolved_at_ms: 3_000_000,
+        namespace: "myns".to_string(),
+    };
+    let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+    assert_eq!(json["type"], "decision:resolved");
+    assert_eq!(json["id"], "dec-abc123");
+    assert_eq!(json["chosen"], 1);
+    assert_eq!(json["message"], "Approved");
+    assert_eq!(json["resolved_at_ms"], 3_000_000);
+
+    let json_str = serde_json::to_string(&event).unwrap();
+    let parsed: Event = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(event, parsed);
+}
+
+#[test]
+fn event_decision_resolved_freeform_only_roundtrip() {
+    let event = Event::DecisionResolved {
+        id: "dec-xyz".to_string(),
+        chosen: None,
+        message: Some("Custom response".to_string()),
+        resolved_at_ms: 4_000_000,
+        namespace: String::new(),
+    };
+    let json_str = serde_json::to_string(&event).unwrap();
+    let parsed: Event = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(event, parsed);
+}
+
+#[test]
+fn event_decision_name() {
+    use super::DecisionSource;
+
+    assert_eq!(
+        Event::DecisionCreated {
+            id: "d".to_string(),
+            pipeline_id: PipelineId::new("p"),
+            agent_id: None,
+            source: DecisionSource::Question,
+            context: "ctx".to_string(),
+            options: vec![],
+            created_at_ms: 0,
+            namespace: String::new(),
+        }
+        .name(),
+        "decision:created"
+    );
+    assert_eq!(
+        Event::DecisionResolved {
+            id: "d".to_string(),
+            chosen: None,
+            message: None,
+            resolved_at_ms: 0,
+            namespace: String::new(),
+        }
+        .name(),
+        "decision:resolved"
+    );
 }

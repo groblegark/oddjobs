@@ -59,7 +59,7 @@ async fn session_death_triggers_on_dead_action() {
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     // Default on_dead = escalate → Waiting status
     assert_eq!(pipeline.step, "plan");
-    assert_eq!(pipeline.step_status, StepStatus::Waiting);
+    assert!(pipeline.step_status.is_waiting());
 }
 
 #[tokio::test]
@@ -333,7 +333,7 @@ async fn agent_exited_escalates_by_default() {
     // Escalate sets pipeline to Waiting status
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     assert_eq!(pipeline.step, "init");
-    assert_eq!(pipeline.step_status, StepStatus::Waiting);
+    assert!(pipeline.step_status.is_waiting());
 }
 
 // =============================================================================
@@ -585,5 +585,5 @@ async fn gate_dead_escalates_when_command_fails() {
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     // Gate failed → escalate → Waiting status
     assert_eq!(pipeline.step, "work");
-    assert_eq!(pipeline.step_status, StepStatus::Waiting);
+    assert!(pipeline.step_status.is_waiting());
 }

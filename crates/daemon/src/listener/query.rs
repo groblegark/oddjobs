@@ -20,15 +20,16 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 
-use oj_core::{StepOutcome, StepStatus};
+use oj_core::StepOutcome;
 use oj_storage::{MaterializedState, QueueItemStatus};
 
 use oj_engine::breadcrumb::Breadcrumb;
 
 use crate::protocol::{
-    AgentDetail, AgentStatusEntry, AgentSummary, CronSummary, NamespaceStatus, PipelineDetail,
-    PipelineStatusEntry, PipelineSummary, Query, QueueItemSummary, QueueStatus, Response,
-    SessionSummary, StepRecordDetail, WorkerSummary, WorkspaceDetail, WorkspaceSummary,
+    AgentDetail, AgentStatusEntry, AgentSummary, CronSummary, DecisionDetail, DecisionOptionDetail,
+    DecisionSummary, NamespaceStatus, PipelineDetail, PipelineStatusEntry, PipelineSummary, Query,
+    QueueItemSummary, QueueStatus, Response, SessionSummary, StepRecordDetail, WorkerSummary,
+    WorkspaceDetail, WorkspaceSummary,
 };
 
 /// Handle query requests (read-only state access).
@@ -612,9 +613,10 @@ pub(super) fn handle_query(
                 };
 
                 let ns = p.namespace.clone();
-                match p.step_status {
-                    StepStatus::Waiting => ns_escalated.entry(ns).or_default().push(entry),
-                    _ => ns_active.entry(ns).or_default().push(entry),
+                if p.step_status.is_waiting() {
+                    ns_escalated.entry(ns).or_default().push(entry);
+                } else {
+                    ns_active.entry(ns).or_default().push(entry);
                 }
 
                 // Extract active agents from this pipeline's step history
@@ -753,6 +755,74 @@ pub(super) fn handle_query(
                 log_path: path,
                 content,
             }
+        }
+
+        Query::ListDecisions { namespace } => {
+            let mut decisions: Vec<DecisionSummary> = state
+                .decisions
+                .values()
+                .filter(|d| !d.is_resolved())
+                .filter(|d| namespace.is_empty() || d.namespace == namespace)
+                .map(|d| {
+                    let pipeline_name = state
+                        .pipelines
+                        .get(&d.pipeline_id)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_default();
+                    let summary = if d.context.len() > 80 {
+                        format!("{}...", &d.context[..77])
+                    } else {
+                        d.context.clone()
+                    };
+                    DecisionSummary {
+                        id: d.id.to_string(),
+                        pipeline_id: d.pipeline_id.clone(),
+                        pipeline_name,
+                        source: format!("{:?}", d.source).to_lowercase(),
+                        summary,
+                        created_at_ms: d.created_at_ms,
+                        namespace: d.namespace.clone(),
+                    }
+                })
+                .collect();
+            decisions.sort_by(|a, b| a.created_at_ms.cmp(&b.created_at_ms));
+            Response::Decisions { decisions }
+        }
+
+        Query::GetDecision { id } => {
+            let decision = state.get_decision(&id).map(|d| {
+                let pipeline_name = state
+                    .pipelines
+                    .get(&d.pipeline_id)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
+                let options = d
+                    .options
+                    .iter()
+                    .enumerate()
+                    .map(|(i, opt)| DecisionOptionDetail {
+                        number: i + 1,
+                        label: opt.label.clone(),
+                        description: opt.description.clone(),
+                        recommended: opt.recommended,
+                    })
+                    .collect();
+                Box::new(DecisionDetail {
+                    id: d.id.to_string(),
+                    pipeline_id: d.pipeline_id.clone(),
+                    pipeline_name,
+                    agent_id: d.agent_id.clone(),
+                    source: format!("{:?}", d.source).to_lowercase(),
+                    context: d.context.clone(),
+                    options,
+                    chosen: d.chosen,
+                    message: d.message.clone(),
+                    created_at_ms: d.created_at_ms,
+                    resolved_at_ms: d.resolved_at_ms,
+                    namespace: d.namespace.clone(),
+                })
+            });
+            Response::Decision { decision }
         }
 
         // Handled by early return above; included for exhaustiveness

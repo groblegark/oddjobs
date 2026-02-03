@@ -541,6 +541,7 @@ where
                                                 pipeline_id,
                                                 step,
                                                 reason: Some(gate_error.clone()),
+                                                decision_id: None,
                                             },
                                         },
                                         other => other,
@@ -689,6 +690,7 @@ where
                             pipeline_id: pipeline_id.clone(),
                             step: pipeline.step.clone(),
                             reason: Some(msg.to_string()),
+                            decision_id: None,
                         },
                     },
                     Effect::CancelTimer {

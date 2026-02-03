@@ -233,12 +233,10 @@ fn apply_event_step_waiting_with_reason_sets_pipeline_error() {
         pipeline_id: PipelineId::new("pipe-1"),
         step: "init".to_string(),
         reason: Some("gate `make test` failed (exit 1): tests failed".to_string()),
+        decision_id: None,
     });
 
-    assert_eq!(
-        state.pipelines["pipe-1"].step_status,
-        oj_core::StepStatus::Waiting
-    );
+    assert!(state.pipelines["pipe-1"].step_status.is_waiting());
     assert_eq!(
         state.pipelines["pipe-1"].error.as_deref(),
         Some("gate `make test` failed (exit 1): tests failed")
@@ -255,6 +253,7 @@ fn apply_event_step_started_preserves_existing_error() {
         pipeline_id: PipelineId::new("pipe-1"),
         step: "init".to_string(),
         reason: Some("previous error".to_string()),
+        decision_id: None,
     });
 
     // StepStarted should not clear existing error
@@ -321,6 +320,7 @@ fn step_history_waiting_sets_outcome() {
         pipeline_id: PipelineId::new("pipe-1"),
         step: "init".to_string(),
         reason: Some("gate failed: exit 2".to_string()),
+        decision_id: None,
     });
 
     let pipeline = &state.pipelines["pipe-1"];
@@ -981,4 +981,110 @@ fn apply_event_worker_deleted_lifecycle_and_ghost() {
         namespace: String::new(),
     });
     assert!(state.workers.is_empty());
+}
+
+// =============================================================================
+// Decision Tests
+// =============================================================================
+
+fn decision_created_event(id: &str, pipeline_id: &str) -> Event {
+    Event::DecisionCreated {
+        id: id.to_string(),
+        pipeline_id: PipelineId::new(pipeline_id),
+        agent_id: Some("agent-1".to_string()),
+        source: oj_core::DecisionSource::Gate,
+        context: "Gate check failed".to_string(),
+        options: vec![
+            oj_core::DecisionOption {
+                label: "Approve".to_string(),
+                description: None,
+                recommended: true,
+            },
+            oj_core::DecisionOption {
+                label: "Reject".to_string(),
+                description: Some("Stop the pipeline".to_string()),
+                recommended: false,
+            },
+        ],
+        created_at_ms: 2_000_000,
+        namespace: "testns".to_string(),
+    }
+}
+
+#[test]
+fn apply_event_decision_created() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&pipeline_create_event("pipe-1", "build", "test", "init"));
+    state.apply_event(&decision_created_event("dec-abc123", "pipe-1"));
+
+    // Decision is stored
+    assert!(state.decisions.contains_key("dec-abc123"));
+    let dec = &state.decisions["dec-abc123"];
+    assert_eq!(dec.pipeline_id, "pipe-1");
+    assert_eq!(dec.agent_id.as_deref(), Some("agent-1"));
+    assert_eq!(dec.source, oj_core::DecisionSource::Gate);
+    assert_eq!(dec.context, "Gate check failed");
+    assert_eq!(dec.options.len(), 2);
+    assert!(dec.chosen.is_none());
+    assert!(dec.resolved_at_ms.is_none());
+    assert_eq!(dec.namespace, "testns");
+
+    // Pipeline is set to Waiting with decision_id
+    let pipeline = &state.pipelines["pipe-1"];
+    assert_eq!(
+        pipeline.step_status,
+        oj_core::StepStatus::Waiting(Some("dec-abc123".to_string()))
+    );
+}
+
+#[test]
+fn apply_event_decision_created_idempotent() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&pipeline_create_event("pipe-1", "build", "test", "init"));
+    state.apply_event(&decision_created_event("dec-abc123", "pipe-1"));
+
+    // Apply same event again — should be a no-op
+    state.apply_event(&decision_created_event("dec-abc123", "pipe-1"));
+    assert_eq!(state.decisions.len(), 1);
+}
+
+#[test]
+fn apply_event_decision_resolved() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&pipeline_create_event("pipe-1", "build", "test", "init"));
+    state.apply_event(&decision_created_event("dec-abc123", "pipe-1"));
+
+    state.apply_event(&Event::DecisionResolved {
+        id: "dec-abc123".to_string(),
+        chosen: Some(1),
+        message: Some("Looks good".to_string()),
+        resolved_at_ms: 3_000_000,
+        namespace: "testns".to_string(),
+    });
+
+    let dec = &state.decisions["dec-abc123"];
+    assert_eq!(dec.chosen, Some(1));
+    assert_eq!(dec.message.as_deref(), Some("Looks good"));
+    assert_eq!(dec.resolved_at_ms, Some(3_000_000));
+    assert!(dec.is_resolved());
+}
+
+#[test]
+fn get_decision_prefix_lookup() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&pipeline_create_event("pipe-1", "build", "test", "init"));
+    state.apply_event(&decision_created_event("dec-abc123", "pipe-1"));
+
+    // Exact match
+    assert!(state.get_decision("dec-abc123").is_some());
+
+    // Prefix match
+    assert!(state.get_decision("dec-abc").is_some());
+    assert_eq!(
+        state.get_decision("dec-abc").unwrap().id.as_str(),
+        "dec-abc123"
+    );
+
+    // No match
+    assert!(state.get_decision("dec-xyz").is_none());
 }

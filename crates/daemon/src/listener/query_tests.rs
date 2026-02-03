@@ -1062,3 +1062,103 @@ fn get_agent_includes_error_for_failed_agent() {
         other => panic!("unexpected response: {:?}", other),
     }
 }
+
+#[test]
+fn get_pipeline_orphan_session_id_from_non_first_agent() {
+    let state = empty_state();
+    let temp = tempdir().unwrap();
+    let start = Instant::now();
+
+    // Breadcrumb with multiple agents; only the second has session_name set
+    let orphans = Arc::new(Mutex::new(vec![Breadcrumb {
+        pipeline_id: "orphan-multi-agent".to_string(),
+        project: "oddjobs".to_string(),
+        kind: "command".to_string(),
+        name: "fix/multi".to_string(),
+        vars: HashMap::new(),
+        current_step: "deploy".to_string(),
+        step_status: "Running".to_string(),
+        agents: vec![
+            BreadcrumbAgent {
+                agent_id: "agent-plan".to_string(),
+                session_name: None,
+                log_path: std::path::PathBuf::from("/tmp/agent-plan.log"),
+            },
+            BreadcrumbAgent {
+                agent_id: "agent-deploy".to_string(),
+                session_name: Some("tmux-deploy".to_string()),
+                log_path: std::path::PathBuf::from("/tmp/agent-deploy.log"),
+            },
+        ],
+        workspace_id: None,
+        workspace_root: None,
+        updated_at: "2026-01-15T10:30:00Z".to_string(),
+    }]));
+
+    let response = handle_query(
+        Query::GetPipeline {
+            id: "orphan-multi-agent".to_string(),
+        },
+        &state,
+        &orphans,
+        temp.path(),
+        start,
+    );
+    match response {
+        Response::Pipeline { pipeline } => {
+            let p = pipeline.expect("should find orphan pipeline");
+            assert_eq!(
+                p.session_id.as_deref(),
+                Some("tmux-deploy"),
+                "session_id should come from the agent that has session_name set, not just the first"
+            );
+        }
+        other => panic!("unexpected response: {:?}", other),
+    }
+}
+
+#[test]
+fn get_pipeline_logs_resolves_orphan_prefix() {
+    let state = empty_state();
+    let temp = tempdir().unwrap();
+    let start = Instant::now();
+
+    // Create the pipeline log directory and file
+    let log_dir = temp.path().join("pipeline");
+    std::fs::create_dir_all(&log_dir).unwrap();
+    std::fs::write(
+        log_dir.join("orphan-logs-full-id.log"),
+        "line1\nline2\nline3\n",
+    )
+    .unwrap();
+
+    let orphans = Arc::new(Mutex::new(vec![make_breadcrumb(
+        "orphan-logs-full-id",
+        "fix/orphan-logs",
+        "oddjobs",
+        "work",
+    )]));
+
+    // Use a prefix to look up logs
+    let response = handle_query(
+        Query::GetPipelineLogs {
+            id: "orphan-logs".to_string(),
+            lines: 0,
+        },
+        &state,
+        &orphans,
+        temp.path(),
+        start,
+    );
+    match response {
+        Response::PipelineLogs { log_path, content } => {
+            assert!(
+                log_path.ends_with("orphan-logs-full-id.log"),
+                "log_path should use the full orphan ID, got: {:?}",
+                log_path,
+            );
+            assert_eq!(content, "line1\nline2\nline3\n");
+        }
+        other => panic!("unexpected response: {:?}", other),
+    }
+}

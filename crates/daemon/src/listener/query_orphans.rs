@@ -111,7 +111,7 @@ pub(super) fn find_orphan_detail(
                 step_status: "Orphaned".to_string(),
                 vars: bc.vars.clone(),
                 workspace_path: bc.workspace_root.clone(),
-                session_id: bc.agents.first().and_then(|a| a.session_name.clone()),
+                session_id: bc.agents.iter().find_map(|a| a.session_name.clone()),
                 error: Some("Pipeline was not recovered from WAL/snapshot".to_string()),
                 steps: Vec::new(),
                 agents: bc
@@ -134,6 +134,15 @@ pub(super) fn find_orphan_detail(
                 namespace: bc.project.clone(),
             })
         })
+}
+
+/// Resolve an orphan pipeline ID by exact match or prefix, returning the full ID.
+pub(super) fn find_orphan_id(orphans: &Arc<Mutex<Vec<Breadcrumb>>>, id: &str) -> Option<String> {
+    let orphans = orphans.lock();
+    orphans
+        .iter()
+        .find(|bc| bc.pipeline_id == id || bc.pipeline_id.starts_with(id))
+        .map(|bc| bc.pipeline_id.clone())
 }
 
 /// Collect orphaned pipelines grouped by namespace for status overview.

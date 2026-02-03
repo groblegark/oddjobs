@@ -237,7 +237,26 @@ where
                     }
                 }
 
-                // Remove workspace directory
+                // If the workspace is a git worktree, unregister it first
+                let dot_git = workspace_path.join(".git");
+                if tokio::fs::symlink_metadata(&dot_git)
+                    .await
+                    .map(|m| m.is_file())
+                    .unwrap_or(false)
+                {
+                    // Best-effort: git worktree remove --force
+                    // Run from within the worktree so git can locate the parent repo.
+                    let _ = tokio::process::Command::new("git")
+                        .arg("worktree")
+                        .arg("remove")
+                        .arg("--force")
+                        .arg(&workspace_path)
+                        .current_dir(&workspace_path)
+                        .output()
+                        .await;
+                }
+
+                // Remove workspace directory (in case worktree remove left remnants)
                 if workspace_path.exists() {
                     tokio::fs::remove_dir_all(&workspace_path)
                         .await

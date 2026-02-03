@@ -501,12 +501,14 @@ pub(super) async fn handle_workspace_prune(
                 .map(|m| m.is_file())
                 .unwrap_or(false)
             {
-                // Best-effort git worktree remove (ignore failures)
+                // Best-effort git worktree remove (ignore failures).
+                // Run from within the worktree so git can locate the parent repo.
                 let _ = tokio::process::Command::new("git")
                     .arg("worktree")
                     .arg("remove")
                     .arg("--force")
                     .arg(&ws.path)
+                    .current_dir(&ws.path)
                     .output()
                     .await;
             }

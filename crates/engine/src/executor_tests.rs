@@ -4,7 +4,7 @@
 use super::*;
 use crate::RuntimeDeps;
 use oj_adapters::{FakeAgentAdapter, FakeNotifyAdapter, FakeSessionAdapter};
-use oj_core::{FakeClock, PipelineId, SessionId, TimerId};
+use oj_core::{FakeClock, PipelineId, SessionId, TimerId, WorkspaceId};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
@@ -344,4 +344,133 @@ async fn shell_pipefail_propagates() {
         }
         other => panic!("expected ShellExited, got {:?}", other),
     }
+}
+
+#[tokio::test]
+async fn delete_workspace_removes_plain_directory() {
+    let harness = setup().await;
+    let tmp = std::env::temp_dir().join("oj_test_delete_ws_plain");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    // Insert workspace record into state
+    {
+        let state_arc = harness.executor.state();
+        let mut state = state_arc.lock();
+        state.workspaces.insert(
+            "ws-plain".to_string(),
+            oj_storage::Workspace {
+                id: "ws-plain".to_string(),
+                path: tmp.clone(),
+                branch: None,
+                owner: None,
+                status: oj_core::WorkspaceStatus::Ready,
+                mode: oj_storage::WorkspaceMode::Ephemeral,
+                created_at_ms: 0,
+            },
+        );
+    }
+
+    let result = harness
+        .executor
+        .execute(Effect::DeleteWorkspace {
+            workspace_id: WorkspaceId::new("ws-plain"),
+        })
+        .await;
+
+    assert!(result.is_ok());
+    assert!(matches!(
+        result.unwrap(),
+        Some(Event::WorkspaceDeleted { .. })
+    ));
+    assert!(!tmp.exists(), "workspace directory should be removed");
+}
+
+#[tokio::test]
+async fn delete_workspace_removes_git_worktree() {
+    let harness = setup().await;
+
+    // Create a temporary git repo and a worktree from it
+    let base = std::env::temp_dir().join("oj_test_delete_ws_wt");
+    let _ = std::fs::remove_dir_all(&base);
+    let repo_dir = base.join("repo");
+    let wt_dir = base.join("worktree");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+
+    // Initialize a git repo with an initial commit
+    let init = std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(init.status.success(), "git init failed");
+
+    let commit = std::process::Command::new("git")
+        .args(["commit", "--allow-empty", "-m", "init"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(commit.status.success(), "git commit failed");
+
+    // Create a worktree
+    let add_wt = std::process::Command::new("git")
+        .args(["worktree", "add", wt_dir.to_str().unwrap(), "HEAD"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(add_wt.status.success(), "git worktree add failed");
+
+    // Verify worktree .git is a file (not a directory)
+    let dot_git = wt_dir.join(".git");
+    assert!(dot_git.is_file(), ".git should be a file in a worktree");
+
+    // Insert workspace record into state
+    {
+        let state_arc = harness.executor.state();
+        let mut state = state_arc.lock();
+        state.workspaces.insert(
+            "ws-wt".to_string(),
+            oj_storage::Workspace {
+                id: "ws-wt".to_string(),
+                path: wt_dir.clone(),
+                branch: None,
+                owner: None,
+                status: oj_core::WorkspaceStatus::Ready,
+                mode: oj_storage::WorkspaceMode::Ephemeral,
+                created_at_ms: 0,
+            },
+        );
+    }
+
+    let result = harness
+        .executor
+        .execute(Effect::DeleteWorkspace {
+            workspace_id: WorkspaceId::new("ws-wt"),
+        })
+        .await;
+
+    assert!(result.is_ok());
+    assert!(matches!(
+        result.unwrap(),
+        Some(Event::WorkspaceDeleted { .. })
+    ));
+    assert!(!wt_dir.exists(), "worktree directory should be removed");
+
+    // Verify git no longer lists the worktree
+    let list = std::process::Command::new("git")
+        .args(["worktree", "list"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    let output = String::from_utf8_lossy(&list.stdout);
+    // Should only have the main repo worktree, not the deleted one
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "should only have main worktree listed, got: {output}"
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&base);
 }

@@ -101,6 +101,9 @@ pub enum PipelineCommand {
         /// Show what would be pruned without doing it
         #[arg(long)]
         dry_run: bool,
+        /// Project namespace override
+        #[arg(long = "project")]
+        project: Option<String>,
     },
     /// Block until pipeline(s) reach a terminal state
     Wait {
@@ -574,8 +577,11 @@ pub async fn handle(
             failed,
             orphans,
             dry_run,
+            project,
         } => {
-            let (pruned, skipped) = client.pipeline_prune(all, failed, orphans, dry_run).await?;
+            let (pruned, skipped) = client
+                .pipeline_prune(all, failed, orphans, dry_run, project.as_deref())
+                .await?;
 
             match format {
                 OutputFormat::Text => {

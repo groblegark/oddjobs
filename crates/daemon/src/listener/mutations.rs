@@ -288,6 +288,7 @@ pub(super) fn handle_pipeline_prune(
     failed: bool,
     orphans: bool,
     dry_run: bool,
+    namespace: Option<&str>,
 ) -> Result<Response, ConnectionError> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -305,6 +306,13 @@ pub(super) fn handle_pipeline_prune(
     if prune_terminal {
         let state_guard = state.lock();
         for pipeline in state_guard.pipelines.values() {
+            // Filter by namespace when --project is specified
+            if let Some(ns) = namespace {
+                if pipeline.namespace != ns {
+                    continue;
+                }
+            }
+
             if !pipeline.is_terminal() {
                 skipped += 1;
                 continue;
@@ -485,8 +493,10 @@ pub(super) fn handle_agent_prune(
 /// For each directory: if it has a `.git` file (indicating a git worktree),
 /// best-effort `git worktree remove`; then `rm -rf` regardless.
 pub(super) async fn handle_workspace_prune(
+    state: &Arc<Mutex<MaterializedState>>,
     all: bool,
     dry_run: bool,
+    namespace: Option<&str>,
 ) -> Result<Response, ConnectionError> {
     let state_dir = std::env::var("OJ_STATE_DIR").unwrap_or_else(|_| {
         format!(
@@ -495,6 +505,35 @@ pub(super) async fn handle_workspace_prune(
         )
     });
     let workspaces_dir = std::path::PathBuf::from(&state_dir).join("workspaces");
+
+    // When filtering by namespace, build a set of workspace IDs that match.
+    // Namespace is derived from the workspace's owner (pipeline or worker).
+    let namespace_filter: Option<std::collections::HashSet<String>> = namespace.map(|ns| {
+        let state_guard = state.lock();
+        state_guard
+            .workspaces
+            .iter()
+            .filter(|(_, w)| {
+                w.owner
+                    .as_deref()
+                    .and_then(|owner| {
+                        state_guard
+                            .pipelines
+                            .get(owner)
+                            .map(|p| p.namespace.as_str())
+                            .or_else(|| {
+                                state_guard
+                                    .workers
+                                    .get(owner)
+                                    .map(|wr| wr.namespace.as_str())
+                            })
+                    })
+                    .unwrap_or_default()
+                    == ns
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    });
 
     let mut to_prune = Vec::new();
     let mut skipped = 0usize;
@@ -521,6 +560,15 @@ pub(super) async fn handle_workspace_prune(
             continue;
         }
 
+        let id = entry.file_name().to_string_lossy().to_string();
+
+        // Filter by namespace when --project is specified
+        if let Some(ref allowed_ids) = namespace_filter {
+            if !allowed_ids.contains(&id) {
+                continue;
+            }
+        }
+
         // Check age via directory mtime (skip if < 12h unless --all)
         if !all {
             if let Ok(metadata) = tokio::fs::metadata(&path).await {
@@ -535,7 +583,6 @@ pub(super) async fn handle_workspace_prune(
             }
         }
 
-        let id = entry.file_name().to_string_lossy().to_string();
         to_prune.push(WorkspaceEntry {
             id,
             path,

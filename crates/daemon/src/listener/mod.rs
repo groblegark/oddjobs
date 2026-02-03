@@ -250,6 +250,7 @@ async fn handle_request(
             failed,
             orphans: prune_orphans,
             dry_run,
+            namespace,
         } => mutations::handle_pipeline_prune(
             state,
             event_bus,
@@ -259,15 +260,18 @@ async fn handle_request(
             failed,
             prune_orphans,
             dry_run,
+            namespace.as_deref(),
         ),
 
         Request::AgentPrune { all, dry_run } => {
             mutations::handle_agent_prune(state, logs_path, all, dry_run)
         }
 
-        Request::WorkspacePrune { all, dry_run } => {
-            mutations::handle_workspace_prune(all, dry_run).await
-        }
+        Request::WorkspacePrune {
+            all,
+            dry_run,
+            namespace,
+        } => mutations::handle_workspace_prune(state, all, dry_run, namespace.as_deref()).await,
 
         Request::WorkerPrune {
             all,

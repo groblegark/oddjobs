@@ -53,6 +53,9 @@ pub enum WorkspaceCommand {
         /// Show what would be pruned without doing it
         #[arg(long)]
         dry_run: bool,
+        /// Project namespace override
+        #[arg(long = "project")]
+        project: Option<String>,
     },
 }
 
@@ -236,8 +239,14 @@ pub async fn handle(
                 }
             }
         }
-        WorkspaceCommand::Prune { all, dry_run } => {
-            let (pruned, skipped) = client.workspace_prune(all, dry_run).await?;
+        WorkspaceCommand::Prune {
+            all,
+            dry_run,
+            project,
+        } => {
+            let (pruned, skipped) = client
+                .workspace_prune(all, dry_run, project.as_deref())
+                .await?;
 
             match format {
                 OutputFormat::Text => {

@@ -625,12 +625,14 @@ impl DaemonClient {
         failed: bool,
         orphans: bool,
         dry_run: bool,
+        namespace: Option<&str>,
     ) -> Result<(Vec<oj_daemon::PipelineEntry>, usize), ClientError> {
         let req = Request::PipelinePrune {
             all,
             failed,
             orphans,
             dry_run,
+            namespace: namespace.map(String::from),
         };
         match self.send(&req).await? {
             Response::PipelinesPruned { pruned, skipped } => Ok((pruned, skipped)),
@@ -655,8 +657,14 @@ impl DaemonClient {
         &self,
         all: bool,
         dry_run: bool,
+        namespace: Option<&str>,
     ) -> Result<(Vec<oj_daemon::WorkspaceEntry>, usize), ClientError> {
-        match self.send(&Request::WorkspacePrune { all, dry_run }).await? {
+        let req = Request::WorkspacePrune {
+            all,
+            dry_run,
+            namespace: namespace.map(String::from),
+        };
+        match self.send(&req).await? {
             Response::WorkspacesPruned { pruned, skipped } => Ok((pruned, skipped)),
             other => Self::reject(other),
         }

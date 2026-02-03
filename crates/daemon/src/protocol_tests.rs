@@ -420,6 +420,7 @@ fn encode_decode_roundtrip_pipeline_prune_with_failed() {
         failed: true,
         orphans: false,
         dry_run: true,
+        namespace: None,
     };
 
     let encoded = encode(&request).expect("encode failed");
@@ -435,6 +436,7 @@ fn encode_decode_roundtrip_pipeline_prune_with_orphans() {
         failed: false,
         orphans: true,
         dry_run: false,
+        namespace: None,
     };
 
     let encoded = encode(&request).expect("encode failed");
@@ -454,11 +456,13 @@ fn pipeline_prune_failed_defaults_to_false() {
             failed,
             orphans,
             dry_run,
+            namespace,
         } => {
             assert!(!all);
             assert!(!failed);
             assert!(!orphans);
             assert!(dry_run);
+            assert!(namespace.is_none());
         }
         _ => panic!("Expected PipelinePrune request"),
     }
@@ -475,13 +479,72 @@ fn pipeline_prune_orphans_defaults_to_false() {
             failed,
             orphans,
             dry_run,
+            namespace,
         } => {
             assert!(all);
             assert!(!failed);
             assert!(!orphans);
             assert!(!dry_run);
+            assert!(namespace.is_none());
         }
         _ => panic!("Expected PipelinePrune request"),
+    }
+}
+
+#[test]
+fn encode_decode_roundtrip_pipeline_prune_with_namespace() {
+    let request = Request::PipelinePrune {
+        all: true,
+        failed: false,
+        orphans: false,
+        dry_run: false,
+        namespace: Some("my-project".to_string()),
+    };
+
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+
+    assert_eq!(request, decoded);
+}
+
+#[test]
+fn pipeline_prune_namespace_defaults_to_none() {
+    // Backward compatibility: old PipelinePrune without `namespace` should deserialize
+    let json =
+        r#"{"type":"PipelinePrune","all":true,"failed":false,"orphans":false,"dry_run":false}"#;
+    let decoded: Request = serde_json::from_str(json).expect("deserialize failed");
+    match decoded {
+        Request::PipelinePrune { namespace, .. } => {
+            assert!(namespace.is_none());
+        }
+        _ => panic!("Expected PipelinePrune request"),
+    }
+}
+
+#[test]
+fn encode_decode_roundtrip_workspace_prune_with_namespace() {
+    let request = Request::WorkspacePrune {
+        all: true,
+        dry_run: false,
+        namespace: Some("my-project".to_string()),
+    };
+
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+
+    assert_eq!(request, decoded);
+}
+
+#[test]
+fn workspace_prune_namespace_defaults_to_none() {
+    // Backward compatibility: old WorkspacePrune without `namespace` should deserialize
+    let json = r#"{"type":"WorkspacePrune","all":false,"dry_run":true}"#;
+    let decoded: Request = serde_json::from_str(json).expect("deserialize failed");
+    match decoded {
+        Request::WorkspacePrune { namespace, .. } => {
+            assert!(namespace.is_none());
+        }
+        _ => panic!("Expected WorkspacePrune request"),
     }
 }
 

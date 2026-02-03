@@ -110,6 +110,9 @@ pub enum Request {
         orphans: bool,
         /// Preview only -- don't actually delete
         dry_run: bool,
+        /// Filter by project namespace
+        #[serde(default)]
+        namespace: Option<String>,
     },
 
     /// Prune agent logs from terminal pipelines
@@ -126,6 +129,9 @@ pub enum Request {
         all: bool,
         /// Preview only -- don't actually delete
         dry_run: bool,
+        /// Filter by project namespace
+        #[serde(default)]
+        namespace: Option<String>,
     },
 
     /// Prune stopped workers from daemon state

@@ -97,6 +97,15 @@ agent "resolver" {
   on_idle  = { action = "gate", run = "make check", attempts = 2 }
   on_dead  = { action = "escalate" }
 
+  prime = [
+    "echo '## Git Status'",
+    "git status",
+    "echo '## Incoming Commits'",
+    "git log origin/${var.mr.base}..origin/${var.mr.branch}",
+    "echo '## Changed Files'",
+    "git diff --stat origin/${var.mr.base}..origin/${var.mr.branch}",
+  ]
+
   prompt = <<-PROMPT
     You are merging branch ${var.mr.branch} into ${var.mr.base}.
 

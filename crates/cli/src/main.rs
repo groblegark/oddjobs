@@ -117,6 +117,23 @@ enum Commands {
         #[arg(long, short = 'v')]
         verbose: bool,
     },
+    /// Cancel one or more running pipelines
+    Cancel {
+        /// Pipeline IDs or names (prefix match)
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
+    /// Resume monitoring for an escalated pipeline
+    Resume {
+        /// Pipeline ID or name
+        id: String,
+        /// Message for nudge/recovery (required for agent steps)
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+        /// Pipeline variables to set (can be repeated: --var key=value)
+        #[arg(long = "var", value_parser = pipeline::parse_key_value)]
+        var: Vec<(String, String)>,
+    },
 }
 
 #[tokio::main]
@@ -437,6 +454,28 @@ async fn run() -> Result<()> {
             } else {
                 resolve::handle_show(&client, &id, verbose, format).await?
             }
+        }
+
+        // Convenience action commands - cancel/resume pipelines
+        Commands::Cancel { ids } => {
+            let client = DaemonClient::for_action()?;
+            pipeline::handle(
+                pipeline::PipelineCommand::Cancel { ids },
+                &client,
+                &namespace,
+                format,
+            )
+            .await?
+        }
+        Commands::Resume { id, message, var } => {
+            let client = DaemonClient::for_action()?;
+            pipeline::handle(
+                pipeline::PipelineCommand::Resume { id, message, var },
+                &client,
+                &namespace,
+                format,
+            )
+            .await?
         }
 
         Commands::Daemon(_) | Commands::Env(_) => unreachable!(),

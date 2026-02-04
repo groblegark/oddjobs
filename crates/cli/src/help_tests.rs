@@ -41,6 +41,8 @@ fn all_commands_assigned_to_section() {
     fn _section(cmd: &Commands) -> &'static str {
         match cmd {
             Commands::Run(_) => "Actions",
+            Commands::Cancel { .. } => "Actions",
+            Commands::Resume { .. } => "Actions",
             Commands::Status(_) => "Actions",
             Commands::Show { .. } => "Actions",
             Commands::Peek { .. } => "Actions",
@@ -102,6 +104,14 @@ fn commands_has_actions_section() {
     let result = commands();
     assert!(result.contains("Actions:"), "Should have Actions section");
     assert!(result.contains("  run "), "Actions should contain run");
+    assert!(
+        result.contains("  cancel "),
+        "Actions should contain cancel"
+    );
+    assert!(
+        result.contains("  resume "),
+        "Actions should contain resume"
+    );
     assert!(
         result.contains("  status "),
         "Actions should contain status"

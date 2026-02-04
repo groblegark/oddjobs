@@ -435,7 +435,12 @@ fn truncate_id(id: &str, max_len: usize) -> &str {
 /// Returns ` name` when the pipeline name is a meaningful friendly name,
 /// or an empty string when it would be redundant (same as kind) or opaque (same as id).
 fn friendly_name_label(name: &str, kind: &str, id: &str) -> String {
-    if name.is_empty() || name == kind || name == id {
+    // Hide name when it's empty, matches the kind, or matches the full/truncated ID.
+    // When the name template produces an empty slug, pipeline_display_name() returns
+    // just the nonce (first 8 chars of the ID), which would be redundant with the
+    // truncated ID shown in the status output.
+    let truncated_id = truncate_id(id, 8);
+    if name.is_empty() || name == kind || name == id || name == truncated_id {
         String::new()
     } else {
         format!(" {}", name)

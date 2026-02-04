@@ -150,6 +150,52 @@ fn active_pipeline_shows_kind_not_name() {
 
 #[test]
 #[serial]
+fn active_pipeline_hides_nonce_only_name() {
+    std::env::set_var("NO_COLOR", "1");
+    std::env::remove_var("COLOR");
+
+    // When a name template produces an empty slug, pipeline_display_name()
+    // returns just the nonce (first 8 chars of the ID). This should be hidden
+    // since it's redundant with the truncated ID already shown in the output.
+    let ns = NamespaceStatus {
+        namespace: "myproject".to_string(),
+        active_pipelines: vec![oj_daemon::PipelineStatusEntry {
+            id: "abcd1234-0000-0000-0000".to_string(),
+            name: "abcd1234".to_string(), // nonce-only name (first 8 chars of ID)
+            kind: "build".to_string(),
+            step: "check".to_string(),
+            step_status: "running".to_string(),
+            elapsed_ms: 60_000,
+            waiting_reason: None,
+        }],
+        escalated_pipelines: vec![],
+        orphaned_pipelines: vec![],
+        workers: vec![],
+        queues: vec![],
+        active_agents: vec![],
+    };
+
+    let output = format_text(30, &[ns], None);
+
+    assert!(
+        output.contains("build"),
+        "output should contain pipeline kind 'build':\n{output}"
+    );
+    assert!(
+        output.contains("check"),
+        "output should contain step name 'check':\n{output}"
+    );
+    // The nonce should only appear once (as the truncated ID), not twice
+    // Count occurrences: split by the nonce and count segments
+    let nonce_count = output.matches("abcd1234").count();
+    assert_eq!(
+        nonce_count, 1,
+        "nonce 'abcd1234' should appear exactly once (as truncated ID), not twice:\n{output}"
+    );
+}
+
+#[test]
+#[serial]
 fn escalated_pipeline_hides_name_when_same_as_id() {
     std::env::set_var("NO_COLOR", "1");
     std::env::remove_var("COLOR");
@@ -316,6 +362,17 @@ fn friendly_name_label_empty_when_name_equals_kind() {
 #[test]
 fn friendly_name_label_empty_when_name_equals_id() {
     assert_eq!(friendly_name_label("abc123", "build", "abc123"), "");
+}
+
+#[test]
+fn friendly_name_label_empty_when_name_equals_truncated_id() {
+    // When the name template produces an empty slug, pipeline_display_name()
+    // returns just the nonce (first 8 chars of the ID). This should be hidden
+    // since it's redundant with the truncated ID shown in status output.
+    assert_eq!(
+        friendly_name_label("abcd1234", "build", "abcd1234-0000-0000-0000"),
+        ""
+    );
 }
 
 #[test]

@@ -51,7 +51,7 @@ fn nudge_builds_send_effect() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Nudge);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new(), None);
     assert!(matches!(result, Ok(ActionEffects::Nudge { .. })));
 }
 
@@ -61,7 +61,7 @@ fn done_returns_advance_pipeline() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Done);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new(), None);
     assert!(matches!(result, Ok(ActionEffects::AdvancePipeline)));
 }
 
@@ -71,7 +71,7 @@ fn fail_returns_fail_pipeline() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Fail);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "error", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "error", &HashMap::new(), None);
     assert!(matches!(result, Ok(ActionEffects::FailPipeline { .. })));
 }
 
@@ -81,7 +81,7 @@ fn resume_returns_resume_effects() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Resume);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new(), None);
     assert!(matches!(result, Ok(ActionEffects::Resume { .. })));
 }
 
@@ -94,7 +94,7 @@ fn resume_with_message_replaces_prompt() {
         .into_iter()
         .collect();
 
-    let result = build_action_effects(&pipeline, &agent, &config, "exit", &input).unwrap();
+    let result = build_action_effects(&pipeline, &agent, &config, "exit", &input, None).unwrap();
     if let ActionEffects::Resume {
         input,
         resume_session_id,
@@ -120,7 +120,7 @@ fn resume_with_append_sets_resume_message() {
         .into_iter()
         .collect();
 
-    let result = build_action_effects(&pipeline, &agent, &config, "exit", &input).unwrap();
+    let result = build_action_effects(&pipeline, &agent, &config, "exit", &input, None).unwrap();
     if let ActionEffects::Resume {
         input,
         resume_session_id,
@@ -157,7 +157,8 @@ fn resume_without_message_uses_resume_session() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Resume);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new()).unwrap();
+    let result =
+        build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new(), None).unwrap();
     if let ActionEffects::Resume {
         resume_session_id, ..
     } = result
@@ -174,7 +175,8 @@ fn resume_with_no_prior_session_falls_back() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Resume);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new()).unwrap();
+    let result =
+        build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new(), None).unwrap();
     if let ActionEffects::Resume {
         resume_session_id, ..
     } = result
@@ -194,7 +196,7 @@ fn escalate_returns_escalate_effects() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new(), None);
     assert!(matches!(result, Ok(ActionEffects::Escalate { .. })));
 }
 
@@ -204,8 +206,15 @@ fn escalate_emits_decision_created() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&pipeline, &agent, &config, "gate_failed", &HashMap::new()).unwrap();
+    let result = build_action_effects(
+        &pipeline,
+        &agent,
+        &config,
+        "gate_failed",
+        &HashMap::new(),
+        None,
+    )
+    .unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let decision_created = effects.iter().find(|e| {
             matches!(
@@ -323,7 +332,7 @@ fn gate_returns_gate_effects() {
         cooldown: None,
     };
 
-    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new(), None);
     assert!(matches!(result, Ok(ActionEffects::Gate { .. })));
     if let Ok(ActionEffects::Gate { command, .. }) = result {
         assert_eq!(command, "make test");
@@ -336,7 +345,7 @@ fn gate_without_run_field_errors() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Gate);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "exit", &HashMap::new(), None);
     assert!(result.is_err());
 }
 
@@ -349,7 +358,7 @@ fn nudge_fails_without_session_id() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Nudge);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new());
+    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new(), None);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("no session"));
 }
@@ -360,7 +369,8 @@ fn escalate_cancels_exit_deferred_but_keeps_liveness() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result = build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new()).unwrap();
+    let result =
+        build_action_effects(&pipeline, &agent, &config, "idle", &HashMap::new(), None).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let cancelled_timer_ids: Vec<&str> = effects
             .iter()

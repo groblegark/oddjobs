@@ -28,7 +28,7 @@ pub use agent_run::{AgentRun, AgentRunId, AgentRunStatus};
 pub use clock::{Clock, FakeClock, SystemClock};
 pub use decision::{Decision, DecisionId, DecisionOption, DecisionSource};
 pub use effect::Effect;
-pub use event::{AgentSignalKind, Event, PromptType};
+pub use event::{AgentSignalKind, Event, PromptType, QuestionData, QuestionEntry, QuestionOption};
 pub use id::{IdGen, SequentialIdGen, UuidIdGen};
 pub use pipeline::{Pipeline, PipelineConfig, PipelineId, StepOutcome, StepRecord, StepStatus};
 pub use session::SessionId;

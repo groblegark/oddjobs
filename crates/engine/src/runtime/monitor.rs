@@ -11,7 +11,8 @@ use oj_adapters::agent::find_session_log;
 use oj_adapters::AgentReconnectConfig;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
-    AgentId, AgentSignalKind, Clock, Effect, Event, Pipeline, PipelineId, SessionId, TimerId,
+    AgentId, AgentSignalKind, Clock, Effect, Event, Pipeline, PipelineId, PromptType, QuestionData,
+    SessionId, TimerId,
 };
 use std::collections::HashMap;
 
@@ -190,7 +191,7 @@ where
         agent_def: &oj_runbook::AgentDef,
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
-        let (action_config, trigger) = match state {
+        let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
                 if pipeline.step_status.is_waiting() {
                     tracing::info!(
@@ -229,9 +230,12 @@ where
                 tracing::info!(pipeline_id = %pipeline.id, step = %pipeline.step, "agent idle (on_idle)");
                 self.logger
                     .append(&pipeline.id, &pipeline.step, "agent idle");
-                (&agent_def.on_idle, "idle")
+                (&agent_def.on_idle, "idle", None)
             }
-            MonitorState::Prompting { ref prompt_type } => {
+            MonitorState::Prompting {
+                ref prompt_type,
+                ref question_data,
+            } => {
                 tracing::info!(
                     pipeline_id = %pipeline.id,
                     prompt_type = ?prompt_type,
@@ -242,7 +246,12 @@ where
                     &pipeline.step,
                     &format!("agent prompt: {:?}", prompt_type),
                 );
-                (&agent_def.on_prompt, "prompt")
+                // Use distinct trigger strings so escalation can differentiate
+                let trigger_str = match prompt_type {
+                    PromptType::Question => "prompt:question",
+                    _ => "prompt",
+                };
+                (&agent_def.on_prompt, trigger_str, question_data.clone())
             }
             MonitorState::Failed {
                 ref message,
@@ -265,7 +274,14 @@ where
                 }
                 let error_action = agent_def.on_error.action_for(error_type.as_ref());
                 return self
-                    .execute_action_with_attempts(pipeline, agent_def, &error_action, message, 0)
+                    .execute_action_with_attempts(
+                        pipeline,
+                        agent_def,
+                        &error_action,
+                        message,
+                        0,
+                        None,
+                    )
                     .await;
             }
             MonitorState::Exited => {
@@ -273,7 +289,7 @@ where
                 self.logger
                     .append(&pipeline.id, &pipeline.step, "agent exited");
                 self.copy_agent_session_log(pipeline);
-                (&agent_def.on_dead, "exit")
+                (&agent_def.on_dead, "exit", None)
             }
             MonitorState::Gone => {
                 // Session gone is the normal exit path when tmux closes after
@@ -283,12 +299,19 @@ where
                 self.logger
                     .append(&pipeline.id, &pipeline.step, "agent session ended");
                 self.copy_agent_session_log(pipeline);
-                (&agent_def.on_dead, "exit")
+                (&agent_def.on_dead, "exit", None)
             }
         };
 
-        self.execute_action_with_attempts(pipeline, agent_def, action_config, trigger, 0)
-            .await
+        self.execute_action_with_attempts(
+            pipeline,
+            agent_def,
+            action_config,
+            trigger,
+            0,
+            qd.as_ref(),
+        )
+        .await
     }
 
     /// Execute an action with attempt tracking and cooldown support
@@ -299,6 +322,7 @@ where
         action_config: &oj_runbook::ActionConfig,
         trigger: &str,
         chain_pos: usize,
+        question_data: Option<&QuestionData>,
     ) -> Result<Vec<Event>, RuntimeError> {
         let attempts = action_config.attempts();
         let pipeline_id = PipelineId::new(&pipeline.id);
@@ -347,6 +371,7 @@ where
                         &escalate_config,
                         &format!("{}_exhausted", trigger),
                         &pipeline.vars,
+                        question_data,
                     )?,
                 )
                 .await;
@@ -401,6 +426,7 @@ where
                 action_config,
                 trigger,
                 &pipeline.vars,
+                question_data,
             )?,
         )
         .await

@@ -6,7 +6,7 @@
 //! Creates DecisionCreated events with system-generated options
 //! when escalation paths are triggered.
 
-use oj_core::{DecisionOption, DecisionSource, Event, PipelineId};
+use oj_core::{DecisionOption, DecisionSource, Event, PipelineId, QuestionData};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -27,6 +27,8 @@ pub enum EscalationTrigger {
     },
     /// Agent showed a permission prompt we couldn't handle (on_prompt)
     Prompt { prompt_type: String },
+    /// Agent called AskUserQuestion — carries the parsed question data
+    Question { question_data: Option<QuestionData> },
 }
 
 impl EscalationTrigger {
@@ -37,6 +39,7 @@ impl EscalationTrigger {
             EscalationTrigger::Error { .. } => DecisionSource::Error,
             EscalationTrigger::GateFailed { .. } => DecisionSource::Gate,
             EscalationTrigger::Prompt { .. } => DecisionSource::Approval,
+            EscalationTrigger::Question { .. } => DecisionSource::Question,
         }
     }
 }
@@ -152,6 +155,34 @@ impl EscalationDecisionBuilder {
                     self.pipeline_name, prompt_type
                 ));
             }
+            EscalationTrigger::Question { ref question_data } => {
+                if let Some(qd) = question_data {
+                    if let Some(entry) = qd.questions.first() {
+                        let header = entry.header.as_deref().unwrap_or("Question");
+                        parts.push(format!(
+                            "Agent in pipeline \"{}\" is asking a question.",
+                            self.pipeline_name
+                        ));
+                        parts.push(String::new());
+                        parts.push(format!("[{}] {}", header, entry.question));
+
+                        for q in qd.questions.iter().skip(1) {
+                            let h = q.header.as_deref().unwrap_or("Question");
+                            parts.push(format!("[{}] {}", h, q.question));
+                        }
+                    } else {
+                        parts.push(format!(
+                            "Agent in pipeline \"{}\" is asking a question.",
+                            self.pipeline_name
+                        ));
+                    }
+                } else {
+                    parts.push(format!(
+                        "Agent in pipeline \"{}\" is asking a question (no details available).",
+                        self.pipeline_name
+                    ));
+                }
+            }
         }
 
         // Agent log tail if available
@@ -241,6 +272,30 @@ impl EscalationDecisionBuilder {
                     recommended: false,
                 },
             ],
+            EscalationTrigger::Question { ref question_data } => {
+                let mut options = Vec::new();
+
+                if let Some(qd) = question_data {
+                    if let Some(entry) = qd.questions.first() {
+                        for opt in &entry.options {
+                            options.push(DecisionOption {
+                                label: opt.label.clone(),
+                                description: opt.description.clone(),
+                                recommended: false,
+                            });
+                        }
+                    }
+                }
+
+                // Always add Cancel as the last option
+                options.push(DecisionOption {
+                    label: "Cancel".to_string(),
+                    description: Some("Cancel the pipeline".to_string()),
+                    recommended: false,
+                });
+
+                options
+            }
         }
     }
 }

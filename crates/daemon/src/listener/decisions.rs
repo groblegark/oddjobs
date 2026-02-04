@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 
-use oj_core::{DecisionSource, Event, PipelineId};
+use oj_core::{DecisionOption, DecisionSource, Event, PipelineId};
 use oj_storage::MaterializedState;
 
 use crate::event_bus::EventBus;
@@ -62,6 +62,7 @@ pub(super) fn handle_decision_resolve(
     let pipeline_id = decision.pipeline_id.clone();
     let decision_namespace = decision.namespace.clone();
     let decision_source = decision.source.clone();
+    let decision_options = decision.options.clone();
 
     // Get the pipeline step for StepCompleted events
     let pipeline_step = state_guard
@@ -95,6 +96,7 @@ pub(super) fn handle_decision_resolve(
         &full_id,
         &pipeline_id,
         pipeline_step.as_deref(),
+        &decision_options,
     );
 
     if let Some(action) = action_event {
@@ -112,6 +114,7 @@ pub(super) fn handle_decision_resolve(
 /// - Idle: 1=Nudge, 2=Done, 3=Cancel, 4=Dismiss
 /// - Error/Gate: 1=Retry, 2=Skip, 3=Cancel
 /// - Approval: 1=Approve, 2=Deny, 3=Cancel
+/// - Question: 1..N=user options, N+1=Cancel (dynamic position)
 fn map_decision_to_action(
     source: &DecisionSource,
     chosen: Option<usize>,
@@ -119,6 +122,7 @@ fn map_decision_to_action(
     decision_id: &str,
     pipeline_id: &str,
     pipeline_step: Option<&str>,
+    options: &[DecisionOption],
 ) -> Option<Event> {
     let pid = PipelineId::new(pipeline_id);
 
@@ -183,14 +187,51 @@ fn map_decision_to_action(
             _ => None,
         },
         DecisionSource::Question => {
-            // Question decisions: always resume with the chosen option
+            if let Some(c) = chosen {
+                // Last option is always Cancel
+                if c == options.len() {
+                    return Some(Event::PipelineCancel { id: pid });
+                }
+            }
+            // For non-Cancel choices: resume with the selected option info
             Some(Event::PipelineResume {
                 id: pid,
-                message: Some(build_resume_message(chosen, message, decision_id)),
+                message: Some(build_question_resume_message(
+                    chosen,
+                    message,
+                    decision_id,
+                    options,
+                )),
                 vars: HashMap::new(),
             })
         }
     }
+}
+
+/// Build a resume message for Question decisions, including the selected option label.
+fn build_question_resume_message(
+    chosen: Option<usize>,
+    message: Option<&str>,
+    decision_id: &str,
+    options: &[DecisionOption],
+) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(c) = chosen {
+        let label = options
+            .get(c - 1) // 1-indexed to 0-indexed
+            .map(|o| o.label.as_str())
+            .unwrap_or("unknown");
+        parts.push(format!("Selected: {} (option {})", label, c));
+    }
+    if let Some(m) = message {
+        parts.push(m.to_string());
+    }
+    if parts.is_empty() {
+        parts.push(format!("decision {} resolved", decision_id));
+    }
+
+    parts.join("; ")
 }
 
 /// Build a human-readable resume message from the decision resolution.

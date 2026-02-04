@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 
-use oj_core::{AgentId, Event, PromptType};
+use oj_core::{AgentId, Event, PromptType, QuestionData};
 
 use crate::client::DaemonClient;
 use crate::color;
@@ -142,6 +142,8 @@ pub enum HookCommand {
 #[derive(Deserialize)]
 struct PreToolUseInput {
     tool_name: Option<String>,
+    #[serde(default)]
+    tool_input: Option<serde_json::Value>,
 }
 
 /// Input from Claude Code Stop hook (subset of fields we care about)
@@ -706,16 +708,29 @@ async fn handle_pretooluse_hook(agent_id: &str, client: &DaemonClient) -> Result
     let mut input_json = String::new();
     io::stdin().read_to_string(&mut input_json)?;
 
-    let input: PreToolUseInput =
-        serde_json::from_str(&input_json).unwrap_or(PreToolUseInput { tool_name: None });
+    let input: PreToolUseInput = serde_json::from_str(&input_json).unwrap_or(PreToolUseInput {
+        tool_name: None,
+        tool_input: None,
+    });
 
     let Some(prompt_type) = prompt_type_for_tool(input.tool_name.as_deref()) else {
         return Ok(());
     };
 
+    // Extract question data from AskUserQuestion tool_input
+    let question_data = if prompt_type == PromptType::Question {
+        input
+            .tool_input
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<QuestionData>(v.clone()).ok())
+    } else {
+        None
+    };
+
     let event = Event::AgentPrompt {
         agent_id: AgentId::new(agent_id),
         prompt_type,
+        question_data,
     };
     client.emit_event(event).await?;
 
@@ -742,6 +757,7 @@ async fn handle_notify_hook(agent_id: &str, client: &DaemonClient) -> Result<()>
             let event = Event::AgentPrompt {
                 agent_id: AgentId::new(agent_id),
                 prompt_type: PromptType::Permission,
+                question_data: None,
             };
             client.emit_event(event).await?;
         }

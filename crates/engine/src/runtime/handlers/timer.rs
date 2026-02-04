@@ -105,8 +105,15 @@ where
             "cooldown expired, executing action"
         );
 
-        self.execute_action_with_attempts(&pipeline, &agent_def, &action_config, trigger, chain_pos)
-            .await
+        self.execute_action_with_attempts(
+            &pipeline,
+            &agent_def,
+            &action_config,
+            trigger,
+            chain_pos,
+            None,
+        )
+        .await
     }
 
     /// Handle queue retry timer expiry — move item back to Pending and wake workers.
@@ -417,6 +424,7 @@ where
             &action_config,
             trigger,
             chain_pos,
+            None,
         )
         .await
     }

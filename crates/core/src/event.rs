@@ -35,6 +35,30 @@ pub enum PromptType {
     Other,
 }
 
+/// Structured data from an AskUserQuestion tool call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuestionData {
+    pub questions: Vec<QuestionEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuestionEntry {
+    pub question: String,
+    #[serde(default)]
+    pub header: Option<String>,
+    #[serde(default)]
+    pub options: Vec<QuestionOption>,
+    #[serde(default, rename = "multiSelect")]
+    pub multi_select: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
 fn default_prompt_type() -> PromptType {
     PromptType::Other
 }
@@ -100,6 +124,9 @@ pub enum Event {
         agent_id: AgentId,
         #[serde(default = "default_prompt_type")]
         prompt_type: PromptType,
+        /// Populated when prompt_type is Question — contains the actual question and options
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question_data: Option<QuestionData>,
     },
 
     // -- command --
@@ -631,6 +658,7 @@ impl Event {
             Event::AgentPrompt {
                 agent_id,
                 prompt_type,
+                ..
             } => format!("{t} agent={agent_id} prompt_type={prompt_type:?}"),
             Event::CommandRun {
                 pipeline_id,

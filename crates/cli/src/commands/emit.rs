@@ -119,6 +119,7 @@ pub async fn handle(
             let event = Event::AgentPrompt {
                 agent_id: AgentId::new(agent_id),
                 prompt_type: parse_prompt_type(&prompt_type),
+                question_data: None,
             };
             client.emit_event(event).await?;
             Ok(())

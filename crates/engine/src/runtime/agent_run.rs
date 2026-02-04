@@ -175,7 +175,33 @@ where
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
         let (action_config, trigger) = match state {
-            MonitorState::Working => return Ok(vec![]),
+            MonitorState::Working => {
+                if agent_run.status == AgentRunStatus::Escalated {
+                    tracing::info!(
+                        agent_run_id = %agent_run.id,
+                        "standalone agent active, auto-resuming from escalation"
+                    );
+
+                    let agent_run_id = AgentRunId::new(&agent_run.id);
+                    let effects = vec![Effect::Emit {
+                        event: Event::AgentRunStatusChanged {
+                            id: agent_run_id.clone(),
+                            status: AgentRunStatus::Running,
+                            reason: Some("agent active".to_string()),
+                        },
+                    }];
+
+                    // Reset action attempts — agent demonstrated progress
+                    self.lock_state_mut(|state| {
+                        if let Some(ar) = state.agent_runs.get_mut(agent_run_id.as_str()) {
+                            ar.action_attempts.clear();
+                        }
+                    });
+
+                    return Ok(self.executor.execute_all(effects).await?);
+                }
+                return Ok(vec![]);
+            }
             MonitorState::WaitingForInput => {
                 tracing::info!(agent_run_id = %agent_run.id, "standalone agent idle (on_idle)");
                 (&agent_def.on_idle, "idle")

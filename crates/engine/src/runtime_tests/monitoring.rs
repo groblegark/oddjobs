@@ -4,7 +4,7 @@
 //! Agent monitoring timer and event handler tests
 
 use super::*;
-use oj_core::{AgentSignalKind, PipelineId, TimerId};
+use oj_core::{AgentSignalKind, PipelineId, StepStatus, TimerId};
 
 /// Helper: create a pipeline and advance it to the "plan" agent step.
 ///
@@ -530,6 +530,340 @@ async fn agent_signal_complete_advances_pipeline() {
 
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     assert_eq!(pipeline.step, "done");
+}
+
+// =============================================================================
+// Auto-resume from escalation on Working state
+// =============================================================================
+
+#[tokio::test]
+async fn working_auto_resumes_pipeline_from_waiting() {
+    let ctx = setup_with_runbook(RUNBOOK_GATE_IDLE_FAIL).await;
+
+    ctx.runtime
+        .handle_event(command_event(
+            "pipe-1",
+            "build",
+            "build",
+            [("name".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
+    let agent_id = get_agent_id(&ctx, &pipeline_id).unwrap();
+
+    // Agent goes idle → on_idle gate "false" fails → pipeline escalated to Waiting
+    ctx.agents
+        .set_agent_state(&agent_id, oj_core::AgentState::WaitingForInput);
+    ctx.runtime
+        .handle_event(Event::AgentWaiting {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert_eq!(pipeline.step, "work");
+    assert!(pipeline.step_status.is_waiting());
+
+    // Agent starts working again (e.g., human typed in tmux or agent recovered)
+    ctx.runtime
+        .handle_event(Event::AgentWorking {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Pipeline should be back to Running
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert_eq!(pipeline.step, "work");
+    assert_eq!(pipeline.step_status, StepStatus::Running);
+}
+
+#[tokio::test]
+async fn working_noop_when_pipeline_already_running() {
+    let ctx = setup_with_runbook(RUNBOOK_MONITORING).await;
+    let pipeline_id = create_pipeline(&ctx).await;
+
+    // Advance to agent step
+    ctx.runtime
+        .handle_event(Event::ShellExited {
+            pipeline_id: PipelineId::new(pipeline_id.clone()),
+            step: "init".to_string(),
+            exit_code: 0,
+        })
+        .await
+        .unwrap();
+
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert_eq!(pipeline.step, "plan");
+    assert_eq!(pipeline.step_status, StepStatus::Running);
+
+    let agent_id = get_agent_id(&ctx, &pipeline_id).unwrap();
+
+    // AgentWorking when already Running should be a no-op
+    let result = ctx
+        .runtime
+        .handle_event(Event::AgentWorking {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    assert!(result.is_empty());
+
+    // Pipeline should remain at same step with same status
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert_eq!(pipeline.step, "plan");
+    assert_eq!(pipeline.step_status, StepStatus::Running);
+}
+
+#[tokio::test]
+async fn working_auto_resume_resets_action_attempts() {
+    let ctx = setup_with_runbook(RUNBOOK_GATE_IDLE_FAIL).await;
+
+    ctx.runtime
+        .handle_event(command_event(
+            "pipe-1",
+            "build",
+            "build",
+            [("name".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
+    let agent_id = get_agent_id(&ctx, &pipeline_id).unwrap();
+
+    // Agent goes idle → gate fails → escalate → Waiting
+    ctx.agents
+        .set_agent_state(&agent_id, oj_core::AgentState::WaitingForInput);
+    ctx.runtime
+        .handle_event(Event::AgentWaiting {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Verify action attempts are non-empty after escalation
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert!(pipeline.step_status.is_waiting());
+    assert!(
+        !pipeline.action_attempts.is_empty(),
+        "action_attempts should be non-empty after escalation"
+    );
+
+    // Agent starts working → auto-resume
+    ctx.runtime
+        .handle_event(Event::AgentWorking {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Action attempts should be reset
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert_eq!(pipeline.step_status, StepStatus::Running);
+    assert!(
+        pipeline.action_attempts.is_empty(),
+        "action_attempts should be cleared after auto-resume, got: {:?}",
+        pipeline.action_attempts
+    );
+}
+
+// =============================================================================
+// Standalone agent auto-resume from escalation
+// =============================================================================
+
+/// Runbook with standalone agent command, on_idle = escalate
+const RUNBOOK_AGENT_ESCALATE: &str = r#"
+[command.agent_cmd]
+args = "<name>"
+run = { agent = "worker" }
+
+[agent.worker]
+run = 'claude'
+prompt = "Do the work"
+on_idle = "escalate"
+
+[pipeline.build]
+input = ["name"]
+
+[[pipeline.build.step]]
+name = "init"
+run = "echo init"
+"#;
+
+#[tokio::test]
+async fn working_auto_resumes_standalone_agent_from_escalated() {
+    let ctx = setup_with_runbook(RUNBOOK_AGENT_ESCALATE).await;
+
+    // Spawn standalone agent via command
+    ctx.runtime
+        .handle_event(command_event(
+            "run-1",
+            "build",
+            "agent_cmd",
+            [("name".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    // Find the agent_run and its agent_id
+    let (agent_run_id, agent_id) = ctx.runtime.lock_state(|state| {
+        let ar = state.agent_runs.values().next().unwrap();
+        (ar.id.clone(), AgentId::new(ar.agent_id.clone().unwrap()))
+    });
+
+    // Verify agent run is Running
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
+
+    // Agent goes idle → on_idle = escalate → Escalated
+    ctx.runtime
+        .handle_event(Event::AgentWaiting {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Escalated);
+
+    // Agent starts working again → should auto-resume to Running
+    ctx.runtime
+        .handle_event(Event::AgentWorking {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
+}
+
+#[tokio::test]
+async fn working_noop_when_standalone_agent_already_running() {
+    let ctx = setup_with_runbook(RUNBOOK_AGENT_ESCALATE).await;
+
+    // Spawn standalone agent
+    ctx.runtime
+        .handle_event(command_event(
+            "run-1",
+            "build",
+            "agent_cmd",
+            [("name".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let (agent_run_id, agent_id) = ctx.runtime.lock_state(|state| {
+        let ar = state.agent_runs.values().next().unwrap();
+        (ar.id.clone(), AgentId::new(ar.agent_id.clone().unwrap()))
+    });
+
+    // Verify already Running
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
+
+    // AgentWorking when already Running should be a no-op
+    let result = ctx
+        .runtime
+        .handle_event(Event::AgentWorking {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    assert!(result.is_empty());
+
+    // Status should remain Running
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
+}
+
+#[tokio::test]
+async fn working_auto_resume_resets_standalone_action_attempts() {
+    let ctx = setup_with_runbook(RUNBOOK_AGENT_ESCALATE).await;
+
+    // Spawn standalone agent
+    ctx.runtime
+        .handle_event(command_event(
+            "run-1",
+            "build",
+            "agent_cmd",
+            [("name".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let (agent_run_id, agent_id) = ctx.runtime.lock_state(|state| {
+        let ar = state.agent_runs.values().next().unwrap();
+        (ar.id.clone(), AgentId::new(ar.agent_id.clone().unwrap()))
+    });
+
+    // Agent goes idle → escalated
+    ctx.runtime
+        .handle_event(Event::AgentWaiting {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Verify escalated and has action attempts
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Escalated);
+    assert!(
+        !agent_run.action_attempts.is_empty(),
+        "action_attempts should be non-empty after escalation"
+    );
+
+    // Agent starts working → auto-resume
+    ctx.runtime
+        .handle_event(Event::AgentWorking {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Action attempts should be cleared
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
+    assert!(
+        agent_run.action_attempts.is_empty(),
+        "action_attempts should be cleared after auto-resume, got: {:?}",
+        agent_run.action_attempts
+    );
 }
 
 // =============================================================================

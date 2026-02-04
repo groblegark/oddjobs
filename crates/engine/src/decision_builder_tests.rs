@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use super::*;
-use oj_core::{DecisionSource, Event, PipelineId};
+use oj_core::{DecisionSource, Event, PipelineId, QuestionData, QuestionEntry, QuestionOption};
 
 #[test]
 fn test_idle_trigger_builds_correct_options() {
@@ -227,6 +227,142 @@ fn test_gate_failure_empty_stderr() {
             assert!(context.contains("./check.sh"));
             assert!(context.contains("Exit code: 1"));
             assert!(!context.contains("stderr:"));
+        }
+        _ => panic!("expected DecisionCreated"),
+    }
+}
+
+#[test]
+fn test_question_trigger_with_data() {
+    let question_data = QuestionData {
+        questions: vec![QuestionEntry {
+            question: "Which library should we use?".to_string(),
+            header: Some("Library".to_string()),
+            options: vec![
+                QuestionOption {
+                    label: "React".to_string(),
+                    description: Some("Popular UI library".to_string()),
+                },
+                QuestionOption {
+                    label: "Vue".to_string(),
+                    description: Some("Progressive framework".to_string()),
+                },
+            ],
+            multi_select: false,
+        }],
+    };
+
+    let (_, event) = EscalationDecisionBuilder::new(
+        PipelineId::new("pipe-1"),
+        "test-pipeline".to_string(),
+        EscalationTrigger::Question {
+            question_data: Some(question_data),
+        },
+    )
+    .build();
+
+    match event {
+        Event::DecisionCreated {
+            options,
+            source,
+            context,
+            ..
+        } => {
+            assert_eq!(source, DecisionSource::Question);
+            // 2 user options + Cancel
+            assert_eq!(options.len(), 3);
+            assert_eq!(options[0].label, "React");
+            assert_eq!(
+                options[0].description,
+                Some("Popular UI library".to_string())
+            );
+            assert_eq!(options[1].label, "Vue");
+            assert_eq!(options[2].label, "Cancel");
+            // Context includes question text
+            assert!(context.contains("Which library should we use?"));
+            assert!(context.contains("[Library]"));
+        }
+        _ => panic!("expected DecisionCreated"),
+    }
+}
+
+#[test]
+fn test_question_trigger_without_data() {
+    let (_, event) = EscalationDecisionBuilder::new(
+        PipelineId::new("pipe-1"),
+        "test-pipeline".to_string(),
+        EscalationTrigger::Question {
+            question_data: None,
+        },
+    )
+    .build();
+
+    match event {
+        Event::DecisionCreated {
+            options,
+            source,
+            context,
+            ..
+        } => {
+            assert_eq!(source, DecisionSource::Question);
+            // Only Cancel when no question data
+            assert_eq!(options.len(), 1);
+            assert_eq!(options[0].label, "Cancel");
+            assert!(context.contains("no details available"));
+        }
+        _ => panic!("expected DecisionCreated"),
+    }
+}
+
+#[test]
+fn test_question_trigger_maps_to_question_source() {
+    let trigger = EscalationTrigger::Question {
+        question_data: None,
+    };
+    assert_eq!(trigger.to_source(), DecisionSource::Question);
+}
+
+#[test]
+fn test_question_trigger_multi_question_context() {
+    let question_data = QuestionData {
+        questions: vec![
+            QuestionEntry {
+                question: "First question?".to_string(),
+                header: Some("Q1".to_string()),
+                options: vec![QuestionOption {
+                    label: "Yes".to_string(),
+                    description: None,
+                }],
+                multi_select: false,
+            },
+            QuestionEntry {
+                question: "Second question?".to_string(),
+                header: Some("Q2".to_string()),
+                options: vec![],
+                multi_select: false,
+            },
+        ],
+    };
+
+    let (_, event) = EscalationDecisionBuilder::new(
+        PipelineId::new("pipe-1"),
+        "test-pipeline".to_string(),
+        EscalationTrigger::Question {
+            question_data: Some(question_data),
+        },
+    )
+    .build();
+
+    match event {
+        Event::DecisionCreated {
+            context, options, ..
+        } => {
+            assert!(context.contains("[Q1] First question?"));
+            assert!(context.contains("[Q2] Second question?"));
+            // Options come from first question only
+            assert_eq!(options.len(), 2); // "Yes" + "Cancel"
+            assert_eq!(options[0].label, "Yes");
+            assert_eq!(options[1].label, "Cancel");
         }
         _ => panic!("expected DecisionCreated"),
     }

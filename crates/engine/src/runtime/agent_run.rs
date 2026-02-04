@@ -10,7 +10,7 @@ use oj_adapters::agent::find_session_log;
 use oj_adapters::{AgentAdapter, AgentReconnectConfig, NotifyAdapter, SessionAdapter};
 use oj_core::{
     AgentId, AgentRun, AgentRunId, AgentRunStatus, AgentSignalKind, Clock, Effect, Event,
-    PipelineId, SessionId, TimerId,
+    PipelineId, QuestionData, SessionId, TimerId,
 };
 use oj_runbook::AgentDef;
 use std::collections::HashMap;
@@ -174,7 +174,7 @@ where
         agent_def: &AgentDef,
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
-        let (action_config, trigger) = match state {
+        let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
                 if agent_run.status == AgentRunStatus::Escalated {
                     tracing::info!(
@@ -204,15 +204,22 @@ where
             }
             MonitorState::WaitingForInput => {
                 tracing::info!(agent_run_id = %agent_run.id, "standalone agent idle (on_idle)");
-                (&agent_def.on_idle, "idle")
+                (&agent_def.on_idle, "idle", None)
             }
-            MonitorState::Prompting { ref prompt_type } => {
+            MonitorState::Prompting {
+                ref prompt_type,
+                ref question_data,
+            } => {
                 tracing::info!(
                     agent_run_id = %agent_run.id,
                     prompt_type = ?prompt_type,
                     "standalone agent prompting (on_prompt)"
                 );
-                (&agent_def.on_prompt, "prompt")
+                let trigger_str = match prompt_type {
+                    oj_core::PromptType::Question => "prompt:question",
+                    _ => "prompt",
+                };
+                (&agent_def.on_prompt, trigger_str, question_data.clone())
             }
             MonitorState::Failed {
                 ref message,
@@ -231,18 +238,19 @@ where
                         &error_action,
                         message,
                         0,
+                        None,
                     )
                     .await;
             }
             MonitorState::Exited => {
                 tracing::info!(agent_run_id = %agent_run.id, "standalone agent process exited");
                 self.copy_standalone_agent_session_log(agent_run);
-                (&agent_def.on_dead, "exit")
+                (&agent_def.on_dead, "exit", None)
             }
             MonitorState::Gone => {
                 tracing::info!(agent_run_id = %agent_run.id, "standalone agent session ended");
                 self.copy_standalone_agent_session_log(agent_run);
-                (&agent_def.on_dead, "exit")
+                (&agent_def.on_dead, "exit", None)
             }
         };
 
@@ -252,6 +260,7 @@ where
             action_config,
             trigger,
             0,
+            qd.as_ref(),
         )
         .await
     }
@@ -264,6 +273,7 @@ where
         action_config: &oj_runbook::ActionConfig,
         trigger: &str,
         chain_pos: usize,
+        question_data: Option<&QuestionData>,
     ) -> Result<Vec<Event>, RuntimeError> {
         let attempts = action_config.attempts();
         let agent_run_id = AgentRunId::new(&agent_run.id);
@@ -306,6 +316,7 @@ where
                         &escalate_config,
                         &format!("{}_exhausted", trigger),
                         &agent_run.vars,
+                        question_data,
                     )?,
                 )
                 .await;
@@ -351,6 +362,7 @@ where
                 action_config,
                 trigger,
                 &agent_run.vars,
+                question_data,
             )?,
         )
         .await
@@ -517,6 +529,7 @@ where
                             &escalate_config,
                             "gate_failed",
                             &agent_run.vars,
+                            None,
                         )?;
                         match escalate_effects {
                             ActionEffects::EscalateAgentRun { effects } => {

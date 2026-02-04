@@ -96,8 +96,12 @@ where
             Event::AgentPrompt {
                 agent_id,
                 prompt_type,
+                question_data,
             } => {
-                result_events.extend(self.handle_agent_prompt_hook(agent_id, prompt_type).await?);
+                result_events.extend(
+                    self.handle_agent_prompt_hook(agent_id, prompt_type, question_data.as_ref())
+                        .await?,
+                );
             }
 
             Event::ShellExited {

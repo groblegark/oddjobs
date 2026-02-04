@@ -9,7 +9,8 @@
 use crate::decision_builder::{EscalationDecisionBuilder, EscalationTrigger};
 use crate::RuntimeError;
 use oj_core::{
-    AgentError, AgentState, Effect, Event, Pipeline, PipelineId, PromptType, SessionId, TimerId,
+    AgentError, AgentState, Effect, Event, Pipeline, PipelineId, PromptType, QuestionData,
+    SessionId, TimerId,
 };
 use oj_runbook::{ActionConfig, AgentAction, AgentDef, ErrorType, RunDirective, Runbook};
 use std::collections::HashMap;
@@ -59,7 +60,10 @@ pub enum MonitorState {
     /// Agent is idle, waiting for input
     WaitingForInput,
     /// Agent is showing a prompt (permission, plan approval, etc.)
-    Prompting { prompt_type: PromptType },
+    Prompting {
+        prompt_type: PromptType,
+        question_data: Option<QuestionData>,
+    },
     /// Agent encountered an error
     Failed {
         message: String,
@@ -134,6 +138,7 @@ pub fn build_action_effects(
     action_config: &ActionConfig,
     trigger: &str,
     input: &HashMap<String, String>,
+    question_data: Option<&QuestionData>,
 ) -> Result<ActionEffects, RuntimeError> {
     let action = action_config.action();
     let message = action_config.message();
@@ -217,14 +222,21 @@ pub fn build_action_effects(
                     error_type: "unknown".to_string(),
                     message: message.unwrap_or("").to_string(),
                 },
+                "prompt:question" => EscalationTrigger::Question {
+                    question_data: question_data.cloned(),
+                },
                 "prompt" | "on_prompt" => EscalationTrigger::Prompt {
                     prompt_type: "permission".to_string(),
                 },
                 t if t.ends_with("_exhausted") => {
-                    // Handle "idle_exhausted", "error_exhausted" etc.
+                    // Handle "idle_exhausted", "error_exhausted",
+                    // "prompt:question_exhausted" etc.
                     let base = t.trim_end_matches("_exhausted");
                     match base {
                         "idle" => EscalationTrigger::Idle,
+                        "prompt:question" => EscalationTrigger::Question {
+                            question_data: question_data.cloned(),
+                        },
                         "error" => EscalationTrigger::Error {
                             error_type: "exhausted".to_string(),
                             message: message.unwrap_or("").to_string(),
@@ -284,6 +296,7 @@ pub fn build_action_effects_for_agent_run(
     action_config: &ActionConfig,
     trigger: &str,
     input: &HashMap<String, String>,
+    _question_data: Option<&QuestionData>,
 ) -> Result<ActionEffects, RuntimeError> {
     let action = action_config.action();
     let message = action_config.message();

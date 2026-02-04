@@ -9,7 +9,7 @@ use crate::monitor::{self, MonitorState};
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
     AgentId, AgentRunId, AgentRunStatus, AgentState, Clock, Effect, Event, PipelineId, PromptType,
-    SessionId, TimerId,
+    QuestionData, SessionId, TimerId,
 };
 use std::collections::HashMap;
 
@@ -175,6 +175,7 @@ where
         &self,
         agent_id: &AgentId,
         prompt_type: &PromptType,
+        question_data: Option<&QuestionData>,
     ) -> Result<Vec<Event>, RuntimeError> {
         // Check standalone agent runs first
         let maybe_run_id = { self.agent_runs.lock().get(agent_id).cloned() };
@@ -202,6 +203,7 @@ where
                         &agent_def,
                         MonitorState::Prompting {
                             prompt_type: prompt_type.clone(),
+                            question_data: question_data.cloned(),
                         },
                     )
                     .await;
@@ -245,6 +247,7 @@ where
             &agent_def,
             MonitorState::Prompting {
                 prompt_type: prompt_type.clone(),
+                question_data: question_data.cloned(),
             },
         )
         .await

@@ -169,7 +169,7 @@ struct NotificationHookInput {
 pub async fn handle(
     command: AgentCommand,
     client: &DaemonClient,
-    namespace: &str,
+    _namespace: &str,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
@@ -179,14 +179,9 @@ pub async fn handle(
             limit,
             no_limit,
         } => {
-            let mut agents = client
+            let agents = client
                 .list_agents(pipeline.as_deref(), status.as_deref())
                 .await?;
-
-            // Filter by project namespace
-            if !namespace.is_empty() {
-                agents.retain(|a| a.namespace.as_deref() == Some(namespace));
-            }
 
             let total = agents.len();
             let display_limit = if no_limit { total } else { limit };

@@ -1081,12 +1081,11 @@ pub(super) fn handle_query(
             }
         }
 
-        Query::ListDecisions { namespace } => {
+        Query::ListDecisions { namespace: _ } => {
             let mut decisions: Vec<DecisionSummary> = state
                 .decisions
                 .values()
                 .filter(|d| !d.is_resolved())
-                .filter(|d| namespace.is_empty() || d.namespace == namespace)
                 .map(|d| {
                     let pipeline_name = state
                         .pipelines

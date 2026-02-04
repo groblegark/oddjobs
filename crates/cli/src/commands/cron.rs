@@ -201,11 +201,6 @@ pub async fn handle(
             };
             match client.send(&request).await? {
                 Response::Crons { mut crons } => {
-                    // Filter by project namespace
-                    if !namespace.is_empty() {
-                        crons.retain(|c| c.namespace == namespace);
-                    }
-
                     crons.sort_by(|a, b| a.name.cmp(&b.name));
                     match format {
                         OutputFormat::Json => {

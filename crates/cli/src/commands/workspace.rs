@@ -67,11 +67,6 @@ pub async fn handle(
         WorkspaceCommand::List { limit, no_limit } => {
             let mut workspaces = client.list_workspaces().await?;
 
-            // Filter by project namespace
-            if !namespace.is_empty() {
-                workspaces.retain(|w| w.namespace == namespace);
-            }
-
             // Sort by recency (most recent first)
             workspaces.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
 

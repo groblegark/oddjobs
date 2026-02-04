@@ -17,7 +17,8 @@ pipeline "specs" {
     branch = "fix/specs-${workspace.nonce}"
   }
 
-  on_cancel = { step = "cleanup" }
+  on_cancel = { step = "abandon" }
+  on_fail   = { step = "abandon" }
 
   notify {
     on_done = "Specs fixed: ${local.branch}"
@@ -49,6 +50,13 @@ pipeline "specs" {
       oj queue push merges --var branch="${local.branch}" --var title="fix: repair failing specs"
     SHELL
     on_done = { step = "cleanup" }
+  }
+
+  step "abandon" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+    SHELL
   }
 
   step "cleanup" {

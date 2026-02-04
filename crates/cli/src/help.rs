@@ -77,7 +77,11 @@ pub fn after_help() -> String {
 /// Format help output for a command with post-hoc colorization.
 ///
 /// Captures clap's plain help output and applies the oj color palette.
-pub fn format_help(cmd: &mut Command) -> String {
+/// Takes ownership so we can set `Styles::plain()` — subcommands cloned
+/// via `find_subcommand` don't inherit the parent's styles, so without
+/// this they'd use clap's default colored styles and bypass `colorize_help`.
+pub fn format_help(cmd: Command) -> String {
+    let mut cmd = cmd.styles(styles());
     let mut buf = Vec::new();
     match cmd.write_help(&mut buf) {
         Ok(()) => {}
@@ -102,7 +106,7 @@ pub fn format_help(cmd: &mut Command) -> String {
 }
 
 /// Print formatted help to stdout.
-pub fn print_help(cmd: &mut Command) {
+pub fn print_help(cmd: Command) {
     let help = format_help(cmd);
     let mut stdout = std::io::stdout();
     let _ = stdout.write_all(help.as_bytes());

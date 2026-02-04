@@ -143,10 +143,15 @@ impl HelpPrinter {
 /// Format text with the header color (steel blue).
 pub fn header(text: &str) -> String {
     if should_colorize() {
-        format!("{}{}{}", fg256(codes::HEADER), text, RESET)
+        apply_header(text)
     } else {
         text.to_string()
     }
+}
+
+/// Apply header color unconditionally (caller decides whether to use this).
+pub(crate) fn apply_header(text: &str) -> String {
+    format!("{}{}{}", fg256(codes::HEADER), text, RESET)
 }
 
 /// Format text with the context color (medium grey).
@@ -161,10 +166,15 @@ pub fn context(text: &str) -> String {
 /// Format text with the muted color (darker grey).
 pub fn muted(text: &str) -> String {
     if should_colorize() {
-        format!("{}{}{}", fg256(codes::MUTED), text, RESET)
+        apply_muted(text)
     } else {
         text.to_string()
     }
+}
+
+/// Apply muted color unconditionally (caller decides whether to use this).
+pub(crate) fn apply_muted(text: &str) -> String {
+    format!("{}{}{}", fg256(codes::MUTED), text, RESET)
 }
 
 /// Apply green (ANSI 32) to text, respecting color settings.
@@ -197,6 +207,11 @@ pub fn status(text: &str) -> String {
     if !should_colorize() {
         return text.to_string();
     }
+    apply_status(text)
+}
+
+/// Apply status color unconditionally (caller decides whether to use this).
+pub(crate) fn apply_status(text: &str) -> String {
     let lower = text.trim_start().to_lowercase();
     let first_word = lower
         .split(|c: char| !c.is_alphabetic())

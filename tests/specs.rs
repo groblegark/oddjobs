@@ -35,6 +35,8 @@ mod daemon_init_idempotency;
 mod daemon_lifecycle;
 #[path = "specs/daemon/logs.rs"]
 mod daemon_logs;
+#[path = "specs/daemon/on_stop.rs"]
+mod daemon_on_stop;
 #[path = "specs/daemon/pipeline_queue.rs"]
 mod daemon_pipeline_queue;
 #[path = "specs/daemon/restart_queue.rs"]

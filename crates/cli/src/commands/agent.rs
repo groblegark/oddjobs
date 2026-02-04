@@ -736,6 +736,9 @@ async fn handle_stop_hook(agent_id: &str, client: &DaemonClient) -> Result<()> {
         std::process::exit(0);
     }
 
+    // Read on_stop config from agent state dir
+    let on_stop = read_on_stop_config(agent_id);
+
     // Query daemon: has this agent signaled completion?
     let response = client.query_agent_signal(agent_id).await?;
 
@@ -745,22 +748,60 @@ async fn handle_stop_hook(agent_id: &str, client: &DaemonClient) -> Result<()> {
         std::process::exit(0);
     }
 
-    // Agent has NOT signaled - block and instruct
-    append_agent_log(agent_id, "blocking exit, signaled=false");
+    append_agent_log(
+        agent_id,
+        &format!("blocking exit, on_stop={}, signaled=false", on_stop),
+    );
+
+    match on_stop.as_str() {
+        "idle" => {
+            // Emit idle event, then block
+            let event = Event::AgentIdle {
+                agent_id: AgentId::new(agent_id),
+            };
+            let _ = client.emit_event(event).await;
+            block_exit(
+                "Stop hook: on_idle handler invoked. Continue working or signal completion.",
+            );
+        }
+        "escalate" => {
+            // Emit stop event for escalation, then block
+            let event = Event::AgentStop {
+                agent_id: AgentId::new(agent_id),
+            };
+            let _ = client.emit_event(event).await;
+            block_exit("A human has been notified. Wait for instructions or signal completion.");
+        }
+        _ => {
+            // "signal" (default) — current behavior
+            block_exit(&format!(
+                "You must explicitly signal completion before stopping. \
+                 Run: oj emit agent:signal --agent {} '<json>' \
+                 where <json> is {{\"action\": \"complete\"}} or {{\"action\": \"escalate\", \"message\": \"...\"}}",
+                agent_id
+            ));
+        }
+    }
+}
+
+fn read_on_stop_config(agent_id: &str) -> String {
+    let state_dir = get_state_dir();
+    let config_path = state_dir.join("agents").join(agent_id).join("config.json");
+    std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("on_stop")?.as_str().map(String::from))
+        .unwrap_or_else(|| "signal".to_string())
+}
+
+fn block_exit(reason: &str) -> ! {
     let output = StopHookOutput {
         decision: "block".to_string(),
-        reason: format!(
-            "You must explicitly signal completion before stopping. \
-             Run: oj emit agent:signal --agent {} '<json>' \
-             where <json> is {{\"action\": \"complete\"}} or {{\"action\": \"escalate\", \"message\": \"...\"}}",
-            agent_id
-        ),
+        reason: reason.to_string(),
     };
-
-    let output_json = serde_json::to_string(&output)?;
-    io::stdout().write_all(output_json.as_bytes())?;
-    io::stdout().flush()?;
-
+    let output_json = serde_json::to_string(&output).unwrap_or_default();
+    let _ = io::stdout().write_all(output_json.as_bytes());
+    let _ = io::stdout().flush();
     std::process::exit(0);
 }
 

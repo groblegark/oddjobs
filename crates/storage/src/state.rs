@@ -935,6 +935,7 @@ impl MaterializedState {
             | Event::WorkerPollComplete { .. }
             | Event::AgentIdle { .. }
             | Event::AgentPrompt { .. }
+            | Event::AgentStop { .. }
             | Event::CronOnce { .. }
             | Event::Shutdown => {}
         }

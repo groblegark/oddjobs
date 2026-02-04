@@ -90,6 +90,10 @@ pub enum Event {
     #[serde(rename = "agent:idle")]
     AgentIdle { agent_id: AgentId },
 
+    /// Agent stop hook fired with on_stop=escalate (from CLI hook)
+    #[serde(rename = "agent:stop")]
+    AgentStop { agent_id: AgentId },
+
     /// Agent is showing a prompt (from Notification hook)
     #[serde(rename = "agent:prompt")]
     AgentPrompt {
@@ -554,6 +558,7 @@ impl Event {
             Event::AgentInput { .. } => "agent:input",
             Event::AgentSignal { .. } => "agent:signal",
             Event::AgentIdle { .. } => "agent:idle",
+            Event::AgentStop { .. } => "agent:stop",
             Event::AgentPrompt { .. } => "agent:prompt",
             Event::CommandRun { .. } => "command:run",
             Event::PipelineCreated { .. } => "pipeline:created",
@@ -620,6 +625,7 @@ impl Event {
                 format!("{t} id={agent_id} kind={kind:?}")
             }
             Event::AgentIdle { agent_id } => format!("{t} agent={agent_id}"),
+            Event::AgentStop { agent_id } => format!("{t} agent={agent_id}"),
             Event::AgentPrompt {
                 agent_id,
                 prompt_type,

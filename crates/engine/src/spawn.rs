@@ -6,7 +6,7 @@
 use crate::error::RuntimeError;
 use crate::ExecuteError;
 use oj_core::{AgentId, AgentRunId, Effect, Pipeline, PipelineId, TimerId};
-use oj_runbook::AgentDef;
+use oj_runbook::{AgentDef, StopAction};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -140,6 +140,28 @@ pub fn build_spawn_effects(
     )
     .map_err(|e| {
         tracing::error!(error = %e, "agent settings preparation failed");
+        RuntimeError::Execute(ExecuteError::Shell(e.to_string()))
+    })?;
+
+    // Write on_stop config: resolve from agent def or context-dependent default
+    let is_standalone = ctx.agent_run_id.is_some();
+    let on_stop_action = agent_def
+        .on_stop
+        .as_ref()
+        .map(|c| c.action())
+        .cloned()
+        .unwrap_or(if is_standalone {
+            StopAction::Escalate
+        } else {
+            StopAction::Signal
+        });
+    let on_stop_str = match on_stop_action {
+        StopAction::Signal => "signal",
+        StopAction::Idle => "idle",
+        StopAction::Escalate => "escalate",
+    };
+    crate::workspace::write_agent_config(&agent_id, on_stop_str, state_dir).map_err(|e| {
+        tracing::error!(error = %e, "agent config write failed");
         RuntimeError::Execute(ExecuteError::Shell(e.to_string()))
     })?;
 

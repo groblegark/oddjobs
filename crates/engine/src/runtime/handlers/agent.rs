@@ -8,7 +8,8 @@ use crate::error::RuntimeError;
 use crate::monitor::{self, MonitorState};
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
-    AgentId, AgentState, Clock, Effect, Event, PipelineId, PromptType, SessionId, TimerId,
+    AgentId, AgentRunId, AgentRunStatus, AgentState, Clock, Effect, Event, PipelineId, PromptType,
+    SessionId, TimerId,
 };
 use std::collections::HashMap;
 
@@ -233,6 +234,85 @@ where
             },
         )
         .await
+    }
+
+    /// Handle agent:stop — fired when on_stop=escalate and agent tries to exit.
+    ///
+    /// Escalates to human: sends notification and sets pipeline/agent_run to waiting.
+    /// Idempotent: skips if already in waiting/escalated status.
+    pub(crate) async fn handle_agent_stop_hook(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        // Check standalone agent runs first
+        let maybe_run_id = { self.agent_runs.lock().get(agent_id).cloned() };
+        if let Some(agent_run_id) = maybe_run_id {
+            let agent_run = self.lock_state(|s| s.agent_runs.get(agent_run_id.as_str()).cloned());
+            if let Some(agent_run) = agent_run {
+                if agent_run.status.is_terminal() || agent_run.status == AgentRunStatus::Escalated {
+                    return Ok(vec![]);
+                }
+                // Verify agent_id matches
+                if agent_run.agent_id.as_deref() != Some(agent_id.as_str()) {
+                    return Ok(vec![]);
+                }
+                // Fire standalone escalation
+                let effects = vec![
+                    Effect::Notify {
+                        title: format!("Agent needs attention: {}", agent_run.command_name),
+                        message: "Agent tried to stop without signaling completion".to_string(),
+                    },
+                    Effect::Emit {
+                        event: Event::AgentRunStatusChanged {
+                            id: AgentRunId::new(&agent_run.id),
+                            status: AgentRunStatus::Escalated,
+                            reason: Some("on_stop: escalate".to_string()),
+                        },
+                    },
+                ];
+                return Ok(self.executor.execute_all(effects).await?);
+            }
+        }
+
+        // Pipeline agent
+        let Some(pipeline_id_str) = self.agent_pipelines.lock().get(agent_id).cloned() else {
+            return Ok(vec![]);
+        };
+        let pipeline = self.require_pipeline(&pipeline_id_str)?;
+
+        if pipeline.is_terminal() || pipeline.step_status.is_waiting() {
+            return Ok(vec![]); // Already escalated or terminal — no-op
+        }
+
+        // Stale agent check
+        let current_agent_id = pipeline
+            .step_history
+            .iter()
+            .rfind(|r| r.name == pipeline.step)
+            .and_then(|r| r.agent_id.as_deref());
+        if current_agent_id != Some(agent_id.as_str()) {
+            return Ok(vec![]);
+        }
+
+        let pipeline_id = PipelineId::new(&pipeline.id);
+        let effects = vec![
+            Effect::Notify {
+                title: format!("Pipeline needs attention: {}", pipeline.name),
+                message: "Agent tried to stop without signaling completion".to_string(),
+            },
+            Effect::Emit {
+                event: Event::StepWaiting {
+                    pipeline_id: pipeline_id.clone(),
+                    step: pipeline.step.clone(),
+                    reason: Some("on_stop: escalate".to_string()),
+                    decision_id: None,
+                },
+            },
+            Effect::CancelTimer {
+                id: TimerId::exit_deferred(&pipeline_id),
+            },
+        ];
+        Ok(self.executor.execute_all(effects).await?)
     }
 
     /// Handle resume for agent step: nudge if alive, recover if dead

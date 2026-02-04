@@ -69,11 +69,17 @@ pub async fn handle(
     command: SessionCommand,
     client: &DaemonClient,
     _namespace: &str,
+    project_filter: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
         SessionCommand::List {} => {
-            let sessions = client.list_sessions().await?;
+            let mut sessions = client.list_sessions().await?;
+
+            // Filter by explicit --project flag (OJ_NAMESPACE is NOT used for filtering)
+            if let Some(proj) = project_filter {
+                sessions.retain(|s| s.namespace == proj);
+            }
 
             match format {
                 OutputFormat::Text => {

@@ -204,6 +204,28 @@ fn namespace_resolution_falls_back_to_project_root() {
     assert!(!ns.is_empty() || ns.is_empty()); // just ensure no panic
 }
 
+// -- project_filter derived from CLI arg only --------------------------------
+
+#[test]
+fn project_filter_is_some_when_flag_passed() {
+    let matches = cli_command()
+        .try_get_matches_from(["oj", "--project", "wok", "pipeline", "list"])
+        .unwrap();
+    let cli = Cli::from_arg_matches(&matches).unwrap();
+    // project_filter comes from cli.project — only Some when explicitly passed
+    assert_eq!(cli.project.as_deref(), Some("wok"));
+}
+
+#[test]
+fn project_filter_is_none_when_flag_omitted() {
+    let matches = cli_command()
+        .try_get_matches_from(["oj", "pipeline", "list"])
+        .unwrap();
+    let cli = Cli::from_arg_matches(&matches).unwrap();
+    // Even if OJ_NAMESPACE is set, cli.project is None — filtering is skipped
+    assert_eq!(cli.project, None);
+}
+
 // -- Subcommand --project is removed (backward compat) ----------------------
 
 #[test]

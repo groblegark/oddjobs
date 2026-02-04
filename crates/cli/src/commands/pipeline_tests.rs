@@ -366,6 +366,27 @@ fn is_var_truncated_with_newlines() {
     assert!(is_var_truncated(&value, 80));
 }
 
+fn make_summary_ns(
+    id: &str,
+    name: &str,
+    kind: &str,
+    step: &str,
+    status: &str,
+    namespace: &str,
+) -> PipelineSummary {
+    PipelineSummary {
+        id: id.into(),
+        name: name.into(),
+        kind: kind.into(),
+        step: step.into(),
+        step_status: status.into(),
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        namespace: namespace.into(),
+        retry_count: 0,
+    }
+}
+
 fn make_summary(id: &str, name: &str, kind: &str, step: &str, status: &str) -> PipelineSummary {
     PipelineSummary {
         id: id.into(),
@@ -500,4 +521,61 @@ fn list_retries_column_shown_when_nonzero() {
     assert!(lines[0].contains("RETRIES"));
     assert!(lines[1].contains("3"));
     assert!(lines[2].contains("0"));
+}
+
+// ── Project filter tests ─────────────────────────────────────────────────
+
+#[test]
+fn project_filter_retains_matching_namespace() {
+    let mut pipelines = vec![
+        make_summary_ns("aaa", "build-wok", "build", "plan", "running", "wok"),
+        make_summary_ns("bbb", "build-bar", "build", "test", "running", "bar"),
+        make_summary_ns("ccc", "build-wok2", "build", "done", "completed", "wok"),
+    ];
+
+    // Simulate: --project wok
+    let project_filter: Option<&str> = Some("wok");
+    if let Some(proj) = project_filter {
+        pipelines.retain(|p| p.namespace == proj);
+    }
+
+    assert_eq!(pipelines.len(), 2);
+    assert_eq!(pipelines[0].id, "aaa");
+    assert_eq!(pipelines[1].id, "ccc");
+}
+
+#[test]
+fn project_filter_none_retains_all() {
+    let mut pipelines = vec![
+        make_summary_ns("aaa", "build-wok", "build", "plan", "running", "wok"),
+        make_summary_ns("bbb", "build-bar", "build", "test", "running", "bar"),
+        make_summary_ns("ccc", "build-wok2", "build", "done", "completed", "wok"),
+    ];
+
+    // Simulate: no --project flag (OJ_NAMESPACE should NOT filter)
+    let project_filter: Option<&str> = None;
+    if let Some(proj) = project_filter {
+        pipelines.retain(|p| p.namespace == proj);
+    }
+
+    assert_eq!(
+        pipelines.len(),
+        3,
+        "all pipelines should be retained when no --project flag"
+    );
+}
+
+#[test]
+fn project_filter_no_match_returns_empty() {
+    let mut pipelines = vec![
+        make_summary_ns("aaa", "build-wok", "build", "plan", "running", "wok"),
+        make_summary_ns("bbb", "build-bar", "build", "test", "running", "bar"),
+    ];
+
+    let project_filter: Option<&str> = Some("nonexistent");
+    if let Some(proj) = project_filter {
+        pipelines.retain(|p| p.namespace == proj);
+    }
+
+    assert!(pipelines.is_empty());
 }

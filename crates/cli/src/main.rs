@@ -241,6 +241,10 @@ async fn run() -> Result<()> {
     //   --project flag > OJ_NAMESPACE env > auto-resolved from project root
     let namespace = resolve_effective_namespace(cli.project.as_deref(), &project_root);
 
+    // Explicit --project flag for filtering list/show queries.
+    // OJ_NAMESPACE is NOT used for filtering — only the explicit CLI flag.
+    let project_filter = cli.project.as_deref();
+
     // Dispatch commands with appropriate client semantics:
     // - Action commands: auto-start daemon, max 1 restart (user-initiated mutations)
     // - Query commands: connect only, no restart (reads that need existing state)
@@ -258,7 +262,8 @@ async fn run() -> Result<()> {
                 | PipelineCommand::Cancel { .. }
                 | PipelineCommand::Prune { .. } => {
                     let client = DaemonClient::for_action()?;
-                    pipeline::handle(args.command, &client, &namespace, format).await?
+                    pipeline::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
                 // Query: reads pipeline state
                 PipelineCommand::List { .. }
@@ -268,7 +273,8 @@ async fn run() -> Result<()> {
                 | PipelineCommand::Wait { .. }
                 | PipelineCommand::Attach { .. } => {
                     let client = DaemonClient::for_query()?;
-                    pipeline::handle(args.command, &client, &namespace, format).await?
+                    pipeline::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
             }
         }
@@ -280,12 +286,14 @@ async fn run() -> Result<()> {
                 // Action: mutates workspace state
                 WorkspaceCommand::Drop { .. } | WorkspaceCommand::Prune { .. } => {
                     let client = DaemonClient::for_action()?;
-                    workspace::handle(args.command, &client, &namespace, format).await?
+                    workspace::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
                 // Query: reads workspace state
                 WorkspaceCommand::List { .. } | WorkspaceCommand::Show { .. } => {
                     let client = DaemonClient::for_query()?;
-                    workspace::handle(args.command, &client, &namespace, format).await?
+                    workspace::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
             }
         }
@@ -297,17 +305,17 @@ async fn run() -> Result<()> {
                 // Action: sends input to an agent
                 AgentCommand::Send { .. } => {
                     let client = DaemonClient::for_action()?;
-                    agent::handle(args.command, &client, &namespace, format).await?
+                    agent::handle(args.command, &client, &namespace, project_filter, format).await?
                 }
                 // Signal: agent-initiated hooks (stop, pretooluse) - no restart
                 AgentCommand::Hook { .. } => {
                     let client = DaemonClient::for_signal()?;
-                    agent::handle(args.command, &client, &namespace, format).await?
+                    agent::handle(args.command, &client, &namespace, project_filter, format).await?
                 }
                 // Query: reads agent state
                 _ => {
                     let client = DaemonClient::for_query()?;
-                    agent::handle(args.command, &client, &namespace, format).await?
+                    agent::handle(args.command, &client, &namespace, project_filter, format).await?
                 }
             }
         }
@@ -317,12 +325,14 @@ async fn run() -> Result<()> {
                 // Actions: mutate session state
                 SessionCommand::Send { .. } | SessionCommand::Kill { .. } => {
                     let client = DaemonClient::for_action()?;
-                    session::handle(args.command, &client, &namespace, format).await?
+                    session::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
                 // Query: reads session state
                 _ => {
                     let client = DaemonClient::for_query()?;
-                    session::handle(args.command, &client, &namespace, format).await?
+                    session::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
             }
         }
@@ -353,11 +363,27 @@ async fn run() -> Result<()> {
         Commands::Worker(args) => match &args.command {
             worker::WorkerCommand::List { .. } => {
                 let client = DaemonClient::for_query()?;
-                worker::handle(args.command, &client, &project_root, &namespace, format).await?
+                worker::handle(
+                    args.command,
+                    &client,
+                    &project_root,
+                    &namespace,
+                    project_filter,
+                    format,
+                )
+                .await?
             }
             _ => {
                 let client = DaemonClient::for_action()?;
-                worker::handle(args.command, &client, &project_root, &namespace, format).await?
+                worker::handle(
+                    args.command,
+                    &client,
+                    &project_root,
+                    &namespace,
+                    project_filter,
+                    format,
+                )
+                .await?
             }
         },
 
@@ -365,11 +391,27 @@ async fn run() -> Result<()> {
         Commands::Cron(args) => match &args.command {
             cron::CronCommand::List { .. } => {
                 let client = DaemonClient::for_query()?;
-                cron::handle(args.command, &client, &project_root, &namespace, format).await?
+                cron::handle(
+                    args.command,
+                    &client,
+                    &project_root,
+                    &namespace,
+                    project_filter,
+                    format,
+                )
+                .await?
             }
             _ => {
                 let client = DaemonClient::for_action()?;
-                cron::handle(args.command, &client, &project_root, &namespace, format).await?
+                cron::handle(
+                    args.command,
+                    &client,
+                    &project_root,
+                    &namespace,
+                    project_filter,
+                    format,
+                )
+                .await?
             }
         },
 
@@ -379,11 +421,13 @@ async fn run() -> Result<()> {
             match &args.command {
                 DecisionCommand::Resolve { .. } => {
                     let client = DaemonClient::for_action()?;
-                    decision::handle(args.command, &client, &namespace, format).await?
+                    decision::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
                 DecisionCommand::List { .. } | DecisionCommand::Show { .. } => {
                     let client = DaemonClient::for_query()?;
-                    decision::handle(args.command, &client, &namespace, format).await?
+                    decision::handle(args.command, &client, &namespace, project_filter, format)
+                        .await?
                 }
             }
         }

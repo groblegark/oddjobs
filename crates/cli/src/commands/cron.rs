@@ -70,6 +70,7 @@ pub async fn handle(
     client: &DaemonClient,
     project_root: &std::path::Path,
     namespace: &str,
+    project_filter: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
@@ -189,6 +190,10 @@ pub async fn handle(
             };
             match client.send(&request).await? {
                 Response::Crons { mut crons } => {
+                    // Filter by explicit --project flag (OJ_NAMESPACE is NOT used for filtering)
+                    if let Some(proj) = project_filter {
+                        crons.retain(|c| c.namespace == proj);
+                    }
                     crons.sort_by(|a, b| a.name.cmp(&b.name));
                     match format {
                         OutputFormat::Json => {

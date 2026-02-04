@@ -47,6 +47,7 @@ pub async fn handle(
     command: DecisionCommand,
     client: &DaemonClient,
     namespace: &str,
+    project_filter: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
@@ -57,7 +58,11 @@ pub async fn handle(
                 },
             };
             match client.send(&request).await? {
-                Response::Decisions { decisions } => {
+                Response::Decisions { mut decisions } => {
+                    // Filter by explicit --project flag (OJ_NAMESPACE is NOT used for filtering)
+                    if let Some(proj) = project_filter {
+                        decisions.retain(|d| d.namespace == proj);
+                    }
                     if decisions.is_empty() {
                         println!("No pending decisions");
                         return Ok(());

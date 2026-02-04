@@ -21,6 +21,10 @@ pipeline "specs" {
     on_fail = "Specs fix failed"
   }
 
+  step "build" {
+    run = "cargo build --all"
+  }
+
   step "run" {
     run     = "cargo test -p oj-specs"
     on_fail = { step = "fix" }
@@ -63,6 +67,10 @@ pipeline "deflake" {
   notify {
     on_done = "Flaky tests fixed: ${workspace.branch}"
     on_fail = "Deflake failed"
+  }
+
+  step "build" {
+    run = "cargo build --all"
   }
 
   step "detect" {

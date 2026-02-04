@@ -267,7 +267,7 @@ fn format_text(
                 .iter()
                 .map(|p| PipelineRow {
                     prefix: "    ".to_string(),
-                    id: truncate_id(&p.id, 8).to_string(),
+                    id: p.id.short(8).to_string(),
                     name: friendly_name_label(&p.name, &p.kind, &p.id),
                     kind_step: format!("{}/{}", p.kind, p.step),
                     status: p.step_status.clone(),
@@ -298,7 +298,7 @@ fn format_text(
                     let elapsed = format_duration_ms(p.elapsed_ms);
                     PipelineRow {
                         prefix: format!("    {} ", color::yellow("⚠")),
-                        id: truncate_id(&p.id, 8).to_string(),
+                        id: p.id.short(8).to_string(),
                         name: friendly_name_label(&p.name, &p.kind, &p.id),
                         kind_step: format!("{}/{}", p.kind, p.step),
                         status: p.step_status.clone(),
@@ -323,7 +323,7 @@ fn format_text(
                 .iter()
                 .map(|p| PipelineRow {
                     prefix: format!("    {} ", color::yellow("⚠")),
-                    id: truncate_id(&p.id, 8).to_string(),
+                    id: p.id.short(8).to_string(),
                     name: friendly_name_label(&p.name, &p.kind, &p.id),
                     kind_step: format!("{}/{}", p.kind, p.step),
                     status: "orphaned".to_string(),
@@ -424,14 +424,6 @@ fn format_duration(secs: u64) -> String {
 
 fn format_duration_ms(ms: u64) -> String {
     format_duration(ms / 1000)
-}
-
-fn truncate_id(id: &str, max_len: usize) -> &str {
-    if id.len() <= max_len {
-        id
-    } else {
-        &id[..max_len]
-    }
 }
 
 /// Returns the pipeline name when it is a meaningful friendly name,

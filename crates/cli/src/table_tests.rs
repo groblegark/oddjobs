@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use super::*;
-use serial_test::serial;
 
 fn render_to_string(table: &Table) -> String {
     let mut buf = Vec::new();
@@ -12,16 +11,14 @@ fn render_to_string(table: &Table) -> String {
 
 #[test]
 fn empty_table_prints_nothing() {
-    let table = Table::new(vec![Column::left("NAME"), Column::left("STATUS")]);
+    let table = Table::plain(vec![Column::left("NAME"), Column::left("STATUS")]);
     let out = render_to_string(&table);
     assert_eq!(out, "");
 }
 
 #[test]
-#[serial]
 fn single_row_single_column() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![Column::left("NAME")]);
+    let mut table = Table::plain(vec![Column::left("NAME")]);
     table.row(vec!["hello".into()]);
     let out = render_to_string(&table);
     let lines: Vec<&str> = out.lines().collect();
@@ -31,10 +28,8 @@ fn single_row_single_column() {
 }
 
 #[test]
-#[serial]
 fn multi_column_left_alignment() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![Column::left("NAME"), Column::left("KIND")]);
+    let mut table = Table::plain(vec![Column::left("NAME"), Column::left("KIND")]);
     table.row(vec!["alpha".into(), "build".into()]);
     table.row(vec!["b".into(), "fix".into()]);
     let out = render_to_string(&table);
@@ -48,10 +43,8 @@ fn multi_column_left_alignment() {
 }
 
 #[test]
-#[serial]
 fn right_alignment() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![Column::left("NAME"), Column::right("COUNT")]);
+    let mut table = Table::plain(vec![Column::left("NAME"), Column::right("COUNT")]);
     table.row(vec!["alpha".into(), "5".into()]);
     table.row(vec!["beta".into(), "123".into()]);
     let out = render_to_string(&table);
@@ -65,10 +58,8 @@ fn right_alignment() {
 }
 
 #[test]
-#[serial]
 fn column_width_adapts_to_widest_cell() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![Column::left("ID"), Column::left("STATUS")]);
+    let mut table = Table::plain(vec![Column::left("ID"), Column::left("STATUS")]);
     table.row(vec!["a".into(), "ok".into()]);
     table.row(vec!["longvalue".into(), "error".into()]);
     let out = render_to_string(&table);
@@ -81,10 +72,8 @@ fn column_width_adapts_to_widest_cell() {
 }
 
 #[test]
-#[serial]
 fn max_width_truncates_long_values() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![Column::left("ID").with_max(4), Column::left("NAME")]);
+    let mut table = Table::plain(vec![Column::left("ID").with_max(4), Column::left("NAME")]);
     table.row(vec!["abcdef".into(), "test".into()]);
     let out = render_to_string(&table);
     let lines: Vec<&str> = out.lines().collect();
@@ -93,10 +82,8 @@ fn max_width_truncates_long_values() {
 }
 
 #[test]
-#[serial]
 fn min_width_enforces_minimum() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![
+    let mut table = Table::plain(vec![
         {
             let mut c = Column::left("X");
             c.min_width = Some(10);
@@ -114,10 +101,8 @@ fn min_width_enforces_minimum() {
 }
 
 #[test]
-#[serial]
 fn last_column_no_trailing_padding() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![Column::left("A"), Column::left("B")]);
+    let mut table = Table::plain(vec![Column::left("A"), Column::left("B")]);
     table.row(vec!["short".into(), "x".into()]);
     table.row(vec!["s".into(), "longvalue".into()]);
     let out = render_to_string(&table);
@@ -129,10 +114,8 @@ fn last_column_no_trailing_padding() {
 }
 
 #[test]
-#[serial]
 fn double_space_column_separator() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![
+    let mut table = Table::plain(vec![
         Column::left("A"),
         Column::left("B"),
         Column::left("C"),
@@ -146,12 +129,8 @@ fn double_space_column_separator() {
 }
 
 #[test]
-#[serial]
 fn muted_style_applies_ansi_when_color_enabled() {
-    std::env::set_var("COLOR", "1");
-    std::env::remove_var("NO_COLOR");
-
-    let mut table = Table::new(vec![Column::muted("ID")]);
+    let mut table = Table::colored(vec![Column::muted("ID")]);
     table.row(vec!["abc".into()]);
     let out = render_to_string(&table);
 
@@ -162,17 +141,11 @@ fn muted_style_applies_ansi_when_color_enabled() {
         out
     );
     assert!(out.contains("\x1b[0m"), "should have reset code");
-
-    std::env::remove_var("COLOR");
 }
 
 #[test]
-#[serial]
 fn status_style_applies_ansi_when_color_enabled() {
-    std::env::set_var("COLOR", "1");
-    std::env::remove_var("NO_COLOR");
-
-    let mut table = Table::new(vec![Column::status("STATUS")]);
+    let mut table = Table::colored(vec![Column::status("STATUS")]);
     table.row(vec!["Running".into()]);
     let out = render_to_string(&table);
 
@@ -182,16 +155,11 @@ fn status_style_applies_ansi_when_color_enabled() {
         "should have green ANSI code in: {:?}",
         out
     );
-
-    std::env::remove_var("COLOR");
 }
 
 #[test]
-#[serial]
 fn no_ansi_when_no_color() {
-    std::env::set_var("NO_COLOR", "1");
-
-    let mut table = Table::new(vec![Column::muted("ID"), Column::status("STATUS")]);
+    let mut table = Table::plain(vec![Column::muted("ID"), Column::status("STATUS")]);
     table.row(vec!["abc".into(), "Running".into()]);
     let out = render_to_string(&table);
 
@@ -200,15 +168,11 @@ fn no_ansi_when_no_color() {
         "should have no ANSI codes in: {:?}",
         out
     );
-
-    std::env::remove_var("NO_COLOR");
 }
 
 #[test]
-#[serial]
 fn right_aligned_non_last_column() {
-    std::env::set_var("NO_COLOR", "1");
-    let mut table = Table::new(vec![
+    let mut table = Table::plain(vec![
         Column::left("NAME"),
         Column::right("COUNT"),
         Column::left("STATUS"),

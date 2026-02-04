@@ -93,6 +93,7 @@ impl Column {
 pub struct Table {
     columns: Vec<Column>,
     rows: Vec<Vec<String>>,
+    colorize: bool,
 }
 
 /// Column separator: double space.
@@ -103,6 +104,27 @@ impl Table {
         Self {
             columns,
             rows: Vec::new(),
+            colorize: color::should_colorize(),
+        }
+    }
+
+    /// Create a table that never emits color codes.
+    #[cfg(test)]
+    pub fn plain(columns: Vec<Column>) -> Self {
+        Self {
+            columns,
+            rows: Vec::new(),
+            colorize: false,
+        }
+    }
+
+    /// Create a table that always emits color codes.
+    #[cfg(test)]
+    pub fn colored(columns: Vec<Column>) -> Self {
+        Self {
+            columns,
+            rows: Vec::new(),
+            colorize: true,
         }
     }
 
@@ -122,6 +144,8 @@ impl Table {
 
         let widths = self.compute_widths();
 
+        let colorize = self.colorize;
+
         // Header row
         let header_cells: Vec<String> = self
             .columns
@@ -135,7 +159,11 @@ impl Table {
                 } else {
                     pad(col.name, w, &col.align)
                 };
-                color::header(&padded)
+                if colorize {
+                    color::apply_header(&padded)
+                } else {
+                    padded
+                }
             })
             .collect();
         let _ = writeln!(out, "{}", header_cells.join(SEP));
@@ -156,7 +184,7 @@ impl Table {
                     } else {
                         pad(truncated, w, &col.align)
                     };
-                    stylize(&padded, &col.style)
+                    stylize(&padded, &col.style, colorize)
                 })
                 .collect();
             let _ = writeln!(out, "{}", cells.join(SEP));
@@ -206,11 +234,14 @@ fn truncate(s: &str, max: Option<usize>) -> &str {
 }
 
 /// Apply a [`CellStyle`] to already-padded text.
-fn stylize(text: &str, style: &CellStyle) -> String {
+fn stylize(text: &str, style: &CellStyle, colorize: bool) -> String {
+    if !colorize {
+        return text.to_string();
+    }
     match style {
         CellStyle::Plain => text.to_string(),
-        CellStyle::Muted => color::muted(text),
-        CellStyle::Status => color::status(text),
+        CellStyle::Muted => color::apply_muted(text),
+        CellStyle::Status => color::apply_status(text),
     }
 }
 

@@ -207,7 +207,7 @@ pub struct AgentDef {
     pub on_idle: ActionConfig,
 
     /// What to do when agent process dies
-    #[serde(default = "default_on_dead", alias = "on_exit")]
+    #[serde(default = "default_on_dead")]
     pub on_dead: ActionConfig,
 
     /// What to do when agent shows a permission/approval prompt

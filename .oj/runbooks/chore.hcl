@@ -38,18 +38,13 @@ pipeline "chore" {
 
   locals {
     branch = "chore/${var.task.id}-${workspace.nonce}"
-    title  = "chore: ${var.task.title}"
+    title  = "$(printf '%s' \"chore: ${var.task.title}\" | tr '\\n' ' ' | cut -c1-80)"
   }
 
   notify {
     on_start = "Chore: ${var.task.title}"
     on_done  = "Chore done: ${var.task.title}"
     on_fail  = "Chore failed: ${var.task.title}"
-  }
-
-  step "init" {
-    run     = "true"
-    on_done = { step = "work" }
   }
 
   step "work" {
@@ -59,11 +54,10 @@ pipeline "chore" {
 
   step "submit" {
     run = <<-SHELL
-      _title=$(printf '%s' "${local.title}" | tr '\n' ' ' | cut -c1-80)
       git add -A
-      git diff --cached --quiet || git commit -m "$_title"
+      git diff --cached --quiet || git commit -m "${local.title}"
       git push origin "${workspace.branch}"
-      oj queue push merges --var branch="${workspace.branch}" --var title="$_title"
+      oj queue push merges --var branch="${workspace.branch}" --var title="${local.title}"
     SHELL
     on_done = { step = "done" }
   }

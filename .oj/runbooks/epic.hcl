@@ -26,7 +26,7 @@ pipeline "epic" {
 
   locals {
     branch = "feature/${var.name}-${workspace.nonce}"
-    title  = "feat(${var.name}): ${var.instructions}"
+    title  = "$(printf '%s' \"feat(${var.name}): ${var.instructions}\" | tr '\\n' ' ' | cut -c1-80)"
   }
 
   notify {

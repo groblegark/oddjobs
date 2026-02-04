@@ -22,6 +22,8 @@ command "build" {
 pipeline "build" {
   name      = "${var.name}"
   vars      = ["name", "instructions", "base"]
+  on_cancel = { step = "cancel" }
+  on_fail   = { step = "reopen" }
 
   workspace {
     git = "worktree"
@@ -29,7 +31,8 @@ pipeline "build" {
 
   locals {
     branch = "feature/${var.name}-${workspace.nonce}"
-    title  = "feat(${var.name}): ${var.instructions}"
+    title  = "$(printf '%s' \"feat(${var.name}): ${var.instructions}\" | tr '\\n' ' ' | cut -c1-80)"
+    issue  = "$(cd ${invoke.dir} && wok new feature \"${var.instructions}\" -o id)"
   }
 
   notify {
@@ -63,6 +66,19 @@ pipeline "build" {
       git push origin "${workspace.branch}"
       oj queue push merges --var branch="${workspace.branch}" --var title="${local.title}"
     SHELL
+    on_done = { step = "done" }
+  }
+
+  step "done" {
+    run = "cd ${invoke.dir} && wok done ${local.issue}"
+  }
+
+  step "cancel" {
+    run = "cd ${invoke.dir} && wok close ${local.issue} --reason 'Build pipeline cancelled'"
+  }
+
+  step "reopen" {
+    run = "cd ${invoke.dir} && wok reopen ${local.issue} --reason 'Build pipeline failed'"
   }
 }
 

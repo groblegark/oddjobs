@@ -17,7 +17,7 @@ use crate::protocol::Response;
 
 use super::{
     handle_agent_prune, handle_agent_send, handle_pipeline_cancel, handle_pipeline_resume,
-    handle_session_kill,
+    handle_session_kill, PruneFlags,
 };
 
 fn test_event_bus(dir: &std::path::Path) -> EventBus {
@@ -369,7 +369,16 @@ fn agent_prune_all_removes_terminal_pipelines_from_state() {
         );
     }
 
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, true, false);
+    let result = handle_agent_prune(
+        &state,
+        &event_bus,
+        &logs_path,
+        &PruneFlags {
+            all: true,
+            dry_run: false,
+            namespace: None,
+        },
+    );
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -418,7 +427,16 @@ fn agent_prune_dry_run_does_not_delete() {
         );
     }
 
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, true, true);
+    let result = handle_agent_prune(
+        &state,
+        &event_bus,
+        &logs_path,
+        &PruneFlags {
+            all: true,
+            dry_run: true,
+            namespace: None,
+        },
+    );
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -453,7 +471,16 @@ fn agent_prune_skips_non_terminal_pipelines() {
         );
     }
 
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, true, false);
+    let result = handle_agent_prune(
+        &state,
+        &event_bus,
+        &logs_path,
+        &PruneFlags {
+            all: true,
+            dry_run: false,
+            namespace: None,
+        },
+    );
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -468,6 +495,60 @@ fn agent_prune_skips_non_terminal_pipelines() {
         s.pipelines.contains_key("pipe-active"),
         "active pipeline should remain"
     );
+}
+
+// --- cleanup helper tests ---
+
+#[test]
+fn cleanup_pipeline_files_removes_log_and_breadcrumb() {
+    let dir = tempdir().unwrap();
+    let logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
+
+    // Create pipeline log, breadcrumb, and agent files
+    let log_file = oj_engine::log_paths::pipeline_log_path(&logs_path, "pipe-cleanup");
+    if let Some(parent) = log_file.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&log_file, "log data").unwrap();
+
+    let crumb_file = oj_engine::log_paths::breadcrumb_path(&logs_path, "pipe-cleanup");
+    if let Some(parent) = crumb_file.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&crumb_file, "crumb data").unwrap();
+
+    let agent_log = logs_path.join("agent").join("pipe-cleanup.log");
+    std::fs::write(&agent_log, "agent log").unwrap();
+
+    let agent_dir = logs_path.join("agent").join("pipe-cleanup");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::write(agent_dir.join("session.log"), "session").unwrap();
+
+    super::cleanup_pipeline_files(&logs_path, "pipe-cleanup");
+
+    assert!(!log_file.exists(), "pipeline log should be removed");
+    assert!(!crumb_file.exists(), "breadcrumb should be removed");
+    assert!(!agent_log.exists(), "agent log should be removed");
+    assert!(!agent_dir.exists(), "agent dir should be removed");
+}
+
+#[test]
+fn cleanup_agent_files_removes_log_and_dir() {
+    let dir = tempdir().unwrap();
+    let logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
+
+    let agent_log = logs_path.join("agent").join("agent-42.log");
+    std::fs::write(&agent_log, "data").unwrap();
+
+    let agent_dir = logs_path.join("agent").join("agent-42");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+
+    super::cleanup_agent_files(&logs_path, "agent-42");
+
+    assert!(!agent_log.exists(), "agent log should be removed");
+    assert!(!agent_dir.exists(), "agent dir should be removed");
 }
 
 // --- handle_pipeline_cancel tests ---

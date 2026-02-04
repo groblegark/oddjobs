@@ -2,6 +2,11 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use clap::ValueEnum;
+use serde::Serialize;
+
+#[cfg(test)]
+#[path = "output_tests.rs"]
+mod tests;
 
 /// Determine if color output should be enabled.
 ///
@@ -37,6 +42,53 @@ pub fn format_time_ago(epoch_ms: u64) -> String {
     } else {
         format!("{}d", elapsed_secs / 86400)
     }
+}
+
+/// Print prune command results in text or JSON format.
+///
+/// Handles the dry-run header, per-entry output with "Would prune"/"Pruned"
+/// label, and the summary line.  `format_entry` receives each pruned entry and
+/// returns the entity-specific detail (the label prefix is added automatically).
+pub fn print_prune_results<T: Serialize>(
+    dry_run: bool,
+    pruned: &[T],
+    skipped: usize,
+    entity: &str,
+    skip_label: &str,
+    format: OutputFormat,
+    format_entry: impl Fn(&T) -> String,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Text => {
+            if dry_run {
+                println!("Dry run — no changes made\n");
+            }
+
+            let label = if dry_run { "Would prune" } else { "Pruned" };
+            for entry in pruned {
+                println!("{} {}", label, format_entry(entry));
+            }
+
+            let verb = if dry_run { "would be pruned" } else { "pruned" };
+            println!(
+                "\n{} {}(s) {}, {} {}",
+                pruned.len(),
+                entity,
+                verb,
+                skipped,
+                skip_label
+            );
+        }
+        OutputFormat::Json => {
+            let obj = serde_json::json!({
+                "dry_run": dry_run,
+                "pruned": pruned,
+                "skipped": skipped,
+            });
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+    }
+    Ok(())
 }
 
 /// Display log content with optional follow mode, handling text/json output.

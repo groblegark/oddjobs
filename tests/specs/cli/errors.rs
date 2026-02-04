@@ -59,5 +59,5 @@ fn run_with_all_args_passes() {
     temp.oj()
         .args(&["run", "build", "myfeature", "Add login button"])
         .passes()
-        .stdout_has("Command build invoked");
+        .stdout_has("Command: build");
 }

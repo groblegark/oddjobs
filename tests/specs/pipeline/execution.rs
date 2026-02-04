@@ -356,7 +356,7 @@ fn pipeline_starts_and_runs_init_step() {
     temp.oj()
         .args(&["run", "test", "hello"])
         .passes()
-        .stdout_has("Command test invoked");
+        .stdout_has("Command: test");
 
     // Wait for pipeline to appear (event processing is async)
     let found = wait_for(SPEC_WAIT_MAX_MS, || {

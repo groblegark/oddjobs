@@ -260,7 +260,7 @@ async fn dispatch_pipeline(
 ) -> Result<()> {
     let short_id = &pipeline_id[..8.min(pipeline_id.len())];
     println!("Project: {namespace}");
-    println!("Command {} invoked.", command);
+    println!("Command: {command}");
     println!("Waiting for pipeline to start... (Ctrl+C to skip)");
     println!();
 
@@ -315,7 +315,7 @@ async fn dispatch_agent_run(
 ) -> Result<()> {
     let short_id = &agent_run_id[..8.min(agent_run_id.len())];
     println!("Project: {namespace}");
-    println!("Command {} invoked.", command);
+    println!("Command: {command}");
     println!("Agent: {agent_name} ({short_id})");
     println!();
 

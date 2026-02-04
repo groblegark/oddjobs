@@ -4,7 +4,7 @@
 //! `oj pipeline wait` - Block until pipeline(s) reach a terminal state
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 
@@ -34,11 +34,7 @@ pub async fn handle(
     let timeout_dur = timeout
         .map(|s| super::pipeline::parse_duration(&s))
         .transpose()?;
-    let poll_ms = std::env::var("OJ_WAIT_POLL_MS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(1000);
-    let poll_interval = Duration::from_millis(poll_ms);
+    let poll_interval = crate::client::wait_poll_interval();
     let start = Instant::now();
 
     let mut finished: HashMap<String, PipelineOutcome> = HashMap::new();

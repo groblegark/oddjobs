@@ -1234,6 +1234,7 @@ dependencies = [
  "assert_cmd",
  "dirs",
  "serde_json",
+ "serial_test",
  "similar-asserts",
  "tempfile",
 ]

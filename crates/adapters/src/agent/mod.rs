@@ -156,6 +156,12 @@ pub trait AgentAdapter: Clone + Send + Sync + 'static {
     /// This is a point-in-time check; for continuous monitoring, use the
     /// event channel from `spawn()`.
     async fn get_state(&self, agent_id: &AgentId) -> Result<AgentState, AgentError>;
+
+    /// Get the current size of the agent's session log file in bytes.
+    ///
+    /// Returns `None` if the log file doesn't exist or can't be read.
+    /// Used by the idle grace timer to detect activity during the grace period.
+    fn session_log_size(&self, agent_id: &AgentId) -> Option<u64>;
 }
 
 #[cfg(test)]

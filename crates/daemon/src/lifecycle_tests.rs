@@ -800,6 +800,8 @@ fn make_pipeline_with_agent(id: &str, step: &str, agent_uuid: &str, session_id: 
         total_retries: 0,
         step_visits: HashMap::new(),
         cron_name: None,
+        idle_grace_log_size: None,
+        last_nudge_at: None,
     }
 }
 
@@ -915,6 +917,8 @@ async fn reconcile_agent_run_dead_session_emits_gone_with_correct_id() {
             updated_at_ms: 2000,
             action_tracker: Default::default(),
             vars: HashMap::new(),
+            idle_grace_log_size: None,
+            last_nudge_at: None,
         },
     );
 
@@ -973,6 +977,8 @@ async fn reconcile_agent_run_no_agent_id_marks_failed_directly() {
             updated_at_ms: 2000,
             action_tracker: Default::default(),
             vars: HashMap::new(),
+            idle_grace_log_size: None,
+            last_nudge_at: None,
         },
     );
 
@@ -1045,6 +1051,8 @@ async fn reconcile_agent_run_no_session_id_marks_failed() {
             updated_at_ms: 2000,
             action_tracker: Default::default(),
             vars: HashMap::new(),
+            idle_grace_log_size: None,
+            last_nudge_at: None,
         },
     );
 

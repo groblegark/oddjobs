@@ -279,6 +279,7 @@ on_fail = "attempt"
 "#;
 
 #[test]
+#[serial_test::serial]
 fn on_fail_cycle_triggers_circuit_breaker() {
     let temp = Project::empty();
     temp.git_init();

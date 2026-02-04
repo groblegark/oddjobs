@@ -54,6 +54,8 @@ fn agent_run_action_attempts() {
         updated_at_ms: 1000,
         action_tracker: ActionTracker::default(),
         vars: HashMap::new(),
+        idle_grace_log_size: None,
+        last_nudge_at: None,
     };
 
     assert_eq!(run.increment_action_attempt("idle", 0), 1);
@@ -81,6 +83,8 @@ fn agent_run_serde_roundtrip() {
         updated_at_ms: 2000,
         action_tracker: ActionTracker::default(),
         vars: HashMap::from([("key".to_string(), "value".to_string())]),
+        idle_grace_log_size: None,
+        last_nudge_at: None,
     };
 
     let json = serde_json::to_string(&run).unwrap();

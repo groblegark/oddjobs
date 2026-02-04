@@ -54,6 +54,7 @@ struct FakeAgentState {
 struct FakeAgent {
     state: AgentState,
     event_tx: Option<mpsc::Sender<Event>>,
+    session_log_size: Option<u64>,
 }
 
 impl Default for FakeAgentAdapter {
@@ -123,6 +124,14 @@ impl FakeAgentAdapter {
         self.inner.lock().kill_error = Some(error);
     }
 
+    /// Set the session log size for an agent (for idle grace timer testing)
+    pub fn set_session_log_size(&self, agent_id: &AgentId, size: Option<u64>) {
+        let mut inner = self.inner.lock();
+        if let Some(agent) = inner.agents.get_mut(agent_id) {
+            agent.session_log_size = size;
+        }
+    }
+
     /// Check if an agent exists
     pub fn has_agent(&self, agent_id: &AgentId) -> bool {
         self.inner.lock().agents.contains_key(agent_id)
@@ -157,6 +166,7 @@ impl AgentAdapter for FakeAgentAdapter {
             FakeAgent {
                 state: AgentState::Working,
                 event_tx: Some(event_tx),
+                session_log_size: None,
             },
         );
 
@@ -188,6 +198,7 @@ impl AgentAdapter for FakeAgentAdapter {
             FakeAgent {
                 state: AgentState::Working,
                 event_tx: Some(event_tx),
+                session_log_size: None,
             },
         );
 
@@ -247,6 +258,11 @@ impl AgentAdapter for FakeAgentAdapter {
             .get(agent_id)
             .map(|a| a.state.clone())
             .ok_or_else(|| AgentError::NotFound(agent_id.to_string()))
+    }
+
+    fn session_log_size(&self, agent_id: &AgentId) -> Option<u64> {
+        let inner = self.inner.lock();
+        inner.agents.get(agent_id).and_then(|a| a.session_log_size)
     }
 }
 

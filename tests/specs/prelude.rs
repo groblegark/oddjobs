@@ -340,6 +340,8 @@ impl Project {
             // expects it. Without this, claudeless defaults to a temp dir while
             // the watcher defaults to ~/.claude, and they never find each other.
             .env("CLAUDE_CONFIG_DIR", self.state_path().join("claude"))
+            // Use short idle grace period in specs so on_idle tests don't wait 60s
+            .env("OJ_IDLE_GRACE_MS", "1000")
     }
 
     /// Read the daemon log file contents (for debugging test failures)

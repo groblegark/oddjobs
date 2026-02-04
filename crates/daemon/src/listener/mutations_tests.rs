@@ -65,6 +65,8 @@ fn make_pipeline(id: &str, step: &str) -> Pipeline {
         total_retries: 0,
         step_visits: HashMap::new(),
         cron_name: None,
+        idle_grace_log_size: None,
+        last_nudge_at: None,
     }
 }
 
@@ -339,6 +341,8 @@ fn make_pipeline_with_agent(id: &str, step: &str, agent_id: &str) -> Pipeline {
         total_retries: 0,
         step_visits: HashMap::new(),
         cron_name: None,
+        idle_grace_log_size: None,
+        last_nudge_at: None,
     }
 }
 
@@ -887,6 +891,8 @@ fn make_pipeline_agent_in_history(
         total_retries: 0,
         step_visits: HashMap::new(),
         cron_name: None,
+        idle_grace_log_size: None,
+        last_nudge_at: None,
     }
 }
 
@@ -1021,6 +1027,8 @@ async fn agent_send_finds_standalone_agent_run() {
                 updated_at_ms: 2000,
                 action_tracker: oj_core::ActionTracker::default(),
                 vars: HashMap::new(),
+                idle_grace_log_size: None,
+                last_nudge_at: None,
             },
         );
     }

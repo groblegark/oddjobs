@@ -180,6 +180,7 @@ run = "${var.cmd}"
 "#;
 
 #[test]
+#[serial_test::serial]
 fn failed_pipeline_frees_slot_for_next_pending_item() {
     let temp = Project::empty();
     temp.git_init();

@@ -73,11 +73,95 @@ Both mechanisms emit the same `AgentIdle` event, so the engine handles them iden
 
 **Why log-based detection works**: Claude Code writes structured JSONL logs. When an assistant message has no `tool_use` content blocks, Claude has finished its current turn and is waiting for input - the exact moment to nudge.
 
+## Idle Grace Timer
+
+When an `AgentIdle` event arrives, the engine does **not** act immediately. Instead, it sets a 60-second grace timer and records the current session log file size. This prevents false idle triggers from brief text-only states between tool calls.
+
+When the grace timer fires, two conditions must hold before proceeding with `on_idle`:
+
+1. **Log file hasn't grown** — any activity (tool calls, thinking, subagent output, streaming) writes to the log
+2. **Agent state is still `WaitingForInput`** — guards against race conditions where a tool started after the `AgentIdle` event was queued
+
+If either check fails, the idle is cancelled as a false positive.
+
+```diagram
+Idle Grace Timer Flow:
+
+  AgentIdle received
+      │
+      ├── Grace timer already pending? → Drop (deduplicate)
+      │
+      └── Record session log file size, set 60s grace timer
+              │
+              │  ... 60 seconds ...
+              │
+          Grace timer fires
+              │
+              ├── Log file grew? → Not idle (cancel)
+              │
+              ├── Agent state == Working? → Not idle (cancel)
+              │
+              └── Both checks pass → Proceed with on_idle action
+```
+
+**Working cancels the grace timer**: When the agent transitions to Working (tool_use or thinking detected), any pending idle grace timer is cancelled immediately and the recorded log size is cleared.
+
+**Activity type coverage:**
+
+| Activity | Why idle won't false-trigger |
+|----------|------------------------------|
+| Tool calls (Read, Write, Bash, etc.) | tool_use block → watcher reports Working → no AgentIdle event |
+| Thinking (extended thinking) | thinking block → watcher reports Working → no AgentIdle |
+| Subagents (Task/Explore) | tool_use for Task → watcher reports Working throughout subagent execution |
+| Long Bash (>60s) | tool_use block persists until result → watcher reports Working |
+| Background Bash (run_in_background) | Result returns immediately with task_id; agent continues normally |
+| Brief text between tool calls | AgentIdle fires → grace timer set → agent calls next tool within seconds → log grows → timer cancelled |
+| Streaming text response | JSONL entry written when response completes; if still generating, previous tool_use/result is last line → Working |
+| Race: tool started after AgentIdle queued | Grace timer re-checks `get_agent_state()` → sees Working → no-op |
+
+**Cross-agent isolation**: Each agent has its own session log. Agent A dispatching work via `oj run` creates a separate pipeline/agent. Agent A's idle detection is independent — its session log reflects its own activity, not child agents'.
+
+**Timelines:**
+
+```
+Normal work (tool calls every 3-10s):
+─────────────────────────────────────────────────────────────
+  t=0    text msg  → AgentIdle → set grace timer, record log size
+  t=2    tool_use  → Working   → cancel grace timer ✓
+  t=5    result    → log grows
+  t=6    text msg  → AgentIdle → set grace timer, record log size
+  t=8    tool_use  → Working   → cancel grace timer ✓
+  ...    (timer never fires)
+
+Long tool call (60+ second Bash/subagent):
+─────────────────────────────────────────────────────────────
+  t=0    tool_use  → Working (tool_use in last line)
+  ...    (watcher sees Working — no AgentIdle fires)
+  t=90   result    → Working
+  t=91   text msg  → AgentIdle → set grace timer
+  t=93   tool_use  → Working   → cancel grace timer ✓
+
+Genuinely stuck:
+─────────────────────────────────────────────────────────────
+  t=0    text msg  → AgentIdle → set grace timer, record log size
+  ...    (no log entries, no tool calls)
+  t=60   timer fires → log unchanged + state WaitingForInput
+         → on_idle → nudge (attempt 1)
+  t=61   user msg  → Working (our nudge text)
+         → suppress auto-resume (last_nudge_at < 60s)
+  t=62   text msg  → AgentIdle → set grace timer
+  ...    (still no real work)
+  t=122  timer fires → on_idle → attempts exhausted → escalate ✓
+```
+
+**Environment variable**: `OJ_IDLE_GRACE_MS` overrides the default 60000ms grace period (used in integration tests).
+
 ## Stuck Recovery
 
-1. **Detect**: Notification hook fires `AgentIdle` event (instant), or watcher detects idle from log (fallback)
+1. **Detect**: `AgentIdle` event fires → 60s grace timer → dual check confirms genuinely idle
 2. **Nudge**: Engine sends follow-up message via `Effect::SendToSession`
-3. **Escalate**: If nudge doesn't help, desktop notification via `Effect::Notify`
+3. **Self-trigger prevention**: After sending a nudge, auto-resume is suppressed for 60s so our own nudge text doesn't reset the cycle
+4. **Escalate**: If nudge doesn't help, desktop notification via `Effect::Notify`
 
 Nudging works because Claude Code accepts user input via the terminal. A nudge message acts like typing a follow-up prompt, encouraging the agent to resume work.
 

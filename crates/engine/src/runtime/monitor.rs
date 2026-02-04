@@ -193,7 +193,35 @@ where
     ) -> Result<Vec<Event>, RuntimeError> {
         let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
+                // Cancel idle grace timer — agent is working
+                let pipeline_id = PipelineId::new(&pipeline.id);
+                self.executor
+                    .execute(Effect::CancelTimer {
+                        id: TimerId::idle_grace(&pipeline_id),
+                    })
+                    .await?;
+
+                // Clear idle grace state
+                self.lock_state_mut(|state| {
+                    if let Some(p) = state.pipelines.get_mut(pipeline_id.as_str()) {
+                        p.idle_grace_log_size = None;
+                    }
+                });
+
                 if pipeline.step_status.is_waiting() {
+                    // Don't auto-resume within 60s of nudge — "Working" is
+                    // likely from our own nudge text, not genuine progress
+                    if let Some(nudge_at) = pipeline.last_nudge_at {
+                        let now = self.clock().epoch_ms();
+                        if now.saturating_sub(nudge_at) < 60_000 {
+                            tracing::debug!(
+                                pipeline_id = %pipeline.id,
+                                "suppressing auto-resume within 60s of nudge"
+                            );
+                            return Ok(vec![]);
+                        }
+                    }
+
                     tracing::info!(
                         pipeline_id = %pipeline.id,
                         step = %pipeline.step,
@@ -205,7 +233,6 @@ where
                         "agent active, auto-resuming from escalation",
                     );
 
-                    let pipeline_id = PipelineId::new(&pipeline.id);
                     let effects = vec![Effect::Emit {
                         event: Event::StepStarted {
                             pipeline_id: pipeline_id.clone(),
@@ -507,6 +534,16 @@ where
             ActionEffects::Nudge { effects } => {
                 self.logger
                     .append(&pipeline.id, &pipeline.step, "nudge sent");
+
+                // Record nudge timestamp to suppress auto-resume from our own nudge text
+                let pipeline_id = PipelineId::new(&pipeline.id);
+                let now = self.clock().epoch_ms();
+                self.lock_state_mut(|state| {
+                    if let Some(p) = state.pipelines.get_mut(pipeline_id.as_str()) {
+                        p.last_nudge_at = Some(now);
+                    }
+                });
+
                 Ok(self.executor.execute_all(effects).await?)
             }
             ActionEffects::AdvancePipeline => {

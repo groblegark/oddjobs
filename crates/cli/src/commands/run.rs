@@ -265,12 +265,8 @@ async fn dispatch_pipeline(
     println!();
 
     // Poll for pipeline start
-    let wait_ms = std::env::var("OJ_RUN_WAIT_MS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(10_000);
     let poll_interval = Duration::from_millis(500);
-    let deadline = Instant::now() + Duration::from_millis(wait_ms);
+    let deadline = Instant::now() + crate::client::run_wait_timeout();
     let mut started = false;
 
     let ctrl_c = tokio::signal::ctrl_c();

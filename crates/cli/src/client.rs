@@ -50,6 +50,16 @@ pub fn poll_interval() -> Duration {
     parse_duration_ms("OJ_CONNECT_POLL_MS").unwrap_or(Duration::from_millis(50))
 }
 
+/// Polling interval for `oj pipeline wait` / `oj agent wait`
+pub fn wait_poll_interval() -> Duration {
+    parse_duration_ms("OJ_WAIT_POLL_MS").unwrap_or(Duration::from_secs(1))
+}
+
+/// How long `oj run` waits for a pipeline to start before returning
+pub fn run_wait_timeout() -> Duration {
+    parse_duration_ms("OJ_RUN_WAIT_MS").unwrap_or(Duration::from_secs(10))
+}
+
 /// Client errors
 #[derive(Debug, Error)]
 pub enum ClientError {

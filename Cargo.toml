@@ -22,6 +22,7 @@ publish = false
 [dev-dependencies]
 assert_cmd.workspace = true
 dirs.workspace = true
+serial_test.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
 tempfile.workspace = true
@@ -47,6 +48,7 @@ notify-rust = "4"
 # dev dependencies
 assert_cmd = "2"
 dirs = "5"
+serial_test = "3"
 similar-asserts = "1"
 tempfile = "3"
 

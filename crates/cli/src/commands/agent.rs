@@ -566,11 +566,7 @@ async fn find_agent(
 
 async fn handle_wait(agent_id: &str, timeout: Option<&str>, client: &DaemonClient) -> Result<()> {
     let timeout_dur = timeout.map(parse_duration).transpose()?;
-    let poll_ms = std::env::var("OJ_WAIT_POLL_MS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(1000);
-    let poll_interval = Duration::from_millis(poll_ms);
+    let poll_interval = crate::client::wait_poll_interval();
     let start = Instant::now();
 
     // Resolve agent to a pipeline on first iteration; re-scan if not found yet

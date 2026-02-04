@@ -909,6 +909,8 @@ impl MaterializedState {
                         updated_at_ms: *created_at_epoch_ms,
                         action_tracker: Default::default(),
                         vars: vars.clone(),
+                        idle_grace_log_size: None,
+                        last_nudge_at: None,
                     },
                 );
             }

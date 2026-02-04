@@ -67,6 +67,8 @@ fn make_pipeline(
         total_retries: 0,
         step_visits: HashMap::new(),
         cron_name: None,
+        idle_grace_log_size: None,
+        last_nudge_at: None,
     }
 }
 
@@ -372,6 +374,8 @@ fn status_overview_includes_active_agents() {
                 updated_at_ms: 2000,
                 action_tracker: Default::default(),
                 vars: HashMap::new(),
+                idle_grace_log_size: None,
+                last_nudge_at: None,
             },
         );
     }

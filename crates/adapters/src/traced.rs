@@ -258,6 +258,10 @@ impl<A: AgentAdapter> AgentAdapter for TracedAgent<A> {
         tracing::trace!(%agent_id, state = ?result.as_ref().ok(), "checked");
         result
     }
+
+    fn session_log_size(&self, agent_id: &AgentId) -> Option<u64> {
+        self.inner.session_log_size(agent_id)
+    }
 }
 
 #[cfg(test)]

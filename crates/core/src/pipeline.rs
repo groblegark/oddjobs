@@ -221,6 +221,14 @@ pub struct Pipeline {
     /// Name of the cron that spawned this pipeline, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cron_name: Option<String>,
+    /// Session log file size when idle grace timer was set.
+    /// Used to detect activity during the grace period.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_grace_log_size: Option<u64>,
+    /// Epoch milliseconds when the last nudge was sent.
+    /// Used to suppress auto-resume from our own nudge text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_nudge_at: Option<u64>,
 }
 
 impl Pipeline {
@@ -260,6 +268,8 @@ impl Pipeline {
             total_retries: 0,
             step_visits: HashMap::new(),
             cron_name: config.cron_name,
+            idle_grace_log_size: None,
+            last_nudge_at: None,
         }
     }
 

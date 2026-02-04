@@ -97,10 +97,10 @@ agent "fix" {
 | State | Log Indicator | Trigger |
 |-------|--------------|---------|
 | Working | `type: "assistant"` with `tool_use` or `thinking` content blocks, or `type: "user"` (processing tool results) | Keep monitoring |
-| Waiting for input | `type: "assistant"` with no `tool_use` content blocks | `on_idle` (after idle timeout) |
+| Waiting for input | `type: "assistant"` with no `tool_use` content blocks | `on_idle` (after 60s grace period) |
 | API error | Error field in log entry (unauthorized, quota, network, rate limit) | `on_error` |
 
-The watcher applies an idle timeout (default 180s, configurable via `OJ_IDLE_TIMEOUT_MS`) before emitting the `WaitingForInput` state, to avoid false positives from brief pauses between tool calls.
+When idle is detected, the engine applies a 60-second grace period before firing `on_idle`. During this grace period, the engine checks for any session log activity and re-verifies the agent state, preventing false idle triggers from brief pauses between tool calls. See [Claude Code adapter](../arch/06-adapter-claude.md) for detailed idle detection mechanics.
 
 **Process exit detection:**
 

@@ -176,13 +176,39 @@ where
     ) -> Result<Vec<Event>, RuntimeError> {
         let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
+                // Cancel idle grace timer — agent is working
+                let agent_run_id = AgentRunId::new(&agent_run.id);
+                self.executor
+                    .execute(Effect::CancelTimer {
+                        id: TimerId::idle_grace_agent_run(&agent_run_id),
+                    })
+                    .await?;
+
+                // Clear idle grace state
+                self.lock_state_mut(|state| {
+                    if let Some(ar) = state.agent_runs.get_mut(agent_run_id.as_str()) {
+                        ar.idle_grace_log_size = None;
+                    }
+                });
+
                 if agent_run.status == AgentRunStatus::Escalated {
+                    // Don't auto-resume within 60s of nudge
+                    if let Some(nudge_at) = agent_run.last_nudge_at {
+                        let now = self.clock().epoch_ms();
+                        if now.saturating_sub(nudge_at) < 60_000 {
+                            tracing::debug!(
+                                agent_run_id = %agent_run.id,
+                                "suppressing auto-resume within 60s of nudge"
+                            );
+                            return Ok(vec![]);
+                        }
+                    }
+
                     tracing::info!(
                         agent_run_id = %agent_run.id,
                         "standalone agent active, auto-resuming from escalation"
                     );
 
-                    let agent_run_id = AgentRunId::new(&agent_run.id);
                     let effects = vec![Effect::Emit {
                         event: Event::AgentRunStatusChanged {
                             id: agent_run_id.clone(),
@@ -378,7 +404,16 @@ where
         let agent_run_id = AgentRunId::new(&agent_run.id);
 
         match effects {
-            ActionEffects::Nudge { effects } => Ok(self.executor.execute_all(effects).await?),
+            ActionEffects::Nudge { effects } => {
+                // Record nudge timestamp to suppress auto-resume from our own nudge text
+                let now = self.clock().epoch_ms();
+                self.lock_state_mut(|state| {
+                    if let Some(ar) = state.agent_runs.get_mut(agent_run_id.as_str()) {
+                        ar.last_nudge_at = Some(now);
+                    }
+                });
+                Ok(self.executor.execute_all(effects).await?)
+            }
             ActionEffects::CompleteAgentRun => {
                 // Emit on_done notification
                 if let Some(effect) = monitor::build_agent_run_notify_effect(

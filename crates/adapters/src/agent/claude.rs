@@ -642,6 +642,17 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
         // Fallback: assume working if session is alive
         Ok(AgentState::Working)
     }
+
+    fn session_log_size(&self, agent_id: &AgentId) -> Option<u64> {
+        let workspace_path = {
+            let agents = self.agents.lock();
+            agents.get(agent_id).map(|info| info.workspace_path.clone())
+        }?;
+
+        let log_session_id = agent_id.to_string();
+        let log_path = super::watcher::find_session_log(&workspace_path, &log_session_id)?;
+        fs::metadata(&log_path).ok().map(|m| m.len())
+    }
 }
 
 /// Prepare workspace for agent execution

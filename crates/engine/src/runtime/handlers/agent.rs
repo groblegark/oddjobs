@@ -12,6 +12,17 @@ use oj_core::{
     QuestionData, SessionId, TimerId,
 };
 use std::collections::HashMap;
+use std::time::Duration;
+
+/// Grace period before acting on idle detection.
+/// Prevents false idle triggers between tool calls.
+/// Override with `OJ_IDLE_GRACE_MS` for integration tests.
+pub(crate) fn idle_grace_period() -> Duration {
+    match std::env::var("OJ_IDLE_GRACE_MS") {
+        Ok(val) => Duration::from_millis(val.parse().unwrap_or(60_000)),
+        Err(_) => Duration::from_secs(60),
+    }
+}
 
 impl<S, A, N, C> Runtime<S, A, N, C>
 where
@@ -100,6 +111,10 @@ where
     }
 
     /// Handle agent:idle from Notification hook
+    ///
+    /// Instead of acting immediately, sets a 60-second grace timer and records
+    /// the current session log file size. When the timer fires, we check if the
+    /// log has grown (any activity = not idle) and re-verify the agent state.
     pub(crate) async fn handle_agent_idle_hook(
         &self,
         agent_id: &AgentId,
@@ -119,18 +134,38 @@ where
                 if agent_run.agent_id.as_deref() != Some(agent_id.as_str()) {
                     return Ok(vec![]);
                 }
-                let runbook = self.cached_runbook(&agent_run.runbook_hash)?;
-                let agent_def = runbook
-                    .get_agent(&agent_run.agent_name)
-                    .ok_or_else(|| RuntimeError::AgentNotFound(agent_run.agent_name.clone()))?
-                    .clone();
-                return self
-                    .handle_standalone_monitor_state(
-                        &agent_run,
-                        &agent_def,
-                        MonitorState::WaitingForInput,
-                    )
-                    .await;
+
+                // Deduplicate: if grace timer already pending, skip
+                if agent_run.idle_grace_log_size.is_some() {
+                    tracing::debug!(
+                        agent_run_id = %agent_run.id,
+                        "idle grace timer already pending, deduplicating"
+                    );
+                    return Ok(vec![]);
+                }
+
+                // Record session log size and set grace timer
+                let log_size = self.executor.get_session_log_size(agent_id).unwrap_or(0);
+                let ar_id = AgentRunId::new(&agent_run.id);
+                self.lock_state_mut(|state| {
+                    if let Some(ar) = state.agent_runs.get_mut(ar_id.as_str()) {
+                        ar.idle_grace_log_size = Some(log_size);
+                    }
+                });
+
+                tracing::debug!(
+                    agent_run_id = %agent_run.id,
+                    log_size,
+                    "setting idle grace timer for standalone agent"
+                );
+                self.executor
+                    .execute(Effect::SetTimer {
+                        id: TimerId::idle_grace_agent_run(&ar_id),
+                        duration: idle_grace_period(),
+                    })
+                    .await?;
+
+                return Ok(vec![]);
             }
         }
 
@@ -164,10 +199,37 @@ where
             return Ok(vec![]);
         }
 
-        let runbook = self.cached_runbook(&pipeline.runbook_hash)?;
-        let agent_def = monitor::get_agent_def(&runbook, &pipeline)?.clone();
-        self.handle_monitor_state(&pipeline, &agent_def, MonitorState::WaitingForInput)
-            .await
+        // Deduplicate: if grace timer already pending, skip
+        if pipeline.idle_grace_log_size.is_some() {
+            tracing::debug!(
+                pipeline_id = %pipeline.id,
+                "idle grace timer already pending, deduplicating"
+            );
+            return Ok(vec![]);
+        }
+
+        // Record session log size and set grace timer
+        let log_size = self.executor.get_session_log_size(agent_id).unwrap_or(0);
+        let pid = PipelineId::new(&pipeline.id);
+        self.lock_state_mut(|state| {
+            if let Some(p) = state.pipelines.get_mut(pid.as_str()) {
+                p.idle_grace_log_size = Some(log_size);
+            }
+        });
+
+        tracing::debug!(
+            pipeline_id = %pipeline.id,
+            log_size,
+            "setting idle grace timer"
+        );
+        self.executor
+            .execute(Effect::SetTimer {
+                id: TimerId::idle_grace(&pid),
+                duration: idle_grace_period(),
+            })
+            .await?;
+
+        Ok(vec![])
     }
 
     /// Handle agent:prompt from Notification hook

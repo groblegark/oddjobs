@@ -91,6 +91,14 @@ pub struct AgentRun {
     /// Variables passed to the command
     #[serde(default)]
     pub vars: HashMap<String, String>,
+    /// Session log file size when idle grace timer was set.
+    /// Used to detect activity during the grace period.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_grace_log_size: Option<u64>,
+    /// Epoch milliseconds when the last nudge was sent.
+    /// Used to suppress auto-resume from our own nudge text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_nudge_at: Option<u64>,
 }
 
 impl AgentRun {

@@ -7,7 +7,10 @@ use super::super::Runtime;
 use crate::error::RuntimeError;
 use crate::monitor::{self, MonitorState};
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
-use oj_core::{split_scoped_name, AgentId, AgentState, Clock, Effect, Event, PipelineId, TimerId};
+use oj_core::{
+    split_scoped_name, AgentId, AgentRunId, AgentRunStatus, AgentState, Clock, Effect, Event,
+    PipelineId, TimerId,
+};
 use std::time::Duration;
 
 impl<S, A, N, C> Runtime<S, A, N, C>
@@ -21,6 +24,9 @@ where
     pub(crate) async fn handle_timer(&self, id: &TimerId) -> Result<Vec<Event>, RuntimeError> {
         let id_str = id.as_str();
         // Agent-run timers (check before pipeline timers since they share prefixes)
+        if let Some(ar_id) = id_str.strip_prefix("idle-grace:ar:") {
+            return self.handle_agent_run_idle_grace_timer(ar_id).await;
+        }
         if let Some(ar_id) = id_str.strip_prefix("liveness:ar:") {
             return self.handle_agent_run_liveness_timer(ar_id).await;
         }
@@ -31,6 +37,9 @@ where
             return self.handle_agent_run_cooldown_timer(rest).await;
         }
         // Pipeline timers
+        if let Some(pipeline_id) = id_str.strip_prefix("idle-grace:") {
+            return self.handle_idle_grace_timer(pipeline_id).await;
+        }
         if let Some(pipeline_id) = id_str.strip_prefix("liveness:") {
             return self.handle_liveness_timer(pipeline_id).await;
         }
@@ -368,6 +377,194 @@ where
         };
 
         self.handle_standalone_monitor_state(&agent_run, &agent_def, monitor_state)
+            .await
+    }
+
+    /// Handle idle grace timer expiry for a pipeline.
+    ///
+    /// Dual check: log file growth AND agent state. Both must indicate idle
+    /// for us to proceed with the on_idle action.
+    async fn handle_idle_grace_timer(&self, pipeline_id: &str) -> Result<Vec<Event>, RuntimeError> {
+        let pipeline = match self.get_pipeline(pipeline_id) {
+            Some(p) => p,
+            None => return Ok(vec![]),
+        };
+
+        if pipeline.is_terminal() || pipeline.step_status.is_waiting() {
+            // Clear the grace log size
+            let pid = PipelineId::new(pipeline_id);
+            self.lock_state_mut(|state| {
+                if let Some(p) = state.pipelines.get_mut(pid.as_str()) {
+                    p.idle_grace_log_size = None;
+                }
+            });
+            return Ok(vec![]);
+        }
+
+        // Get the agent_id for the current step
+        let agent_id = pipeline
+            .step_history
+            .iter()
+            .rfind(|r| r.name == pipeline.step)
+            .and_then(|r| r.agent_id.clone())
+            .map(AgentId::new);
+
+        // Check 1: Has the session log grown?
+        let recorded_size = pipeline.idle_grace_log_size.unwrap_or(0);
+        if let Some(ref aid) = agent_id {
+            let current_size = self.executor.get_session_log_size(aid).unwrap_or(0);
+            if current_size > recorded_size {
+                tracing::info!(
+                    pipeline_id,
+                    recorded_size,
+                    current_size,
+                    "agent active during grace period (log grew), cancelling idle"
+                );
+                let pid = PipelineId::new(pipeline_id);
+                self.lock_state_mut(|state| {
+                    if let Some(p) = state.pipelines.get_mut(pid.as_str()) {
+                        p.idle_grace_log_size = None;
+                    }
+                });
+                return Ok(vec![]);
+            }
+        }
+
+        // Check 2: Is the agent still idle? (guards against race where
+        // tool_use was written after we recorded log size)
+        if let Some(ref aid) = agent_id {
+            if let Ok(AgentState::Working) = self.executor.get_agent_state(aid).await {
+                tracing::info!(
+                    pipeline_id,
+                    "agent working at grace timer expiry, cancelling idle"
+                );
+                let pid = PipelineId::new(pipeline_id);
+                self.lock_state_mut(|state| {
+                    if let Some(p) = state.pipelines.get_mut(pid.as_str()) {
+                        p.idle_grace_log_size = None;
+                    }
+                });
+                return Ok(vec![]);
+            }
+        }
+
+        // Clear grace state and proceed with on_idle
+        let pid = PipelineId::new(pipeline_id);
+        self.lock_state_mut(|state| {
+            if let Some(p) = state.pipelines.get_mut(pid.as_str()) {
+                p.idle_grace_log_size = None;
+            }
+        });
+
+        // Re-fetch pipeline after state mutation
+        let pipeline = match self.get_pipeline(pipeline_id) {
+            Some(p) => p,
+            None => return Ok(vec![]),
+        };
+
+        let runbook = self.cached_runbook(&pipeline.runbook_hash)?;
+        let agent_def = match monitor::get_agent_def(&runbook, &pipeline) {
+            Ok(def) => def.clone(),
+            Err(_) => return Ok(vec![]),
+        };
+
+        tracing::info!(
+            pipeline_id,
+            "idle grace timer expired — agent genuinely idle, proceeding with on_idle"
+        );
+        self.handle_monitor_state(&pipeline, &agent_def, MonitorState::WaitingForInput)
+            .await
+    }
+
+    /// Handle idle grace timer expiry for a standalone agent run.
+    async fn handle_agent_run_idle_grace_timer(
+        &self,
+        agent_run_id: &str,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let agent_run = match self.lock_state(|s| s.agent_runs.get(agent_run_id).cloned()) {
+            Some(ar) => ar,
+            None => return Ok(vec![]),
+        };
+
+        if agent_run.status.is_terminal()
+            || agent_run.status == AgentRunStatus::Escalated
+            || agent_run.status == AgentRunStatus::Waiting
+        {
+            // Clear grace state
+            let ar_id = AgentRunId::new(agent_run_id);
+            self.lock_state_mut(|state| {
+                if let Some(ar) = state.agent_runs.get_mut(ar_id.as_str()) {
+                    ar.idle_grace_log_size = None;
+                }
+            });
+            return Ok(vec![]);
+        }
+
+        let agent_id = agent_run.agent_id.as_ref().map(AgentId::new);
+
+        // Check 1: Has the session log grown?
+        let recorded_size = agent_run.idle_grace_log_size.unwrap_or(0);
+        if let Some(ref aid) = agent_id {
+            let current_size = self.executor.get_session_log_size(aid).unwrap_or(0);
+            if current_size > recorded_size {
+                tracing::info!(
+                    agent_run_id,
+                    recorded_size,
+                    current_size,
+                    "standalone agent active during grace period (log grew), cancelling idle"
+                );
+                let ar_id = AgentRunId::new(agent_run_id);
+                self.lock_state_mut(|state| {
+                    if let Some(ar) = state.agent_runs.get_mut(ar_id.as_str()) {
+                        ar.idle_grace_log_size = None;
+                    }
+                });
+                return Ok(vec![]);
+            }
+        }
+
+        // Check 2: Is the agent still idle?
+        if let Some(ref aid) = agent_id {
+            if let Ok(AgentState::Working) = self.executor.get_agent_state(aid).await {
+                tracing::info!(
+                    agent_run_id,
+                    "standalone agent working at grace timer expiry, cancelling idle"
+                );
+                let ar_id = AgentRunId::new(agent_run_id);
+                self.lock_state_mut(|state| {
+                    if let Some(ar) = state.agent_runs.get_mut(ar_id.as_str()) {
+                        ar.idle_grace_log_size = None;
+                    }
+                });
+                return Ok(vec![]);
+            }
+        }
+
+        // Clear grace state and proceed with on_idle
+        let ar_id = AgentRunId::new(agent_run_id);
+        self.lock_state_mut(|state| {
+            if let Some(ar) = state.agent_runs.get_mut(ar_id.as_str()) {
+                ar.idle_grace_log_size = None;
+            }
+        });
+
+        // Re-fetch agent_run after state mutation
+        let agent_run = match self.lock_state(|s| s.agent_runs.get(agent_run_id).cloned()) {
+            Some(ar) => ar,
+            None => return Ok(vec![]),
+        };
+
+        let runbook = self.cached_runbook(&agent_run.runbook_hash)?;
+        let agent_def = runbook
+            .get_agent(&agent_run.agent_name)
+            .ok_or_else(|| RuntimeError::AgentNotFound(agent_run.agent_name.clone()))?
+            .clone();
+
+        tracing::info!(
+            agent_run_id,
+            "standalone idle grace timer expired — agent genuinely idle, proceeding with on_idle"
+        );
+        self.handle_standalone_monitor_state(&agent_run, &agent_def, MonitorState::WaitingForInput)
             .await
     }
 

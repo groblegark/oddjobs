@@ -103,6 +103,21 @@ impl TimerId {
         ))
     }
 
+    /// Timer ID for idle grace period before triggering on_idle for a pipeline.
+    pub fn idle_grace(pipeline_id: &PipelineId) -> Self {
+        Self::new(format!("idle-grace:{}", pipeline_id))
+    }
+
+    /// Timer ID for idle grace period before triggering on_idle for a standalone agent run.
+    pub fn idle_grace_agent_run(agent_run_id: &AgentRunId) -> Self {
+        Self::new(format!("idle-grace:ar:{}", agent_run_id))
+    }
+
+    /// Returns true if this is an idle grace timer.
+    pub fn is_idle_grace(&self) -> bool {
+        self.0.starts_with("idle-grace:")
+    }
+
     /// Returns the AgentRunId portion if this is an agent-run-related timer.
     pub fn agent_run_id_str(&self) -> Option<&str> {
         if let Some(rest) = self.0.strip_prefix("liveness:ar:") {
@@ -112,6 +127,8 @@ impl TimerId {
         } else if let Some(rest) = self.0.strip_prefix("cooldown:ar:") {
             // Format: "cooldown:ar:agent_run_id:trigger:chain_pos"
             rest.split(':').next()
+        } else if let Some(rest) = self.0.strip_prefix("idle-grace:ar:") {
+            Some(rest)
         } else {
             None
         }
@@ -124,7 +141,7 @@ impl TimerId {
 
     /// Extracts the pipeline ID portion if this is a pipeline-related timer.
     ///
-    /// Returns `Some(&str)` for liveness, exit-deferred, and cooldown timers.
+    /// Returns `Some(&str)` for liveness, exit-deferred, cooldown, and idle-grace timers.
     /// For cooldown timers, extracts the pipeline_id from "cooldown:pipeline_id:trigger:pos".
     pub fn pipeline_id_str(&self) -> Option<&str> {
         if let Some(rest) = self.0.strip_prefix("liveness:") {
@@ -134,6 +151,8 @@ impl TimerId {
         } else if let Some(rest) = self.0.strip_prefix("cooldown:") {
             // Format: "cooldown:pipeline_id:trigger:chain_pos"
             rest.split(':').next()
+        } else if let Some(rest) = self.0.strip_prefix("idle-grace:") {
+            Some(rest)
         } else {
             None
         }

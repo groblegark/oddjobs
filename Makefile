@@ -4,7 +4,7 @@
 #
 # Flags:
 #   quench --no-cloc         # Don't force agents to fix LOC errors
-#   cargo test --workspace   # Unlike --all skips 'tests/specs'
+#   cargo test -q --workspace   # Unlike --all skips 'tests/specs'
 #
 # Excluded:
 #   SKIP `cargo audit`
@@ -15,7 +15,7 @@ check:
 	cargo clippy --all -- -D warnings
 	quench check --fix --no-cloc
 	cargo build --all
-	cargo test --workspace
+	cargo test -q --workspace
 
 # Full pre-release checks
 ci:
@@ -23,7 +23,7 @@ ci:
 	cargo clippy --all -- -D warnings
 	quench check --fix
 	cargo build --all
-	cargo test --all
+	cargo test -q --all
 	cargo audit
 	cargo deny check licenses bans sources
 

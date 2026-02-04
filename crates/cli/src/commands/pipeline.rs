@@ -39,10 +39,6 @@ pub enum PipelineCommand {
         /// Show all pipelines (no limit)
         #[arg(long, conflicts_with = "limit")]
         no_limit: bool,
-
-        /// Filter by project namespace
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Show details of a pipeline
     Show {
@@ -107,9 +103,6 @@ pub enum PipelineCommand {
         /// Show what would be pruned without doing it
         #[arg(long)]
         dry_run: bool,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Block until pipeline(s) reach a terminal state
     Wait {
@@ -228,6 +221,7 @@ pub(crate) fn format_pipeline_list(out: &mut impl Write, pipelines: &[oj_daemon:
 pub async fn handle(
     command: PipelineCommand,
     client: &DaemonClient,
+    namespace: &str,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
@@ -236,15 +230,12 @@ pub async fn handle(
             status,
             limit,
             no_limit,
-            project,
         } => {
             let mut pipelines = client.list_pipelines().await?;
 
-            // Filter by project namespace (empty OJ_NAMESPACE treated as unset)
-            let filter_namespace =
-                project.or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()));
-            if let Some(ref ns) = filter_namespace {
-                pipelines.retain(|p| p.namespace == *ns);
+            // Filter by project namespace
+            if !namespace.is_empty() {
+                pipelines.retain(|p| p.namespace == namespace);
             }
 
             // Filter by name substring
@@ -533,10 +524,14 @@ pub async fn handle(
             failed,
             orphans,
             dry_run,
-            project,
         } => {
+            let ns = if namespace.is_empty() {
+                None
+            } else {
+                Some(namespace)
+            };
             let (pruned, skipped) = client
-                .pipeline_prune(all, failed, orphans, dry_run, project.as_deref())
+                .pipeline_prune(all, failed, orphans, dry_run, ns)
                 .await?;
 
             match format {

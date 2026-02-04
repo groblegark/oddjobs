@@ -22,11 +22,7 @@ pub struct SessionArgs {
 #[derive(Subcommand)]
 pub enum SessionCommand {
     /// List all sessions
-    List {
-        /// Filter by project namespace
-        #[arg(long = "project")]
-        project: Option<String>,
-    },
+    List {},
     /// Send input to a session
     Send {
         /// Session ID
@@ -66,17 +62,16 @@ pub fn attach(id: &str) -> Result<()> {
 pub async fn handle(
     command: SessionCommand,
     client: &DaemonClient,
+    namespace: &str,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        SessionCommand::List { project } => {
+        SessionCommand::List {} => {
             let mut sessions = client.list_sessions().await?;
 
-            // Filter by project namespace (empty OJ_NAMESPACE treated as unset)
-            let filter_namespace =
-                project.or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()));
-            if let Some(ref ns) = filter_namespace {
-                sessions.retain(|s| s.namespace == *ns);
+            // Filter by project namespace
+            if !namespace.is_empty() {
+                sessions.retain(|s| s.namespace == namespace);
             }
 
             match format {

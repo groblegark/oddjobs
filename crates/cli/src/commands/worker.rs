@@ -24,25 +24,16 @@ pub enum WorkerCommand {
     Start {
         /// Worker name from runbook
         name: String,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Stop a worker (active pipelines continue, no new items dispatched)
     Stop {
         /// Worker name from runbook
         name: String,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Restart a worker (stop, reload runbook, start)
     Restart {
         /// Worker name from runbook
         name: String,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// View worker activity log
     Logs {
@@ -54,16 +45,9 @@ pub enum WorkerCommand {
         /// Number of recent lines to show (default: 50)
         #[arg(short = 'n', long, default_value = "50")]
         limit: usize,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// List all workers and their status
-    List {
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
-    },
+    List {},
     /// Remove stopped workers from daemon state
     Prune {
         /// Prune all stopped workers (currently same as default)
@@ -73,10 +57,6 @@ pub enum WorkerCommand {
         /// Show what would be pruned without making changes
         #[arg(long)]
         dry_run: bool,
-
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
 }
 
@@ -88,21 +68,15 @@ pub async fn handle(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        WorkerCommand::Start { name, project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
+        WorkerCommand::Start { name } => {
             let request = Request::WorkerStart {
                 project_root: project_root.to_path_buf(),
-                namespace: effective_namespace.clone(),
+                namespace: namespace.to_string(),
                 worker_name: name.clone(),
             };
             match client.send(&request).await? {
                 Response::WorkerStarted { worker_name } => {
-                    println!("Worker '{}' started ({})", worker_name, effective_namespace);
+                    println!("Worker '{}' started ({})", worker_name, namespace);
                 }
                 Response::Error { message } => {
                     anyhow::bail!("{}", message);
@@ -112,21 +86,15 @@ pub async fn handle(
                 }
             }
         }
-        WorkerCommand::Stop { name, project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
+        WorkerCommand::Stop { name } => {
             let request = Request::WorkerStop {
                 worker_name: name.clone(),
-                namespace: effective_namespace.clone(),
+                namespace: namespace.to_string(),
                 project_root: Some(project_root.to_path_buf()),
             };
             match client.send(&request).await? {
                 Response::Ok => {
-                    println!("Worker '{}' stopped ({})", name, effective_namespace);
+                    println!("Worker '{}' stopped ({})", name, namespace);
                 }
                 Response::Error { message } => {
                     anyhow::bail!("{}", message);
@@ -136,16 +104,10 @@ pub async fn handle(
                 }
             }
         }
-        WorkerCommand::Restart { name, project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
+        WorkerCommand::Restart { name } => {
             let request = Request::WorkerRestart {
                 project_root: project_root.to_path_buf(),
-                namespace: effective_namespace,
+                namespace: namespace.to_string(),
                 worker_name: name.clone(),
             };
             match client.send(&request).await? {
@@ -164,30 +126,25 @@ pub async fn handle(
             name,
             follow,
             limit,
-            project,
         } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
             let (log_path, content) = client
-                .get_worker_logs(&name, &effective_namespace, limit, Some(project_root))
+                .get_worker_logs(&name, namespace, limit, Some(project_root))
                 .await?;
             display_log(&log_path, &content, follow, format, "worker", &name).await?;
         }
-        WorkerCommand::List { project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env (empty OJ_NAMESPACE treated as unset)
-            let filter_namespace =
-                project.or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()));
+        WorkerCommand::List {} => {
+            let filter_namespace = if namespace.is_empty() {
+                None
+            } else {
+                Some(namespace.to_string())
+            };
 
             let request = Request::Query {
                 query: Query::ListWorkers,
             };
             match client.send(&request).await? {
                 Response::Workers { mut workers } => {
-                    // Filter by namespace if --project was specified or OJ_NAMESPACE is set
+                    // Filter by namespace
                     if let Some(ref ns) = filter_namespace {
                         workers.retain(|w| w.namespace == *ns);
                     }
@@ -245,18 +202,13 @@ pub async fn handle(
                 _ => anyhow::bail!("unexpected response from daemon"),
             }
         }
-        WorkerCommand::Prune {
-            all,
-            dry_run,
-            project,
-        } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env (empty treated as unset)
-            let filter_namespace =
-                project.or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()));
-
-            let (pruned, skipped) = client
-                .worker_prune(all, dry_run, filter_namespace.as_deref())
-                .await?;
+        WorkerCommand::Prune { all, dry_run } => {
+            let filter_namespace = if namespace.is_empty() {
+                None
+            } else {
+                Some(namespace)
+            };
+            let (pruned, skipped) = client.worker_prune(all, dry_run, filter_namespace).await?;
 
             match format {
                 OutputFormat::Text => {

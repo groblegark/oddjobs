@@ -32,23 +32,13 @@ pub enum QueueCommand {
         /// Item variables (can be repeated: --var key=value)
         #[arg(long = "var", value_parser = parse_key_value)]
         var: Vec<(String, String)>,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// List all known queues
-    List {
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
-    },
+    List {},
     /// Show items in a specific queue
     Items {
         /// Queue name
         queue: String,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Remove an item from a persisted queue
     Drop {
@@ -56,9 +46,6 @@ pub enum QueueCommand {
         queue: String,
         /// Item ID (or prefix)
         item_id: String,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// View queue activity log
     Logs {
@@ -70,9 +57,6 @@ pub enum QueueCommand {
         /// Number of recent lines to show (default: 50)
         #[arg(short = 'n', long, default_value = "50")]
         limit: usize,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Retry a dead or failed queue item
     Retry {
@@ -80,17 +64,11 @@ pub enum QueueCommand {
         queue: String,
         /// Item ID (or prefix)
         item_id: String,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Remove and return all pending items from a persisted queue
     Drain {
         /// Queue name
         queue: String,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
 }
 
@@ -148,12 +126,7 @@ pub async fn handle(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        QueueCommand::Push {
-            queue,
-            data,
-            var,
-            project,
-        } => {
+        QueueCommand::Push { queue, data, var } => {
             // Build data map; allow empty data for external queues (triggers poll)
             let json_data = if data.is_none() && var.is_empty() {
                 serde_json::Value::Object(serde_json::Map::new())
@@ -161,15 +134,9 @@ pub async fn handle(
                 build_data_map(data, var)?
             };
 
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
             let request = Request::QueuePush {
                 project_root: project_root.to_path_buf(),
-                namespace: effective_namespace,
+                namespace: namespace.to_string(),
                 queue_name: queue.clone(),
                 data: json_data,
             };
@@ -192,20 +159,10 @@ pub async fn handle(
                 }
             }
         }
-        QueueCommand::Drop {
-            queue,
-            item_id,
-            project,
-        } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
+        QueueCommand::Drop { queue, item_id } => {
             let request = Request::QueueDrop {
                 project_root: project_root.to_path_buf(),
-                namespace: effective_namespace,
+                namespace: namespace.to_string(),
                 queue_name: queue.clone(),
                 item_id: item_id.clone(),
             };
@@ -229,20 +186,10 @@ pub async fn handle(
                 }
             }
         }
-        QueueCommand::Retry {
-            queue,
-            item_id,
-            project,
-        } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
+        QueueCommand::Retry { queue, item_id } => {
             let request = Request::QueueRetry {
                 project_root: project_root.to_path_buf(),
-                namespace: effective_namespace,
+                namespace: namespace.to_string(),
                 queue_name: queue.clone(),
                 item_id: item_id.clone(),
             };
@@ -266,16 +213,10 @@ pub async fn handle(
                 }
             }
         }
-        QueueCommand::Drain { queue, project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
+        QueueCommand::Drain { queue } => {
             let request = Request::QueueDrain {
                 project_root: project_root.to_path_buf(),
-                namespace: effective_namespace,
+                namespace: namespace.to_string(),
                 queue_name: queue.clone(),
             };
 
@@ -317,29 +258,15 @@ pub async fn handle(
             queue,
             follow,
             limit,
-            project,
         } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
-
-            let (log_path, content) = client
-                .get_queue_logs(&queue, &effective_namespace, limit)
-                .await?;
+            let (log_path, content) = client.get_queue_logs(&queue, namespace, limit).await?;
             display_log(&log_path, &content, follow, format, "queue", &queue).await?;
         }
-        QueueCommand::List { project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
+        QueueCommand::List {} => {
             let request = Request::Query {
                 query: Query::ListQueues {
                     project_root: project_root.to_path_buf(),
-                    namespace: effective_namespace,
+                    namespace: namespace.to_string(),
                 },
             };
             match client.send(&request).await? {
@@ -391,16 +318,11 @@ pub async fn handle(
                 }
             }
         }
-        QueueCommand::Items { queue, project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
+        QueueCommand::Items { queue } => {
             let request = Request::Query {
                 query: Query::ListQueueItems {
                     queue_name: queue.clone(),
-                    namespace: effective_namespace,
+                    namespace: namespace.to_string(),
                     project_root: Some(project_root.to_path_buf()),
                 },
             };

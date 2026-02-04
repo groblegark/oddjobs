@@ -160,6 +160,7 @@ pub async fn handle_peek(client: &DaemonClient, id: &str, format: OutputFormat) 
             super::pipeline::handle(
                 super::pipeline::PipelineCommand::Peek { id: entity.id },
                 client,
+                "",
                 format,
             )
             .await
@@ -168,6 +169,7 @@ pub async fn handle_peek(client: &DaemonClient, id: &str, format: OutputFormat) 
             super::agent::handle(
                 super::agent::AgentCommand::Peek { id: entity.id },
                 client,
+                "",
                 format,
             )
             .await
@@ -176,6 +178,7 @@ pub async fn handle_peek(client: &DaemonClient, id: &str, format: OutputFormat) 
             super::session::handle(
                 super::session::SessionCommand::Peek { id: entity.id },
                 client,
+                "",
                 format,
             )
             .await
@@ -190,6 +193,7 @@ pub async fn handle_attach(client: &DaemonClient, id: &str) -> Result<()> {
             super::pipeline::handle(
                 super::pipeline::PipelineCommand::Attach { id: entity.id },
                 client,
+                "",
                 OutputFormat::Text,
             )
             .await
@@ -198,6 +202,7 @@ pub async fn handle_attach(client: &DaemonClient, id: &str) -> Result<()> {
             super::agent::handle(
                 super::agent::AgentCommand::Attach { id: entity.id },
                 client,
+                "",
                 OutputFormat::Text,
             )
             .await
@@ -224,6 +229,7 @@ pub async fn handle_logs(
                     limit,
                 },
                 client,
+                "",
                 format,
             )
             .await
@@ -237,6 +243,7 @@ pub async fn handle_logs(
                     limit,
                 },
                 client,
+                "",
                 format,
             )
             .await
@@ -266,6 +273,7 @@ pub async fn handle_show(
                     verbose,
                 },
                 client,
+                "",
                 format,
             )
             .await

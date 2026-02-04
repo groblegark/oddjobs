@@ -29,10 +29,6 @@ pub enum WorkspaceCommand {
         /// Show all workspaces (no limit)
         #[arg(long, conflicts_with = "limit")]
         no_limit: bool,
-
-        /// Filter by project namespace
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Show details of a workspace
     Show {
@@ -58,30 +54,22 @@ pub enum WorkspaceCommand {
         /// Show what would be pruned without doing it
         #[arg(long)]
         dry_run: bool,
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
     },
 }
 
 pub async fn handle(
     command: WorkspaceCommand,
     client: &DaemonClient,
+    namespace: &str,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        WorkspaceCommand::List {
-            limit,
-            no_limit,
-            project,
-        } => {
+        WorkspaceCommand::List { limit, no_limit } => {
             let mut workspaces = client.list_workspaces().await?;
 
-            // Filter by project namespace (empty OJ_NAMESPACE treated as unset)
-            let filter_namespace =
-                project.or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()));
-            if let Some(ref ns) = filter_namespace {
-                workspaces.retain(|w| w.namespace == *ns);
+            // Filter by project namespace
+            if !namespace.is_empty() {
+                workspaces.retain(|w| w.namespace == namespace);
             }
 
             // Sort by recency (most recent first)
@@ -266,14 +254,13 @@ pub async fn handle(
                 }
             }
         }
-        WorkspaceCommand::Prune {
-            all,
-            dry_run,
-            project,
-        } => {
-            let (pruned, skipped) = client
-                .workspace_prune(all, dry_run, project.as_deref())
-                .await?;
+        WorkspaceCommand::Prune { all, dry_run } => {
+            let ns = if namespace.is_empty() {
+                None
+            } else {
+                Some(namespace)
+            };
+            let (pruned, skipped) = client.workspace_prune(all, dry_run, ns).await?;
 
             match format {
                 OutputFormat::Text => {

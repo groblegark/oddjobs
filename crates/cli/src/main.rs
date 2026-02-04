@@ -32,6 +32,14 @@ use crate::client::DaemonClient;
     about = "Odd Jobs - Agentic development automation"
 )]
 struct Cli {
+    /// Change to <dir> before doing anything
+    #[arg(short = 'C', global = true, value_name = "DIR")]
+    directory: Option<PathBuf>,
+
+    /// Project namespace override
+    #[arg(long = "project", global = true)]
+    project: Option<String>,
+
     /// Output format
     #[arg(
         short = 'o',
@@ -153,7 +161,8 @@ fn format_error(err: &anyhow::Error) -> String {
 }
 
 fn cli_command() -> clap::Command {
-    let project_root = find_project_root();
+    // Check for -C in raw args to discover correct project root for help text
+    let project_root = find_project_root_from_args();
     let run_help = commands::run::available_commands_help(&project_root);
 
     Cli::command()
@@ -173,6 +182,20 @@ async fn run() -> Result<()> {
     let matches = cli_command().get_matches();
     let cli = Cli::from_arg_matches(&matches)?;
     let format = cli.output;
+
+    // Apply -C: change working directory early, before project root discovery
+    if let Some(ref dir) = cli.directory {
+        let canonical = std::fs::canonicalize(dir).map_err(|e| {
+            anyhow::anyhow!("cannot change to directory '{}': {}", dir.display(), e)
+        })?;
+        std::env::set_current_dir(&canonical).map_err(|e| {
+            anyhow::anyhow!(
+                "cannot change to directory '{}': {}",
+                canonical.display(),
+                e
+            )
+        })?;
+    }
 
     let command = match cli.command {
         Some(cmd) => cmd,
@@ -194,10 +217,13 @@ async fn run() -> Result<()> {
         return env::handle(args.command, format);
     }
 
-    // Find project root for runbook loading
+    // Find project root for runbook loading (now from potentially-changed cwd)
     let project_root = find_project_root();
     let invoke_dir = std::env::current_dir().unwrap_or_else(|_| project_root.clone());
-    let namespace = oj_core::namespace::resolve_namespace(&project_root);
+
+    // Centralized namespace resolution:
+    //   --project flag > OJ_NAMESPACE env > auto-resolved from project root
+    let namespace = resolve_effective_namespace(cli.project.as_deref(), &project_root);
 
     // Dispatch commands with appropriate client semantics:
     // - Action commands: auto-start daemon, max 1 restart (user-initiated mutations)
@@ -216,7 +242,7 @@ async fn run() -> Result<()> {
                 | PipelineCommand::Cancel { .. }
                 | PipelineCommand::Prune { .. } => {
                     let client = DaemonClient::for_action()?;
-                    pipeline::handle(args.command, &client, format).await?
+                    pipeline::handle(args.command, &client, &namespace, format).await?
                 }
                 // Query: reads pipeline state
                 PipelineCommand::List { .. }
@@ -226,7 +252,7 @@ async fn run() -> Result<()> {
                 | PipelineCommand::Wait { .. }
                 | PipelineCommand::Attach { .. } => {
                     let client = DaemonClient::for_query()?;
-                    pipeline::handle(args.command, &client, format).await?
+                    pipeline::handle(args.command, &client, &namespace, format).await?
                 }
             }
         }
@@ -238,12 +264,12 @@ async fn run() -> Result<()> {
                 // Action: mutates workspace state
                 WorkspaceCommand::Drop { .. } | WorkspaceCommand::Prune { .. } => {
                     let client = DaemonClient::for_action()?;
-                    workspace::handle(args.command, &client, format).await?
+                    workspace::handle(args.command, &client, &namespace, format).await?
                 }
                 // Query: reads workspace state
                 WorkspaceCommand::List { .. } | WorkspaceCommand::Show { .. } => {
                     let client = DaemonClient::for_query()?;
-                    workspace::handle(args.command, &client, format).await?
+                    workspace::handle(args.command, &client, &namespace, format).await?
                 }
             }
         }
@@ -255,17 +281,17 @@ async fn run() -> Result<()> {
                 // Action: sends input to an agent
                 AgentCommand::Send { .. } => {
                     let client = DaemonClient::for_action()?;
-                    agent::handle(args.command, &client, format).await?
+                    agent::handle(args.command, &client, &namespace, format).await?
                 }
                 // Signal: agent-initiated hooks (stop, pretooluse) - no restart
                 AgentCommand::Hook { .. } => {
                     let client = DaemonClient::for_signal()?;
-                    agent::handle(args.command, &client, format).await?
+                    agent::handle(args.command, &client, &namespace, format).await?
                 }
                 // Query: reads agent state
                 _ => {
                     let client = DaemonClient::for_query()?;
-                    agent::handle(args.command, &client, format).await?
+                    agent::handle(args.command, &client, &namespace, format).await?
                 }
             }
         }
@@ -275,12 +301,12 @@ async fn run() -> Result<()> {
                 // Actions: mutate session state
                 SessionCommand::Send { .. } | SessionCommand::Kill { .. } => {
                     let client = DaemonClient::for_action()?;
-                    session::handle(args.command, &client, format).await?
+                    session::handle(args.command, &client, &namespace, format).await?
                 }
                 // Query: reads session state
                 _ => {
                     let client = DaemonClient::for_query()?;
-                    session::handle(args.command, &client, format).await?
+                    session::handle(args.command, &client, &namespace, format).await?
                 }
             }
         }
@@ -412,6 +438,36 @@ pub fn load_runbook(
     runbook.ok_or_else(|| anyhow::anyhow!("unknown command: {}", name))
 }
 
+/// Find project root, honoring a -C flag if present in raw argv.
+/// Used by `cli_command()` for help text generation before full argument parsing.
+fn find_project_root_from_args() -> PathBuf {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if args[i] == "-C" {
+            if let Some(dir) = args.get(i + 1) {
+                if let Ok(canonical) = std::fs::canonicalize(dir) {
+                    return find_project_root_from(canonical);
+                }
+            }
+        }
+    }
+    find_project_root()
+}
+
+/// Resolve the effective namespace using the standard priority chain:
+///   --project flag > OJ_NAMESPACE env > project root resolution
+fn resolve_effective_namespace(project: Option<&str>, project_root: &Path) -> String {
+    if let Some(p) = project {
+        return p.to_string();
+    }
+    if let Ok(ns) = std::env::var("OJ_NAMESPACE") {
+        if !ns.is_empty() {
+            return ns;
+        }
+    }
+    oj_core::namespace::resolve_namespace(project_root)
+}
+
 /// Find the project root by walking up from current directory.
 /// Looks for .oj directory to identify project root.
 ///
@@ -419,10 +475,13 @@ pub fn load_runbook(
 /// resolves to the main worktree's project root so that daemon requests
 /// (queue push, worker start, etc.) reference the canonical project.
 fn find_project_root() -> PathBuf {
-    let Ok(mut current) = std::env::current_dir() else {
-        return PathBuf::from(".");
-    };
+    let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    find_project_root_from(start)
+}
 
+/// Find the project root by walking up from a given starting directory.
+fn find_project_root_from(start: PathBuf) -> PathBuf {
+    let mut current = start;
     loop {
         if current.join(".oj").is_dir() {
             return resolve_main_worktree(&current).unwrap_or(current);

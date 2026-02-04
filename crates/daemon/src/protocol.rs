@@ -16,7 +16,8 @@ use thiserror::Error;
 mod status;
 pub use status::{
     AgentEntry, AgentStatusEntry, CronEntry, CronSummary, NamespaceStatus, OrphanAgent,
-    OrphanSummary, PipelineEntry, PipelineStatusEntry, ProjectSummary, QueueStatus, WorkerEntry,
+    OrphanSummary, PipelineEntry, PipelineStatusEntry, ProjectSummary, QueueItemEntry, QueueStatus,
+    WorkerEntry,
 };
 
 /// Request from CLI to daemon
@@ -254,6 +255,18 @@ pub enum Request {
         #[serde(default)]
         namespace: String,
         queue_name: String,
+    },
+
+    /// Prune completed/dead items from a persisted queue
+    QueuePrune {
+        project_root: PathBuf,
+        #[serde(default)]
+        namespace: String,
+        queue_name: String,
+        /// Prune all terminal items regardless of age
+        all: bool,
+        /// Preview only -- don't actually delete
+        dry_run: bool,
     },
 
     /// Resolve a pending decision
@@ -522,6 +535,12 @@ pub enum Response {
     /// Cron prune result
     CronsPruned {
         pruned: Vec<CronEntry>,
+        skipped: usize,
+    },
+
+    /// Queue prune result
+    QueuesPruned {
+        pruned: Vec<QueueItemEntry>,
         skipped: usize,
     },
 

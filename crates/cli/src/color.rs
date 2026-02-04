@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use clap::builder::styling::{Ansi256Color, Color, Style, Styles};
 use std::io::IsTerminal;
 
 pub mod codes {
@@ -13,6 +12,16 @@ pub mod codes {
     pub const CONTEXT: u8 = 245;
     /// Muted / secondary text: darker grey
     pub const MUTED: u8 = 240;
+
+    /// Pre-formatted ANSI escape sequences for use in tests
+    #[cfg(test)]
+    pub const HEADER_START: &str = "\x1b[38;5;74m";
+    #[cfg(test)]
+    pub const LITERAL_START: &str = "\x1b[38;5;250m";
+    #[cfg(test)]
+    pub const CONTEXT_START: &str = "\x1b[38;5;245m";
+    #[cfg(test)]
+    pub const RESET: &str = "\x1b[0m";
 }
 
 /// Determine if color output should be enabled.
@@ -26,18 +35,6 @@ pub fn should_colorize() -> bool {
         return true;
     }
     std::io::stdout().is_terminal()
-}
-
-/// Build clap `Styles` using the project palette.
-pub fn styles() -> Styles {
-    if !should_colorize() {
-        return Styles::plain();
-    }
-    Styles::styled()
-        .usage(Style::new().fg_color(Some(Color::Ansi256(Ansi256Color(codes::HEADER)))))
-        .header(Style::new().fg_color(Some(Color::Ansi256(Ansi256Color(codes::HEADER)))))
-        .literal(Style::new().fg_color(Some(Color::Ansi256(Ansi256Color(codes::LITERAL)))))
-        .placeholder(Style::new().fg_color(Some(Color::Ansi256(Ansi256Color(codes::CONTEXT)))))
 }
 
 fn fg256(code: u8) -> String {

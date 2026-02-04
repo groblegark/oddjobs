@@ -14,34 +14,6 @@ fn codes_have_expected_values() {
 
 #[test]
 #[serial]
-fn styles_returns_styled_when_color_forced() {
-    std::env::set_var("COLOR", "1");
-    std::env::remove_var("NO_COLOR");
-
-    let s = styles();
-    let debug = format!("{:?}", s);
-    assert_ne!(
-        debug,
-        format!("{:?}", clap::builder::styling::Styles::plain())
-    );
-}
-
-#[test]
-#[serial]
-fn styles_returns_plain_when_no_color() {
-    std::env::set_var("NO_COLOR", "1");
-    std::env::remove_var("COLOR");
-
-    let s = styles();
-    let debug = format!("{:?}", s);
-    assert_eq!(
-        debug,
-        format!("{:?}", clap::builder::styling::Styles::plain())
-    );
-}
-
-#[test]
-#[serial]
 fn header_produces_ansi_when_color_forced() {
     std::env::set_var("COLOR", "1");
     std::env::remove_var("NO_COLOR");

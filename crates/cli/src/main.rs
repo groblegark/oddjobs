@@ -9,6 +9,7 @@ mod color;
 mod commands;
 mod daemon_process;
 mod exit_error;
+mod help;
 mod output;
 mod table;
 
@@ -166,7 +167,10 @@ fn cli_command() -> clap::Command {
     let run_help = commands::run::available_commands_help(&project_root);
 
     Cli::command()
-        .styles(color::styles())
+        .help_template(help::template())
+        .before_help(help::commands())
+        .after_help(help::after_help())
+        .styles(help::styles())
         .arg(
             clap::Arg::new("version")
                 .short('v')
@@ -179,7 +183,20 @@ fn cli_command() -> clap::Command {
 }
 
 async fn run() -> Result<()> {
-    let matches = cli_command().get_matches();
+    let matches = match cli_command().try_get_matches() {
+        Ok(m) => m,
+        Err(e) => {
+            if e.kind() == clap::error::ErrorKind::DisplayHelp {
+                // Intercept help requests → post-hoc colorized output
+                let args: Vec<String> = std::env::args().collect();
+                let args = strip_global_flags(&args);
+                print_formatted_help(&args);
+                return Ok(());
+            }
+            // DisplayVersion and other errors: let clap handle
+            e.exit();
+        }
+    };
     let cli = Cli::from_arg_matches(&matches)?;
     let format = cli.output;
 
@@ -200,9 +217,8 @@ async fn run() -> Result<()> {
     let command = match cli.command {
         Some(cmd) => cmd,
         None => {
-            // No subcommand provided — print help and exit 0
-            cli_command().print_help()?;
-            println!();
+            // No subcommand provided — print colorized help and exit 0
+            help::print_help(&mut cli_command());
             return Ok(());
         }
     };
@@ -536,6 +552,76 @@ fn resolve_main_worktree(path: &Path) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+/// Print help with post-hoc colorization, resolving the correct subcommand from args.
+fn print_formatted_help(args: &[String]) {
+    let cmd = cli_command();
+
+    // Extract subcommand names from args (skip binary name and flags).
+    // Handle both "oj run --help" and "oj help run" patterns.
+    let non_flags: Vec<&String> = args
+        .iter()
+        .skip(1)
+        .filter(|arg| !arg.starts_with('-'))
+        .collect();
+
+    let subcommand_names: Vec<&str> = if non_flags.first().map(|s| s.as_str()) == Some("help") {
+        non_flags.iter().skip(1).map(|s| s.as_str()).collect()
+    } else {
+        non_flags.iter().map(|s| s.as_str()).collect()
+    };
+
+    let mut target_cmd = find_subcommand(cmd, &subcommand_names);
+    help::print_help(&mut target_cmd);
+}
+
+/// Strip `-C <value>` and `--project <value>` from args to avoid mistaking
+/// their values for subcommand names in help formatting.
+fn strip_global_flags(args: &[String]) -> Vec<String> {
+    let mut result = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "-C" || arg == "--project" {
+            skip_next = true;
+            continue;
+        }
+        if arg.starts_with("-C") && arg.len() > 2 {
+            continue;
+        }
+        if arg.starts_with("--project=") {
+            continue;
+        }
+        result.push(arg.clone());
+    }
+    result
+}
+
+/// Recursively find a nested subcommand by name path.
+fn find_subcommand(mut cmd: clap::Command, names: &[&str]) -> clap::Command {
+    for name in names {
+        let mut found_sub = None;
+        for sub in cmd.get_subcommands() {
+            if sub.get_name() == *name || sub.get_all_aliases().any(|a| a == *name) {
+                found_sub = Some(sub.get_name().to_string());
+                break;
+            }
+        }
+        if let Some(sub_name) = found_sub {
+            if let Some(sub) = cmd.find_subcommand_mut(&sub_name) {
+                cmd = sub.clone();
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    cmd
 }
 
 #[cfg(test)]

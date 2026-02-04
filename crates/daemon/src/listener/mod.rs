@@ -423,7 +423,7 @@ async fn handle_request(
             agent_id,
             kill,
             all,
-        } => mutations::handle_agent_resume(state, event_bus, agent_id, kill, all),
+        } => mutations::handle_agent_resume(state, event_bus, agent_id, kill, all).await,
     }
 }
 

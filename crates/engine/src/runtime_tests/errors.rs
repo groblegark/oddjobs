@@ -35,6 +35,8 @@ async fn shell_completed_for_unknown_pipeline_errors() {
             pipeline_id: PipelineId::new("nonexistent"),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await;
 

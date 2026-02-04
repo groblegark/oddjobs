@@ -185,6 +185,8 @@ where
         pipeline_id: &PipelineId,
         step: &str,
         exit_code: i32,
+        stdout: Option<&str>,
+        stderr: Option<&str>,
     ) -> Result<Vec<Event>, RuntimeError> {
         let pipeline = self.require_pipeline(pipeline_id.as_str())?;
 
@@ -197,6 +199,16 @@ where
                 "shell completed for unexpected step"
             );
             return Ok(vec![]);
+        }
+
+        // Write captured output before the status line
+        if let Some(out) = stdout {
+            self.logger
+                .append_fenced(pipeline_id.as_str(), step, "stdout", out);
+        }
+        if let Some(err) = stderr {
+            self.logger
+                .append_fenced(pipeline_id.as_str(), step, "stderr", err);
         }
 
         if exit_code == 0 {

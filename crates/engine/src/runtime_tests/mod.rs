@@ -218,6 +218,8 @@ async fn shell_completion_advances_step() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -237,6 +239,8 @@ async fn agent_done_advances_step() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

@@ -355,6 +355,8 @@ async fn cron_once_pipeline_steps_execute() {
             pipeline_id: pipeline_id.clone(),
             step: "prune".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -369,6 +371,8 @@ async fn cron_once_pipeline_steps_execute() {
             pipeline_id: pipeline_id.clone(),
             step: "done".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

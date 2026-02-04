@@ -66,6 +66,8 @@ async fn advance_to_agent_step(ctx: &TestContext, pipeline_id: &str) {
             pipeline_id: PipelineId::new(pipeline_id),
             step: "setup".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -362,6 +364,8 @@ async fn resume_from_terminal_failure_shell_step() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "setup".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

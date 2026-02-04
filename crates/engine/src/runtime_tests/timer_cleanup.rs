@@ -167,6 +167,8 @@ async fn liveness_timer_cancelled_on_pipeline_failure() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -306,6 +308,8 @@ async fn exit_deferred_timer_cancelled_on_pipeline_failure() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -422,6 +426,8 @@ async fn cooldown_timer_noop_when_pipeline_becomes_terminal() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

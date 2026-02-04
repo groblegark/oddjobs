@@ -19,6 +19,8 @@ async fn setup_pipeline_at_agent_step(ctx: &TestContext) -> (String, String, Age
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -125,6 +127,8 @@ async fn exit_deferred_timer_noop_when_pipeline_terminal() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "plan".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -185,6 +189,8 @@ async fn exit_deferred_timer_on_idle_when_waiting_for_input() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -223,6 +229,8 @@ async fn exit_deferred_timer_on_error_when_agent_failed() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -263,6 +271,8 @@ async fn exit_deferred_timer_on_dead_for_exited_state() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -322,6 +332,8 @@ async fn agent_state_changed_terminal_pipeline_is_noop() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "plan".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -350,6 +362,8 @@ async fn agent_state_changed_routes_through_agent_pipelines() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -596,6 +610,8 @@ async fn working_noop_when_pipeline_already_running() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1187,6 +1203,8 @@ async fn stale_agent_event_dropped_after_pipeline_advances() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1233,6 +1251,8 @@ async fn stale_agent_signal_dropped_after_pipeline_advances() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

@@ -108,10 +108,18 @@ where
                 pipeline_id,
                 step,
                 exit_code,
+                stdout,
+                stderr,
             } => {
                 result_events.extend(
-                    self.handle_shell_exited(pipeline_id, step, *exit_code)
-                        .await?,
+                    self.handle_shell_exited(
+                        pipeline_id,
+                        step,
+                        *exit_code,
+                        stdout.as_deref(),
+                        stderr.as_deref(),
+                    )
+                    .await?,
                 );
             }
 

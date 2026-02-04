@@ -539,6 +539,8 @@ fn step_history_shell_completed_success() {
         pipeline_id: PipelineId::new("pipe-1"),
         step: "init".to_string(),
         exit_code: 0,
+        stdout: None,
+        stderr: None,
     });
 
     let pipeline = &state.pipelines["pipe-1"];
@@ -554,6 +556,8 @@ fn step_history_shell_completed_failure() {
         pipeline_id: PipelineId::new("pipe-1"),
         step: "init".to_string(),
         exit_code: 42,
+        stdout: None,
+        stderr: None,
     });
 
     let pipeline = &state.pipelines["pipe-1"];

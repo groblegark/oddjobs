@@ -908,6 +908,8 @@ async fn queue_item_failed_on_pipeline_failure() {
             pipeline_id: pipeline_id.clone(),
             step: "init".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

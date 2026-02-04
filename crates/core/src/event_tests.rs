@@ -29,6 +29,8 @@ fn event_serialization_roundtrip() {
             pipeline_id: PipelineId::new("pipe-1"),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         },
     ];
 

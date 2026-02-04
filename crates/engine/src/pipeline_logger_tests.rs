@@ -188,3 +188,73 @@ fn copy_session_log_handles_missing_source() {
     let dest_dir = log_dir.join("agent").join(agent_id);
     assert!(dest_dir.exists());
 }
+
+#[test]
+fn append_fenced_writes_correctly_formatted_block() {
+    let dir = tempdir().unwrap();
+    let logger = PipelineLogger::new(dir.path().to_path_buf());
+
+    logger.append_fenced("pipe-1", "init", "stdout", "hello world\n");
+
+    let content = std::fs::read_to_string(dir.path().join("pipeline/pipe-1.log")).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("[init] ```stdout"));
+    assert_eq!(lines[1], "hello world");
+    assert!(lines[2].contains("[init] ```"));
+    // Closing fence should NOT have a label
+    assert!(!lines[2].contains("```stdout"));
+}
+
+#[test]
+fn append_fenced_adds_trailing_newline_when_missing() {
+    let dir = tempdir().unwrap();
+    let logger = PipelineLogger::new(dir.path().to_path_buf());
+
+    logger.append_fenced("pipe-1", "build", "stderr", "warning: unused variable");
+
+    let content = std::fs::read_to_string(dir.path().join("pipeline/pipe-1.log")).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("[build] ```stderr"));
+    assert_eq!(lines[1], "warning: unused variable");
+    assert!(lines[2].contains("[build] ```"));
+}
+
+#[test]
+fn append_fenced_multiline_content() {
+    let dir = tempdir().unwrap();
+    let logger = PipelineLogger::new(dir.path().to_path_buf());
+
+    logger.append_fenced(
+        "pipe-1",
+        "build",
+        "stdout",
+        "Compiling oj v0.1.0\n    Finished dev target(s) in 12.34s\n",
+    );
+
+    let content = std::fs::read_to_string(dir.path().join("pipeline/pipe-1.log")).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 4);
+    assert!(lines[0].contains("[build] ```stdout"));
+    assert_eq!(lines[1], "Compiling oj v0.1.0");
+    assert_eq!(lines[2], "    Finished dev target(s) in 12.34s");
+    assert!(lines[3].contains("[build] ```"));
+}
+
+#[test]
+fn append_fenced_integrates_with_append() {
+    let dir = tempdir().unwrap();
+    let logger = PipelineLogger::new(dir.path().to_path_buf());
+
+    logger.append_fenced("pipe-1", "init", "stdout", "hello world\n");
+    logger.append("pipe-1", "init", "shell completed (exit 0)");
+
+    let content = std::fs::read_to_string(dir.path().join("pipeline/pipe-1.log")).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 4);
+    assert!(lines[0].contains("[init] ```stdout"));
+    assert_eq!(lines[1], "hello world");
+    assert!(lines[2].contains("[init] ```"));
+    assert!(lines[3].contains("[init] shell completed (exit 0)"));
+}

@@ -17,6 +17,8 @@ async fn shell_failure_fails_pipeline() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -36,6 +38,8 @@ async fn agent_error_fails_pipeline() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -63,6 +67,8 @@ async fn on_fail_transition_executes() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -83,6 +89,8 @@ async fn on_fail_transition_executes() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "merge".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -108,6 +116,8 @@ async fn final_step_completes_pipeline() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -124,6 +134,8 @@ async fn final_step_completes_pipeline() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "merge".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -143,6 +155,8 @@ async fn done_step_run_command_executes() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -159,6 +173,8 @@ async fn done_step_run_command_executes() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "merge".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -175,6 +191,8 @@ async fn done_step_run_command_executes() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "done".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -196,6 +214,8 @@ async fn wrong_step_shell_completed_ignored() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "merge".to_string(), // We're in init, not merge
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -245,6 +265,8 @@ async fn step_without_on_done_completes_pipeline() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -304,6 +326,8 @@ async fn explicit_next_step_is_followed() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -317,6 +341,8 @@ async fn explicit_next_step_is_followed() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "custom".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -369,6 +395,8 @@ async fn implicit_done_step_completes_immediately() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -383,6 +411,8 @@ async fn implicit_done_step_completes_immediately() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "done".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -406,6 +436,8 @@ async fn step_runs_with_fallback_workspace_path() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -428,6 +460,8 @@ async fn advance_pipeline_cancels_exit_deferred_timer() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -484,6 +518,8 @@ async fn fail_pipeline_cancels_exit_deferred_timer() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -583,6 +619,8 @@ async fn pipeline_on_done_routes_to_teardown() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -596,6 +634,8 @@ async fn pipeline_on_done_routes_to_teardown() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -612,6 +652,8 @@ async fn pipeline_on_done_routes_to_teardown() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "teardown".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -665,6 +707,8 @@ async fn pipeline_on_fail_routes_to_cleanup() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -725,6 +769,8 @@ async fn step_level_on_done_takes_precedence() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -785,6 +831,8 @@ async fn step_level_on_fail_takes_precedence() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1010,6 +1058,8 @@ async fn on_fail_self_cycle_preserves_action_attempts() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1082,6 +1132,8 @@ async fn on_fail_multi_step_cycle_preserves_action_attempts() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1100,6 +1152,8 @@ async fn on_fail_multi_step_cycle_preserves_action_attempts() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "recover".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1146,6 +1200,8 @@ async fn on_done_transition_resets_action_attempts() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1240,6 +1296,8 @@ async fn circuit_breaker_fails_pipeline_after_max_step_visits() {
                 pipeline_id: PipelineId::new(pipeline_id.clone()),
                 step,
                 exit_code: 1,
+                stdout: None,
+                stderr: None,
             })
             .await
             .unwrap();
@@ -1277,6 +1335,8 @@ async fn step_visits_tracked_across_transitions() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "work".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -1291,6 +1351,8 @@ async fn step_visits_tracked_across_transitions() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "retry".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

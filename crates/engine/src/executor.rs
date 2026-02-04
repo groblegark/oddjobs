@@ -416,27 +416,35 @@ where
                         .output()
                         .await;
 
-                    let exit_code = match result {
+                    let (exit_code, stdout, stderr) = match result {
                         Ok(output) => {
-                            if !output.stdout.is_empty() {
+                            let stdout_str = if output.stdout.is_empty() {
+                                None
+                            } else {
+                                let s = String::from_utf8_lossy(&output.stdout).into_owned();
                                 tracing::info!(
                                     %pipeline_id,
                                     step,
                                     cwd = %cwd.display(),
-                                    stdout = %String::from_utf8_lossy(&output.stdout),
+                                    stdout = %s,
                                     "shell stdout"
                                 );
-                            }
-                            if !output.stderr.is_empty() {
+                                Some(s)
+                            };
+                            let stderr_str = if output.stderr.is_empty() {
+                                None
+                            } else {
+                                let s = String::from_utf8_lossy(&output.stderr).into_owned();
                                 tracing::warn!(
                                     %pipeline_id,
                                     step,
                                     cwd = %cwd.display(),
-                                    stderr = %String::from_utf8_lossy(&output.stderr),
+                                    stderr = %s,
                                     "shell stderr"
                                 );
-                            }
-                            output.status.code().unwrap_or(-1)
+                                Some(s)
+                            };
+                            (output.status.code().unwrap_or(-1), stdout_str, stderr_str)
                         }
                         Err(e) => {
                             tracing::error!(
@@ -446,7 +454,7 @@ where
                                 error = %e,
                                 "shell execution failed"
                             );
-                            -1
+                            (-1, None, None)
                         }
                     };
 
@@ -454,6 +462,8 @@ where
                         pipeline_id,
                         step,
                         exit_code,
+                        stdout,
+                        stderr,
                     };
 
                     if let Err(e) = event_tx.send(event).await {

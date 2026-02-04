@@ -279,8 +279,8 @@ impl MaterializedState {
 
             Event::ShellExited {
                 pipeline_id,
-                step: _,
                 exit_code,
+                ..
             } => {
                 if let Some(pipeline) = self.pipelines.get_mut(pipeline_id.as_str()) {
                     let now = epoch_ms_now();

@@ -91,6 +91,47 @@ impl PipelineLogger {
         }
     }
 
+    /// Append a fenced block to the pipeline log.
+    ///
+    /// Format:
+    /// ```text
+    /// {timestamp} [{step}] ```{label}
+    /// {content}
+    /// {timestamp} [{step}] ```
+    /// ```
+    pub fn append_fenced(&self, pipeline_id: &str, step: &str, label: &str, content: &str) {
+        let path = log_paths::pipeline_log_path(&self.log_dir, pipeline_id);
+        if let Err(e) = self.write_fenced(&path, step, label, content) {
+            tracing::warn!(
+                pipeline_id,
+                error = %e,
+                "failed to write pipeline log"
+            );
+        }
+    }
+
+    fn write_fenced(
+        &self,
+        path: &Path,
+        step: &str,
+        label: &str,
+        content: &str,
+    ) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        let ts = format_utc_now();
+        writeln!(file, "{} [{}] ```{}", ts, step, label)?;
+        write!(file, "{}", content)?;
+        if !content.ends_with('\n') {
+            writeln!(file)?;
+        }
+        let ts = format_utc_now();
+        writeln!(file, "{} [{}] ```", ts, step)?;
+        Ok(())
+    }
+
     fn write_line(&self, path: &Path, step: &str, message: &str) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;

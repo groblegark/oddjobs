@@ -174,6 +174,8 @@ async fn process_event_persists_result_events_to_wal() {
             pipeline_id: PipelineId::new("pipe-1"),
             step: "only-step".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -319,6 +321,8 @@ async fn process_event_materializes_state() {
             pipeline_id: PipelineId::new("pipe-1"),
             step: "only-step".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -702,6 +706,8 @@ async fn shutdown_saves_final_snapshot() {
             pipeline_id: PipelineId::new("pipe-1"),
             step: "only-step".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

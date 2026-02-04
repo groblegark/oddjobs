@@ -222,6 +222,10 @@ pub enum Event {
         pipeline_id: PipelineId,
         step: String,
         exit_code: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stdout: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stderr: Option<String>,
     },
 
     // -- step --
@@ -728,6 +732,7 @@ impl Event {
                 pipeline_id,
                 step,
                 exit_code,
+                ..
             } => format!("{t} pipeline={pipeline_id} step={step} exit={exit_code}"),
             Event::StepStarted {
                 pipeline_id, step, ..

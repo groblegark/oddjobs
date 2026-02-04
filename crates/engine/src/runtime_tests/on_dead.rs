@@ -24,6 +24,8 @@ async fn session_death_triggers_on_dead_action() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -87,6 +89,8 @@ async fn session_death_timer_on_terminal_pipeline_is_noop() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -120,6 +124,8 @@ async fn agent_exited_on_terminal_pipeline_is_noop() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -134,6 +140,8 @@ async fn agent_exited_on_terminal_pipeline_is_noop() {
             pipeline_id: PipelineId::new(pipeline_id.clone()),
             step: "plan".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

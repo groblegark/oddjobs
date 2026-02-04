@@ -100,6 +100,8 @@ async fn pipeline_on_done_emits_notification() {
             pipeline_id: PipelineId::new("pipe-1"),
             step: "init".to_string(),
             exit_code: 0,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();
@@ -138,6 +140,8 @@ async fn pipeline_on_fail_emits_notification() {
             pipeline_id: PipelineId::new("pipe-1"),
             step: "init".to_string(),
             exit_code: 1,
+            stdout: None,
+            stderr: None,
         })
         .await
         .unwrap();

@@ -101,7 +101,7 @@ queue "treatments" {
 }
 ```
 
-Agents push structured findings; humans review with `oj queue items`.
+Agents push structured findings; humans review with `oj queue show`.
 
 **Standalone agents** — commands can run agents directly without a pipeline:
 

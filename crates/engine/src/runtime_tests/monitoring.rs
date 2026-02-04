@@ -924,9 +924,15 @@ async fn duplicate_idle_creates_only_one_decision() {
         .unwrap();
 
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
-    assert!(pipeline.step_status.is_waiting(), "step should be waiting after first idle");
+    assert!(
+        pipeline.step_status.is_waiting(),
+        "step should be waiting after first idle"
+    );
     let decisions_after_first = ctx.runtime.lock_state(|s| s.decisions.len());
-    assert_eq!(decisions_after_first, 1, "should have exactly 1 decision after first idle");
+    assert_eq!(
+        decisions_after_first, 1,
+        "should have exactly 1 decision after first idle"
+    );
 
     // Second idle → should be dropped (step already waiting)
     let result = ctx
@@ -991,7 +997,10 @@ async fn prompt_hook_noop_when_step_already_waiting() {
         .await
         .unwrap();
 
-    assert!(result.is_empty(), "prompt should be dropped when step is already waiting");
+    assert!(
+        result.is_empty(),
+        "prompt should be dropped when step is already waiting"
+    );
     let decisions = ctx.runtime.lock_state(|s| s.decisions.len());
     assert_eq!(decisions, 1, "no additional decision should be created");
 }
@@ -1040,7 +1049,10 @@ async fn standalone_duplicate_idle_creates_only_one_escalation() {
         .await
         .unwrap();
 
-    assert!(result.is_empty(), "second idle should produce no events for escalated agent");
+    assert!(
+        result.is_empty(),
+        "second idle should produce no events for escalated agent"
+    );
 
     // Status should still be Escalated (not double-escalated)
     let agent_run = ctx
@@ -1094,7 +1106,10 @@ async fn standalone_prompt_noop_when_agent_escalated() {
         .await
         .unwrap();
 
-    assert!(result.is_empty(), "prompt should be dropped when agent is escalated");
+    assert!(
+        result.is_empty(),
+        "prompt should be dropped when agent is escalated"
+    );
 }
 
 // =============================================================================

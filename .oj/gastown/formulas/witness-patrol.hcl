@@ -118,7 +118,7 @@ agent "witness-agent" {
        - Cancel: `oj pipeline cancel <id>` if unrecoverable
     4. Check that workers are running: `oj worker list`
        - If a worker is stopped, start it: `oj worker start <name>`
-    5. Check for dead queue items: `oj queue items <queue-name>`
+    5. Check for dead queue items: `oj queue show <queue-name>`
        - Retry dead items: `oj queue retry <queue> <item-id>`
 
     ## Rules

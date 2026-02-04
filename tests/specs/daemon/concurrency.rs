@@ -91,11 +91,7 @@ fn concurrency_limit_caps_active_pipelines() {
     // to have dispatched as many items as the concurrency limit allows.
     let cap_observed = wait_for(SPEC_WAIT_MAX_MS * 3, || {
         let pipelines = temp.oj().args(&["pipeline", "list"]).passes().stdout();
-        let items = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let items = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         pipelines.contains("running") && items.contains("pending")
     });
 
@@ -147,11 +143,7 @@ fn pending_items_drain_through_limited_slots() {
 
     // Wait for all 4 to complete
     let all_done = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.matches("completed").count() >= 4
     });
 
@@ -210,11 +202,7 @@ fn failed_pipeline_frees_slot_for_next_pending_item() {
     // freed the concurrency slot. Allow generous time for the engine to
     // process all events under parallel test load.
     let second_completed = wait_for(SPEC_WAIT_MAX_MS * 5, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("completed")
     });
 
@@ -227,11 +215,7 @@ fn failed_pipeline_frees_slot_for_next_pending_item() {
     );
 
     // Verify: 1 dead (the failed one), 1 completed
-    let items = temp
-        .oj()
-        .args(&["queue", "items", "jobs"])
-        .passes()
-        .stdout();
+    let items = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
     assert!(
         items.contains("completed"),
         "second item should be completed, got:\n{}",

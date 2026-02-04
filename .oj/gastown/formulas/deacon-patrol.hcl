@@ -137,7 +137,7 @@ agent "deacon-agent" {
        - For each ready, unassigned bead: `oj run gt-sling <bead-id> "<title>"`
 
     5. **Queue health**: check for dead items
-       - `oj queue items <queue-name>` to inspect
+       - `oj queue show <queue-name>` to inspect
        - `oj queue retry <queue> <item-id>` for retriable failures
 
     ## Rules

@@ -95,7 +95,7 @@ agent "boot-agent" {
     | Worker stopped         | `oj worker start <name>`                        |
     | Pipeline escalated     | `oj pipeline show <id>` → resume or cancel      |
     | Pipeline failed        | Check logs: `oj pipeline logs <id>` → note it   |
-    | Dead queue items       | `oj queue items <queue>` → `oj queue retry ...`  |
+    | Dead queue items       | `oj queue show <queue>` → `oj queue retry ...`   |
     | Everything healthy     | Say "All clear, I'm done"                       |
 
     ## Rules

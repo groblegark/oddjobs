@@ -108,11 +108,7 @@ fn completed_queue_items_persist_across_restart() {
 
     // Wait for completion
     let completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("completed")
     });
 
@@ -130,11 +126,7 @@ fn completed_queue_items_persist_across_restart() {
 
     // Verify completed status persisted after WAL replay
     let still_completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("completed")
     });
     assert!(
@@ -163,11 +155,7 @@ fn dead_queue_items_persist_across_restart() {
 
     // Wait for dead status
     let dead = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("dead")
     });
 
@@ -185,11 +173,7 @@ fn dead_queue_items_persist_across_restart() {
 
     // Verify dead status persisted after WAL replay
     let still_dead = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("dead")
     });
     assert!(still_dead, "dead status should persist across restart");
@@ -217,11 +201,7 @@ fn pending_queue_items_persist_across_restart() {
 
     // Wait for both items to appear as pending (WAL commit is async)
     let both_pending = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.matches("pending").count() == 2
     });
     assert!(both_pending, "both items should be pending");
@@ -231,11 +211,7 @@ fn pending_queue_items_persist_across_restart() {
     temp.oj().args(&["daemon", "start"]).passes();
 
     // Verify items survived restart with correct status and data
-    let out = temp
-        .oj()
-        .args(&["queue", "items", "jobs"])
-        .passes()
-        .stdout();
+    let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
     assert_eq!(
         out.matches("pending").count(),
         2,
@@ -273,11 +249,7 @@ fn worker_resumes_and_processes_new_items_after_restart() {
         .passes();
 
     let first_done = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("completed")
     });
 
@@ -296,11 +268,7 @@ fn worker_resumes_and_processes_new_items_after_restart() {
         .passes();
 
     let second_done = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.matches("completed").count() >= 2
     });
 
@@ -344,11 +312,7 @@ fn active_queue_item_completes_after_daemon_crash() {
 
     // Wait for the queue item to become active and the pipeline to reach running
     let active = wait_for(SPEC_WAIT_MAX_MS, || {
-        let items = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let items = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         let pipelines = temp.oj().args(&["pipeline", "list"]).passes().stdout();
         items.contains("active") && pipelines.contains("running")
     });
@@ -382,11 +346,7 @@ fn active_queue_item_completes_after_daemon_crash() {
     // Wait for the pipeline to complete via recovery (on_dead = "done")
     // and the queue item to reach completed status
     let item_completed = wait_for(SPEC_WAIT_MAX_MS * 10, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("completed")
     });
 
@@ -394,10 +354,7 @@ fn active_queue_item_completes_after_daemon_crash() {
         eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
         eprintln!(
             "=== QUEUE ITEMS ===\n{}\n=== END ITEMS ===",
-            temp.oj()
-                .args(&["queue", "items", "jobs"])
-                .passes()
-                .stdout()
+            temp.oj().args(&["queue", "show", "jobs"]).passes().stdout()
         );
         eprintln!(
             "=== PIPELINES ===\n{}\n=== END PIPELINES ===",

@@ -73,12 +73,19 @@ pipeline "chore" {
 
   step "cancel" {
     run     = "cd ${invoke.dir} && wok close ${var.task.id} --reason 'Chore pipeline cancelled'"
-    on_done = { step = "cleanup" }
+    on_done = { step = "abandon" }
   }
 
   step "reopen" {
     run     = "cd ${invoke.dir} && wok reopen ${var.task.id} --reason 'Chore pipeline failed'"
-    on_done = { step = "cleanup" }
+    on_done = { step = "abandon" }
+  }
+
+  step "abandon" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+    SHELL
   }
 
   step "cleanup" {

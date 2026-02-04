@@ -133,21 +133,11 @@ pub async fn handle(
             display_log(&log_path, &content, follow, format, "worker", &name).await?;
         }
         WorkerCommand::List {} => {
-            let filter_namespace = if namespace.is_empty() {
-                None
-            } else {
-                Some(namespace.to_string())
-            };
-
             let request = Request::Query {
                 query: Query::ListWorkers,
             };
             match client.send(&request).await? {
                 Response::Workers { mut workers } => {
-                    // Filter by namespace
-                    if let Some(ref ns) = filter_namespace {
-                        workers.retain(|w| w.namespace == *ns);
-                    }
                     workers.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
                     match format {
                         OutputFormat::Json => {

@@ -233,11 +233,6 @@ pub async fn handle(
         } => {
             let mut pipelines = client.list_pipelines().await?;
 
-            // Filter by project namespace
-            if !namespace.is_empty() {
-                pipelines.retain(|p| p.namespace == namespace);
-            }
-
             // Filter by name substring
             if let Some(ref pat) = name {
                 let pat_lower = pat.to_lowercase();

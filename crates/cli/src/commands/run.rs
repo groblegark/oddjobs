@@ -77,8 +77,9 @@ fn print_command_help(
 pub fn available_commands_help(project_root: &Path) -> String {
     let runbook_dir = project_root.join(".oj/runbooks");
     let commands = oj_runbook::collect_all_commands(&runbook_dir).unwrap_or_default();
+    let warnings = oj_runbook::runbook_parse_warnings(&runbook_dir);
     let mut help = crate::color::HelpPrinter::new();
-    format_available_commands(&mut help, &commands);
+    format_available_commands(&mut help, &commands, &warnings);
     help.finish()
 }
 
@@ -90,6 +91,7 @@ fn print_available_commands(project_root: &Path) -> Result<()> {
 fn format_available_commands(
     help: &mut crate::color::HelpPrinter,
     commands: &[(String, oj_runbook::CommandDef)],
+    warnings: &[String],
 ) {
     help.usage("oj run <COMMAND> [ARGS]...");
     help.blank();
@@ -107,6 +109,14 @@ fn format_available_commands(
                 format!("{name} {args_str}")
             };
             help.entry(&line, 40, cmd.description.as_deref());
+        }
+    }
+
+    if !warnings.is_empty() {
+        help.blank();
+        help.header("Warnings:");
+        for warning in warnings {
+            help.plain(&format!("  {warning}"));
         }
     }
 

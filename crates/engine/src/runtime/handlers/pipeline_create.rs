@@ -198,17 +198,30 @@ where
                 })
                 .collect();
             for (key, template) in &pipeline_def.locals {
-                let value = oj_runbook::interpolate(template, &lookup);
+                let has_shell = template.contains("$(");
+                let value = if has_shell {
+                    oj_runbook::interpolate_shell(template, &lookup)
+                } else {
+                    oj_runbook::interpolate(template, &lookup)
+                };
 
                 // Eagerly evaluate shell expressions — $(cmd) becomes plain data
-                let value = if value.contains("$(") {
+                let value = if has_shell {
                     let cwd = vars
                         .get("invoke.dir")
                         .map(PathBuf::from)
                         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                    let trimmed = value.trim();
+                    // Strip $(...) wrapper and run inner command directly to avoid
+                    // word-splitting. For mixed literal+shell, use printf wrapper.
+                    let shell_cmd = if trimmed.starts_with("$(") && trimmed.ends_with(')') {
+                        trimmed[2..trimmed.len() - 1].to_string()
+                    } else {
+                        format!("printf '%s' \"{}\"", value)
+                    };
                     let output = tokio::process::Command::new("bash")
                         .arg("-c")
-                        .arg(format!("printf '%s' {}", value))
+                        .arg(&shell_cmd)
                         .current_dir(&cwd)
                         .output()
                         .await

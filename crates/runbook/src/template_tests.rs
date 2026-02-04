@@ -260,3 +260,80 @@ fn interpolate_mixed_simple_and_dotted() {
         "Command: rendered prompt text, Input: user input"
     );
 }
+
+// =============================================================================
+// substring extraction tests (${var:offset:length})
+// =============================================================================
+
+#[test]
+fn interpolate_substring_offset_and_length() {
+    let vars: HashMap<String, String> = [("name".to_string(), "hello world".to_string())]
+        .into_iter()
+        .collect();
+    assert_eq!(interpolate("${name:0:5}", &vars), "hello");
+}
+
+#[test]
+fn interpolate_substring_offset_only() {
+    let vars: HashMap<String, String> = [("name".to_string(), "hello world".to_string())]
+        .into_iter()
+        .collect();
+    assert_eq!(interpolate("${name:6}", &vars), "world");
+}
+
+#[test]
+fn interpolate_substring_no_slice_unchanged() {
+    let vars: HashMap<String, String> = [("name".to_string(), "hello world".to_string())]
+        .into_iter()
+        .collect();
+    assert_eq!(interpolate("${name}", &vars), "hello world");
+}
+
+#[test]
+fn interpolate_substring_shell_escaping_after_truncation() {
+    let vars: HashMap<String, String> =
+        [("msg".to_string(), "safe $dollar `tick`".to_string())]
+            .into_iter()
+            .collect();
+    // Truncate to "safe $dol" then shell-escape
+    assert_eq!(
+        interpolate_shell("${msg:0:9}", &vars),
+        "safe \\$dol"
+    );
+}
+
+#[test]
+fn interpolate_substring_unknown_var_left_as_is() {
+    let vars: HashMap<String, String> = HashMap::new();
+    assert_eq!(interpolate("${unknown:0:5}", &vars), "${unknown:0:5}");
+}
+
+#[test]
+fn interpolate_substring_beyond_length() {
+    let vars: HashMap<String, String> = [("name".to_string(), "short".to_string())]
+        .into_iter()
+        .collect();
+    // Length exceeds string — returns entire string from offset
+    assert_eq!(interpolate("${name:0:100}", &vars), "short");
+}
+
+#[test]
+fn interpolate_substring_with_dotted_key() {
+    let vars: HashMap<String, String> =
+        [("var.instructions".to_string(), "Add feature for handling long descriptions".to_string())]
+            .into_iter()
+            .collect();
+    assert_eq!(
+        interpolate("feat: ${var.instructions:0:20}", &vars),
+        "feat: Add feature for hand"
+    );
+}
+
+#[test]
+fn interpolate_substring_unicode() {
+    let vars: HashMap<String, String> = [("name".to_string(), "héllo wörld".to_string())]
+        .into_iter()
+        .collect();
+    // Substring operates on chars, not bytes
+    assert_eq!(interpolate("${name:0:5}", &vars), "héllo");
+}

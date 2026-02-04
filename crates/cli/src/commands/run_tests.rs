@@ -270,7 +270,7 @@ fn directive_is_agent_for_agent_commands() {
 #[test]
 fn format_available_commands_empty_shows_no_commands() {
     let mut help = HelpPrinter::uncolored();
-    format_available_commands(&mut help, &[]);
+    format_available_commands(&mut help, &[], &[]);
     let buf = help.finish();
 
     assert!(buf.contains("No commands found."));
@@ -294,7 +294,7 @@ fn format_available_commands_shows_commands() {
     ];
 
     let mut help = HelpPrinter::uncolored();
-    format_available_commands(&mut help, &commands);
+    format_available_commands(&mut help, &commands, &[]);
     let buf = help.finish();
 
     assert!(buf.contains("Commands:"));
@@ -310,11 +310,43 @@ fn format_available_commands_shows_description() {
     let commands = vec![("deploy".to_string(), cmd)];
 
     let mut help = HelpPrinter::uncolored();
-    format_available_commands(&mut help, &commands);
+    format_available_commands(&mut help, &commands, &[]);
     let buf = help.finish();
 
     assert!(buf.contains("deploy"));
     assert!(buf.contains("Deploy to production"));
+}
+
+#[test]
+fn format_available_commands_shows_warnings() {
+    let commands = vec![(
+        "build".to_string(),
+        make_shell_command("build", "make build"),
+    )];
+    let warnings = vec!["runbooks/broken.hcl: expected `{`, found `}`".to_string()];
+
+    let mut help = HelpPrinter::uncolored();
+    format_available_commands(&mut help, &commands, &warnings);
+    let buf = help.finish();
+
+    assert!(buf.contains("Commands:"));
+    assert!(buf.contains("build"));
+    assert!(buf.contains("Warnings:"));
+    assert!(buf.contains("runbooks/broken.hcl: expected `{`, found `}`"));
+}
+
+#[test]
+fn format_available_commands_no_warnings_when_empty() {
+    let commands = vec![(
+        "build".to_string(),
+        make_shell_command("build", "make build"),
+    )];
+
+    let mut help = HelpPrinter::uncolored();
+    format_available_commands(&mut help, &commands, &[]);
+    let buf = help.finish();
+
+    assert!(!buf.contains("Warnings:"));
 }
 
 // Tests for --attach/--no-attach flag extraction from trailing args

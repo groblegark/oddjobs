@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 // Allow expect here as the regex is compile-time verified to be valid
 #[allow(clippy::expect_used)]
 pub static VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)\}")
+    Regex::new(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)(?::(\d+)(?::(\d+))?)?\}")
         .expect("constant regex pattern is valid")
 });
 
@@ -77,13 +77,26 @@ fn interpolate_inner(template: &str, vars: &HashMap<String, String>, shell_escap
         })
         .to_string();
 
-    // Then expand ${var} or ${namespace.var} patterns from provided vars
+    // Then expand ${var} or ${namespace.var} patterns from provided vars,
+    // with optional ${var:offset:length} substring extraction.
     VAR_PATTERN
         .replace_all(&result, |caps: &regex::Captures| {
             let name = &caps[1];
+            let offset: Option<usize> = caps.get(2).and_then(|m| m.as_str().parse().ok());
+            let length: Option<usize> = caps.get(3).and_then(|m| m.as_str().parse().ok());
             match vars.get(name) {
-                Some(val) if shell_escape => escape_for_shell(val),
-                Some(val) => val.clone(),
+                Some(val) => {
+                    let val = match (offset, length) {
+                        (Some(s), Some(l)) => val.chars().skip(s).take(l).collect(),
+                        (Some(s), None) => val.chars().skip(s).collect(),
+                        _ => val.clone(),
+                    };
+                    if shell_escape {
+                        escape_for_shell(&val)
+                    } else {
+                        val
+                    }
+                }
                 None => caps[0].to_string(),
             }
         })

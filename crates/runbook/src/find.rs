@@ -347,6 +347,31 @@ pub fn validate_runbook_dir(runbook_dir: &Path) -> Result<(), Vec<FindError>> {
     }
 }
 
+/// Check all runbook files for parse errors, returning human-readable warnings.
+///
+/// Returns one warning string per file that failed to parse. An empty vec
+/// means all files parsed successfully (or no files exist).
+pub fn runbook_parse_warnings(runbook_dir: &Path) -> Vec<String> {
+    let files = match collect_runbook_files(runbook_dir) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    let mut warnings = Vec::new();
+    for (path, format) in files {
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                warnings.push(format!("{}: {e}", path.display()));
+                continue;
+            }
+        };
+        if let Err(e) = parse_runbook_with_format(&content, format) {
+            warnings.push(format!("{}: {e}", path.display()));
+        }
+    }
+    warnings
+}
+
 fn find_runbook(
     runbook_dir: &Path,
     name: &str,

@@ -657,7 +657,7 @@ async fn working_auto_resume_resets_action_attempts() {
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     assert!(pipeline.step_status.is_waiting());
     assert!(
-        !pipeline.action_attempts.is_empty(),
+        !pipeline.action_tracker.action_attempts.is_empty(),
         "action_attempts should be non-empty after escalation"
     );
 
@@ -673,9 +673,9 @@ async fn working_auto_resume_resets_action_attempts() {
     let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
     assert_eq!(pipeline.step_status, StepStatus::Running);
     assert!(
-        pipeline.action_attempts.is_empty(),
+        pipeline.action_tracker.action_attempts.is_empty(),
         "action_attempts should be cleared after auto-resume, got: {:?}",
-        pipeline.action_attempts
+        pipeline.action_tracker.action_attempts
     );
 }
 
@@ -843,7 +843,7 @@ async fn working_auto_resume_resets_standalone_action_attempts() {
         .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
     assert_eq!(agent_run.status, oj_core::AgentRunStatus::Escalated);
     assert!(
-        !agent_run.action_attempts.is_empty(),
+        !agent_run.action_tracker.action_attempts.is_empty(),
         "action_attempts should be non-empty after escalation"
     );
 
@@ -861,9 +861,9 @@ async fn working_auto_resume_resets_standalone_action_attempts() {
         .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
     assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
     assert!(
-        agent_run.action_attempts.is_empty(),
+        agent_run.action_tracker.action_attempts.is_empty(),
         "action_attempts should be cleared after auto-resume, got: {:?}",
-        agent_run.action_attempts
+        agent_run.action_tracker.action_attempts
     );
 }
 

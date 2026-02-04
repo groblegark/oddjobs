@@ -110,7 +110,7 @@ where
             let agent_run = self.lock_state(|s| s.agent_runs.get(agent_run_id.as_str()).cloned());
             if let Some(agent_run) = agent_run {
                 if agent_run.status.is_terminal()
-                    || agent_run.agent_signal.is_some()
+                    || agent_run.action_tracker.agent_signal.is_some()
                     || agent_run.status == AgentRunStatus::Waiting
                     || agent_run.status == AgentRunStatus::Escalated
                 {
@@ -143,7 +143,7 @@ where
 
         // If pipeline already advanced, has a signal, or is already waiting for a decision, ignore
         if pipeline.is_terminal()
-            || pipeline.agent_signal.is_some()
+            || pipeline.action_tracker.agent_signal.is_some()
             || pipeline.step_status.is_waiting()
         {
             return Ok(vec![]);
@@ -183,7 +183,7 @@ where
             let agent_run = self.lock_state(|s| s.agent_runs.get(agent_run_id.as_str()).cloned());
             if let Some(agent_run) = agent_run {
                 if agent_run.status.is_terminal()
-                    || agent_run.agent_signal.is_some()
+                    || agent_run.action_tracker.agent_signal.is_some()
                     || agent_run.status == AgentRunStatus::Waiting
                     || agent_run.status == AgentRunStatus::Escalated
                 {
@@ -219,7 +219,7 @@ where
 
         // If pipeline already advanced, has a signal, or is already waiting for a decision, ignore
         if pipeline.is_terminal()
-            || pipeline.agent_signal.is_some()
+            || pipeline.action_tracker.agent_signal.is_some()
             || pipeline.step_status.is_waiting()
         {
             return Ok(vec![]);

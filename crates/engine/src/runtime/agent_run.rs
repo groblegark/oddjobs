@@ -194,7 +194,7 @@ where
                     // Reset action attempts — agent demonstrated progress
                     self.lock_state_mut(|state| {
                         if let Some(ar) = state.agent_runs.get_mut(agent_run_id.as_str()) {
-                            ar.action_attempts.clear();
+                            ar.reset_action_attempts();
                         }
                     });
 

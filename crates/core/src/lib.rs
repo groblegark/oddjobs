@@ -8,6 +8,7 @@
 
 //! oj-core: Core library for the Odd Jobs (oj) CLI tool
 
+pub mod action_tracker;
 pub mod agent;
 pub mod agent_run;
 pub mod clock;
@@ -23,6 +24,7 @@ pub mod traced;
 pub mod worker;
 pub mod workspace;
 
+pub use action_tracker::{ActionTracker, AgentSignal};
 pub use agent::{AgentError, AgentId, AgentState};
 pub use agent_run::{AgentRun, AgentRunId, AgentRunStatus};
 pub use clock::{Clock, FakeClock, SystemClock};

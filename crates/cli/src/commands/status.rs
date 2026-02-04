@@ -237,8 +237,8 @@ fn format_text(
         }
 
         // Namespace header
-        let label_colored = color::header(&format!("── {} ", label));
-        let _ = write!(out, "\n{}", label_colored);
+        let label_colored = color::header(label);
+        let _ = write!(out, "\n── {} ", label_colored);
         let pad = 48usize.saturating_sub(label.len() + 4);
         for _ in 0..pad {
             out.push('─');

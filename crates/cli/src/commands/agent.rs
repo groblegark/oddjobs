@@ -46,10 +46,6 @@ pub enum AgentCommand {
         /// Show all agents (no limit)
         #[arg(long, conflicts_with = "limit")]
         no_limit: bool,
-
-        /// Filter by project namespace
-        #[arg(long = "project")]
-        project: Option<String>,
     },
     /// Show detailed info for a single agent
     Show {
@@ -160,6 +156,7 @@ struct StopHookOutput {
 pub async fn handle(
     command: AgentCommand,
     client: &DaemonClient,
+    namespace: &str,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
@@ -168,17 +165,14 @@ pub async fn handle(
             status,
             limit,
             no_limit,
-            project,
         } => {
             let mut agents = client
                 .list_agents(pipeline.as_deref(), status.as_deref())
                 .await?;
 
-            // Filter by project namespace (empty OJ_NAMESPACE treated as unset)
-            let filter_namespace =
-                project.or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()));
-            if let Some(ref ns) = filter_namespace {
-                agents.retain(|a| a.namespace.as_deref() == Some(ns.as_str()));
+            // Filter by project namespace
+            if !namespace.is_empty() {
+                agents.retain(|a| a.namespace.as_deref() == Some(namespace));
             }
 
             let total = agents.len();

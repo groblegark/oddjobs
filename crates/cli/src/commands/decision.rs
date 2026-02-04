@@ -21,11 +21,7 @@ pub struct DecisionArgs {
 #[derive(Subcommand)]
 pub enum DecisionCommand {
     /// List pending decisions
-    List {
-        /// Project namespace override
-        #[arg(long = "project")]
-        project: Option<String>,
-    },
+    List {},
     /// Show details of a decision
     Show {
         /// Decision ID (or prefix)
@@ -50,15 +46,10 @@ pub async fn handle(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        DecisionCommand::List { project } => {
-            // Namespace resolution: --project flag > OJ_NAMESPACE env > resolved namespace
-            // (empty OJ_NAMESPACE treated as unset)
-            let effective_namespace = project
-                .or_else(|| std::env::var("OJ_NAMESPACE").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| namespace.to_string());
+        DecisionCommand::List {} => {
             let request = Request::Query {
                 query: Query::ListDecisions {
-                    namespace: effective_namespace,
+                    namespace: namespace.to_string(),
                 },
             };
             match client.send(&request).await? {

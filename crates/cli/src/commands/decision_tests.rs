@@ -15,20 +15,7 @@ struct TestCli {
 #[test]
 fn parse_list() {
     let cli = TestCli::parse_from(["test", "list"]);
-    assert!(matches!(
-        cli.command,
-        DecisionCommand::List { project: None }
-    ));
-}
-
-#[test]
-fn parse_list_with_project() {
-    let cli = TestCli::parse_from(["test", "list", "--project", "myproject"]);
-    if let DecisionCommand::List { project } = cli.command {
-        assert_eq!(project, Some("myproject".to_string()));
-    } else {
-        panic!("expected List");
-    }
+    assert!(matches!(cli.command, DecisionCommand::List {}));
 }
 
 #[test]

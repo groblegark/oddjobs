@@ -812,6 +812,12 @@ where
 
                 self.advance_pipeline(&pipeline).await
             }
+            AgentSignalKind::Continue => {
+                tracing::info!(pipeline_id = %pipeline.id, "agent:signal continue");
+                self.logger
+                    .append(&pipeline.id, &pipeline.step, "agent:signal continue");
+                Ok(vec![])
+            }
             AgentSignalKind::Escalate => {
                 let msg = message.as_deref().unwrap_or("Agent requested escalation");
                 tracing::info!(pipeline_id = %pipeline.id, message = msg, "agent:signal escalate");

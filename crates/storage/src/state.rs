@@ -4,8 +4,8 @@
 //! Materialized state from WAL replay
 
 use oj_core::{
-    pipeline::AgentSignal, scoped_name, AgentRun, AgentRunStatus, Decision, DecisionId, Event,
-    Pipeline, PipelineConfig, StepOutcome, StepStatus, WorkspaceStatus,
+    pipeline::AgentSignal, scoped_name, AgentRun, AgentRunStatus, AgentSignalKind, Decision,
+    DecisionId, Event, Pipeline, PipelineConfig, StepOutcome, StepStatus, WorkspaceStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -567,6 +567,13 @@ impl MaterializedState {
                 kind,
                 message,
             } => {
+                // Continue is a no-op acknowledgement — don't store it so that
+                // query_agent_signal still returns signaled=false (keeping the
+                // stop hook blocking and the agent alive).
+                if *kind == AgentSignalKind::Continue {
+                    return;
+                }
+
                 // Check standalone agent runs first
                 let found_agent_run = self
                     .agent_runs

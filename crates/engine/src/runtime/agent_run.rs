@@ -741,6 +741,10 @@ where
 
                 Ok(result)
             }
+            AgentSignalKind::Continue => {
+                tracing::info!(agent_run_id = %agent_run.id, "standalone agent:signal continue");
+                Ok(vec![])
+            }
             AgentSignalKind::Escalate => {
                 let msg = message.as_deref().unwrap_or("Agent requested escalation");
                 tracing::info!(

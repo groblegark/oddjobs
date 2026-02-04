@@ -811,9 +811,11 @@ async fn handle_stop_hook(agent_id: &str, client: &DaemonClient) -> Result<()> {
         _ => {
             // "signal" (default) — current behavior
             block_exit(&format!(
-                "You must explicitly signal completion before stopping. \
-                 Run: oj emit agent:signal --agent {} complete",
-                agent_id
+                "You must signal before stopping. Run one of:\n\
+                 oj emit agent:signal --agent {} complete  — task is done\n\
+                 oj emit agent:signal --agent {} escalate  — need human help\n\
+                 oj emit agent:signal --agent {} continue  — still working on the task",
+                agent_id, agent_id, agent_id
             ));
         }
     }

@@ -196,10 +196,13 @@ oj emit agent:signal --agent <id> '{"kind": "complete"}'
 
 # Signal escalation (pauses pipeline, notifies human)
 oj emit agent:signal --agent <id> '{"kind": "escalate", "message": "Need human review"}'
+
+# Signal continue (no-op acknowledgement — agent is still working)
+oj emit agent:signal --agent <id> continue
 ```
 
 The JSON payload accepts:
-- `kind` (or alias `action`): `"complete"` or `"escalate"` (required)
+- `kind` (or alias `action`): `"complete"`, `"escalate"`, or `"continue"` (required)
 - `message`: optional explanation string
 
 **How agents learn their ID:** The orchestrator injects a Stop hook into each agent's settings at `$OJ_STATE_DIR/agents/<agent-id>/claude-settings.json`, passed via `--settings`. The hook command is `oj agent hook stop <agent_id>`. When the agent tries to exit without signaling, the hook blocks and returns a message with the exact `oj emit agent:signal --agent <id> ...` command to run.

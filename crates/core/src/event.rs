@@ -23,6 +23,8 @@ pub enum AgentSignalKind {
     Complete,
     /// Pause the pipeline and notify for human intervention
     Escalate,
+    /// No-op acknowledgement — agent is still working
+    Continue,
 }
 
 /// Type of prompt the agent is showing

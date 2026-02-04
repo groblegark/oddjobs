@@ -548,6 +548,91 @@ async fn agent_signal_complete_advances_pipeline() {
 }
 
 // =============================================================================
+// agent:signal continue — no-op
+// =============================================================================
+
+#[tokio::test]
+async fn agent_signal_continue_no_pipeline_state_change() {
+    let ctx = setup_with_runbook(RUNBOOK_GATE_IDLE_FAIL).await;
+
+    ctx.runtime
+        .handle_event(command_event(
+            "pipe-1",
+            "build",
+            "build",
+            [("name".to_string(), "test".to_string())]
+                .into_iter()
+                .collect(),
+            &ctx.project_root,
+        ))
+        .await
+        .unwrap();
+
+    let pipeline_id = ctx.runtime.pipelines().keys().next().unwrap().clone();
+    let agent_id = get_agent_id(&ctx, &pipeline_id).unwrap();
+
+    // Pipeline is at "work" step, agent is running
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert_eq!(pipeline.step, "work");
+    assert_eq!(pipeline.step_status, StepStatus::Running);
+
+    // Agent signals continue — should be a no-op (no state change)
+    let result = ctx
+        .runtime
+        .handle_event(Event::AgentSignal {
+            agent_id: agent_id.clone(),
+            kind: AgentSignalKind::Continue,
+            message: None,
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        result.is_empty(),
+        "continue signal should produce no events"
+    );
+
+    // Pipeline should remain at same step with same status
+    let pipeline = ctx.runtime.get_pipeline(&pipeline_id).unwrap();
+    assert_eq!(pipeline.step, "work");
+    assert_eq!(pipeline.step_status, StepStatus::Running);
+}
+
+#[tokio::test]
+async fn standalone_agent_signal_continue_no_state_change() {
+    let ctx = setup_with_runbook(RUNBOOK_STANDALONE_AGENT).await;
+    let (agent_run_id, _session_id, agent_id) = setup_standalone_agent(&ctx).await;
+
+    // Verify agent run is Running
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
+
+    // Agent signals continue — should be a no-op
+    let result = ctx
+        .runtime
+        .handle_event(Event::AgentSignal {
+            agent_id: agent_id.clone(),
+            kind: AgentSignalKind::Continue,
+            message: None,
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        result.is_empty(),
+        "continue signal should produce no events for standalone agent"
+    );
+
+    // Status should remain Running
+    let agent_run = ctx
+        .runtime
+        .lock_state(|s| s.agent_runs.get(&agent_run_id).cloned().unwrap());
+    assert_eq!(agent_run.status, oj_core::AgentRunStatus::Running);
+}
+
+// =============================================================================
 // Auto-resume from escalation on Working state
 // =============================================================================
 

@@ -29,7 +29,7 @@ pub enum EmitCommand {
         #[arg(long = "agent")]
         agent_id: String,
 
-        /// Signal payload: "complete", "escalate", or JSON {"action": "complete"}
+        /// Signal payload: "complete", "escalate", "continue", or JSON {"action": "complete"}
         /// If omitted, reads from stdin
         #[arg(value_name = "PAYLOAD")]
         payload: Option<String>,
@@ -64,7 +64,7 @@ struct AgentDonePayload {
 /// Parse agent:signal payload from a string.
 ///
 /// Accepts:
-/// - Plain strings: "complete", "escalate"
+/// - Plain strings: "complete", "escalate", "continue"
 /// - JSON objects: {"action": "complete"}, {"kind": "escalate", "message": "..."}
 /// - Relaxed forms: {action: complete} (treated as plain-string fallback)
 fn parse_signal_payload(input: &str) -> Result<AgentDonePayload> {
@@ -84,13 +84,19 @@ fn parse_signal_payload(input: &str) -> Result<AgentDonePayload> {
                 message: None,
             });
         }
+        "continue" => {
+            return Ok(AgentDonePayload {
+                kind: AgentSignalKind::Continue,
+                message: None,
+            });
+        }
         _ => {}
     }
 
     // Try JSON parsing
     serde_json::from_str(trimmed).map_err(|e| {
         anyhow::anyhow!(
-            "invalid signal payload: {}. Use: complete, escalate, or JSON {{\"action\": \"complete\"}}",
+            "invalid signal payload: {}. Use: complete, escalate, continue, or JSON {{\"action\": \"complete\"}}",
             e
         )
     })

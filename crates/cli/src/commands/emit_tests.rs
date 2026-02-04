@@ -47,6 +47,13 @@ fn parse_signal_payload_invalid_json_errors() {
 }
 
 #[test]
+fn parse_signal_payload_plain_continue() {
+    let result = parse_signal_payload("continue").unwrap();
+    assert_eq!(result.kind, AgentSignalKind::Continue);
+    assert_eq!(result.message, None);
+}
+
+#[test]
 fn parse_signal_payload_unknown_string_errors() {
     let result = parse_signal_payload("foobar");
     assert!(result.is_err());

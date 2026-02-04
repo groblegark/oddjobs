@@ -8,62 +8,14 @@
 //! pipelines and has its own lifecycle independent of pipeline completion.
 
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::fmt;
 
-/// Unique identifier for a workspace instance.
-///
-/// Workspaces are managed directories that can outlive pipelines (for debugging
-/// failed runs) or be shared across related pipeline invocations.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct WorkspaceId(pub String);
-
-impl WorkspaceId {
-    /// Create a new WorkspaceId from any string-like value.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    /// Get the string value of this WorkspaceId.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for WorkspaceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for WorkspaceId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for WorkspaceId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl PartialEq<str> for WorkspaceId {
-    fn eq(&self, other: &str) -> bool {
-        self.0 == other
-    }
-}
-
-impl PartialEq<&str> for WorkspaceId {
-    fn eq(&self, other: &&str) -> bool {
-        self.0 == *other
-    }
-}
-
-impl Borrow<str> for WorkspaceId {
-    fn borrow(&self) -> &str {
-        &self.0
-    }
+crate::define_id! {
+    /// Unique identifier for a workspace instance.
+    ///
+    /// Workspaces are managed directories that can outlive pipelines (for debugging
+    /// failed runs) or be shared across related pipeline invocations.
+    pub struct WorkspaceId;
 }
 
 /// Status of a workspace in its lifecycle.

@@ -2,6 +2,79 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use super::*;
+use std::borrow::Borrow;
+use std::collections::HashMap;
+
+// --- define_id! macro tests ---
+
+crate::define_id! {
+    /// Test ID type for macro verification.
+    pub struct TestId;
+}
+
+#[test]
+fn define_id_new_and_as_str() {
+    let id = TestId::new("abc");
+    assert_eq!(id.as_str(), "abc");
+}
+
+#[test]
+fn define_id_display() {
+    let id = TestId::new("hello");
+    assert_eq!(format!("{}", id), "hello");
+    assert_eq!(id.to_string(), "hello");
+}
+
+#[test]
+fn define_id_from_string() {
+    let id: TestId = String::from("owned").into();
+    assert_eq!(id.as_str(), "owned");
+}
+
+#[test]
+fn define_id_from_str() {
+    let id: TestId = "borrowed".into();
+    assert_eq!(id.as_str(), "borrowed");
+}
+
+#[test]
+fn define_id_partial_eq_str() {
+    let id = TestId::new("test");
+    assert_eq!(id, *"test");
+    assert_eq!(id, "test");
+}
+
+#[test]
+fn define_id_borrow_str() {
+    let id = TestId::new("key");
+    let borrowed: &str = id.borrow();
+    assert_eq!(borrowed, "key");
+}
+
+#[test]
+fn define_id_hash_map_lookup() {
+    let mut map = HashMap::new();
+    map.insert(TestId::new("k"), 42);
+    assert_eq!(map.get("k"), Some(&42));
+}
+
+#[test]
+fn define_id_clone_and_eq() {
+    let id = TestId::new("x");
+    let cloned = id.clone();
+    assert_eq!(id, cloned);
+}
+
+#[test]
+fn define_id_serde_roundtrip() {
+    let id = TestId::new("serde-test");
+    let json = serde_json::to_string(&id).unwrap();
+    assert_eq!(json, "\"serde-test\"");
+    let deserialized: TestId = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, id);
+}
+
+// --- IdGen tests ---
 
 #[test]
 fn uuid_gen_creates_unique_ids() {

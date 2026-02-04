@@ -9,59 +9,13 @@
 
 use crate::pipeline::AgentSignal;
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 
-/// Unique identifier for a standalone agent run.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct AgentRunId(pub String);
-
-impl AgentRunId {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for AgentRunId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for AgentRunId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for AgentRunId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl PartialEq<str> for AgentRunId {
-    fn eq(&self, other: &str) -> bool {
-        self.0 == other
-    }
-}
-
-impl PartialEq<&str> for AgentRunId {
-    fn eq(&self, other: &&str) -> bool {
-        self.0 == *other
-    }
-}
-
-impl Borrow<str> for AgentRunId {
-    fn borrow(&self) -> &str {
-        &self.0
-    }
+crate::define_id! {
+    /// Unique identifier for a standalone agent run.
+    pub struct AgentRunId;
 }
 
 /// Status of a standalone agent run.

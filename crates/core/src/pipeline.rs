@@ -7,65 +7,18 @@ use crate::clock::Clock;
 use crate::event::AgentSignalKind;
 use crate::workspace::WorkspaceId;
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Instant;
 
-/// Unique identifier for a pipeline instance.
-///
-/// Each pipeline run gets a unique ID that can be used to track its state,
-/// query its status, and reference it in logs and events.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PipelineId(pub String);
-
-impl PipelineId {
-    /// Create a new PipelineId from any string-like value.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    /// Get the string value of this PipelineId.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for PipelineId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for PipelineId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for PipelineId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl PartialEq<str> for PipelineId {
-    fn eq(&self, other: &str) -> bool {
-        self.0 == other
-    }
-}
-
-impl PartialEq<&str> for PipelineId {
-    fn eq(&self, other: &&str) -> bool {
-        self.0 == *other
-    }
-}
-
-impl Borrow<str> for PipelineId {
-    fn borrow(&self) -> &str {
-        &self.0
-    }
+crate::define_id! {
+    /// Unique identifier for a pipeline instance.
+    ///
+    /// Each pipeline run gets a unique ID that can be used to track its state,
+    /// query its status, and reference it in logs and events.
+    #[derive(Default)]
+    pub struct PipelineId;
 }
 
 /// Status of the current step.

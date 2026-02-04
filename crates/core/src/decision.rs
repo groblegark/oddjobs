@@ -4,57 +4,10 @@
 //! Decision types for human-in-the-loop pipeline control.
 
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
-use std::fmt;
 
-/// Unique identifier for a decision.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct DecisionId(pub String);
-
-impl DecisionId {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for DecisionId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for DecisionId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for DecisionId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl PartialEq<str> for DecisionId {
-    fn eq(&self, other: &str) -> bool {
-        self.0 == other
-    }
-}
-
-impl PartialEq<&str> for DecisionId {
-    fn eq(&self, other: &&str) -> bool {
-        self.0 == *other
-    }
-}
-
-impl Borrow<str> for DecisionId {
-    fn borrow(&self) -> &str {
-        &self.0
-    }
+crate::define_id! {
+    /// Unique identifier for a decision.
+    pub struct DecisionId;
 }
 
 /// Where the decision originated.

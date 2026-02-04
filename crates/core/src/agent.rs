@@ -8,62 +8,14 @@
 //! agent within a pipeline step.
 
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::fmt;
 
-/// Unique identifier for an agent instance.
-///
-/// Typically formatted as `{pipeline_id}-{step}` but the format is opaque
-/// to consumers. Session IDs are hidden inside the AgentAdapter implementation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct AgentId(pub String);
-
-impl AgentId {
-    /// Create a new AgentId from any string-like value.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    /// Get the string value of this AgentId.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for AgentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for AgentId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for AgentId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl PartialEq<str> for AgentId {
-    fn eq(&self, other: &str) -> bool {
-        self.0 == other
-    }
-}
-
-impl PartialEq<&str> for AgentId {
-    fn eq(&self, other: &&str) -> bool {
-        self.0 == *other
-    }
-}
-
-impl Borrow<str> for AgentId {
-    fn borrow(&self) -> &str {
-        &self.0
-    }
+crate::define_id! {
+    /// Unique identifier for an agent instance.
+    ///
+    /// Typically formatted as `{pipeline_id}-{step}` but the format is opaque
+    /// to consumers. Session IDs are hidden inside the AgentAdapter implementation.
+    pub struct AgentId;
 }
 
 /// State of an agent as detected from monitoring.

@@ -160,25 +160,26 @@ fn agent_logs_command_succeeds_after_pipeline_completes() {
     temp.oj().args(&["daemon", "start"]).passes();
     temp.oj().args(&["run", "build", "test"]).passes();
 
+    let pipeline_id = std::cell::RefCell::new(String::new());
     let done = wait_for(SPEC_WAIT_MAX_MS * 10, || {
-        temp.oj()
-            .args(&["pipeline", "list"])
+        let out = temp
+            .oj()
+            .args(&["pipeline", "list", "--output", "json"])
             .passes()
-            .stdout()
-            .contains("completed")
+            .stdout();
+        if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&out) {
+            if let Some(p) = list.iter().find(|p| p["step"] == "done") {
+                *pipeline_id.borrow_mut() = p["id"].as_str().unwrap().to_string();
+                return true;
+            }
+        }
+        false
     });
     assert!(done, "pipeline should complete");
-
-    // Get the pipeline ID
-    let list_output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
-    let pipeline_id = list_output
-        .lines()
-        .find(|l| l.contains("completed"))
-        .and_then(|l| l.split_whitespace().next())
-        .expect("should find pipeline ID");
+    let pipeline_id = pipeline_id.into_inner();
 
     // Test `oj agent logs <id>` succeeds (doesn't error)
-    temp.oj().args(&["agent", "logs", pipeline_id]).passes();
+    temp.oj().args(&["agent", "logs", &pipeline_id]).passes();
 }
 
 /// Tests `oj agent logs <id> --step <step>` command succeeds for a completed pipeline.
@@ -198,31 +199,32 @@ fn agent_logs_command_with_step_filter_succeeds() {
     temp.oj().args(&["daemon", "start"]).passes();
     temp.oj().args(&["run", "build", "test"]).passes();
 
+    let pipeline_id = std::cell::RefCell::new(String::new());
     let done = wait_for(SPEC_WAIT_MAX_MS * 10, || {
-        temp.oj()
-            .args(&["pipeline", "list"])
+        let out = temp
+            .oj()
+            .args(&["pipeline", "list", "--output", "json"])
             .passes()
-            .stdout()
-            .contains("completed")
+            .stdout();
+        if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&out) {
+            if let Some(p) = list.iter().find(|p| p["step"] == "done") {
+                *pipeline_id.borrow_mut() = p["id"].as_str().unwrap().to_string();
+                return true;
+            }
+        }
+        false
     });
     assert!(done, "pipeline should complete");
-
-    // Get the pipeline ID
-    let list_output = temp.oj().args(&["pipeline", "list"]).passes().stdout();
-    let pipeline_id = list_output
-        .lines()
-        .find(|l| l.contains("completed"))
-        .and_then(|l| l.split_whitespace().next())
-        .expect("should find pipeline ID");
+    let pipeline_id = pipeline_id.into_inner();
 
     // Test `oj agent logs <id> --step plan` succeeds (doesn't error)
     temp.oj()
-        .args(&["agent", "logs", pipeline_id, "--step", "plan"])
+        .args(&["agent", "logs", &pipeline_id, "--step", "plan"])
         .passes();
 
     // Test `oj agent logs <id> --step implement` succeeds (doesn't error)
     temp.oj()
-        .args(&["agent", "logs", pipeline_id, "--step", "implement"])
+        .args(&["agent", "logs", &pipeline_id, "--step", "implement"])
         .passes();
 }
 

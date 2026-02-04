@@ -33,12 +33,12 @@ pipeline "chore" {
   on_fail   = { step = "reopen" }
 
   workspace {
-    git = "worktree"
+    git    = "worktree"
+    branch = "chore/${var.task.id}-${workspace.nonce}"
   }
 
   locals {
     base   = "main"
-    branch = "chore/${var.task.id}-${workspace.nonce}"
     title  = "$(printf '%s' \"chore: ${var.task.title}\" | tr '\\n' ' ' | cut -c1-80)"
   }
 

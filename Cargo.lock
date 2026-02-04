@@ -1233,6 +1233,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "dirs",
+ "serde_json",
  "similar-asserts",
  "tempfile",
 ]

@@ -21,11 +21,11 @@ pipeline "epic" {
   vars      = ["name", "instructions", "blocked-by"]
 
   workspace {
-    git = "worktree"
+    git    = "worktree"
+    branch = "feature/${var.name}-${workspace.nonce}"
   }
 
   locals {
-    branch = "feature/${var.name}-${workspace.nonce}"
     title  = "$(printf '%s' \"feat(${var.name}): ${var.instructions}\" | tr '\\n' ' ' | cut -c1-80)"
   }
 

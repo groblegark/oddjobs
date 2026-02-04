@@ -631,3 +631,109 @@ run = "echo done"
         .passes()
         .stdout_has("completed");
 }
+
+// =============================================================================
+// Test 8: Cancel cleans up workspace directory
+// =============================================================================
+
+/// When a pipeline with a workspace is cancelled, the workspace directory
+/// should be cleaned up (same as on successful completion).
+#[test]
+fn cancel_cleans_up_workspace() {
+    let temp = Project::empty();
+    temp.git_init();
+
+    temp.file(".oj/scenarios/slow.toml", SLOW_AGENT_SCENARIO);
+    let scenario_path = temp.path().join(".oj/scenarios/slow.toml");
+    temp.file(
+        ".oj/runbooks/work.toml",
+        &format!(
+            r#"
+[command.work]
+args = "<name>"
+run = {{ pipeline = "work" }}
+
+[pipeline.work]
+vars  = ["name"]
+workspace = "folder"
+
+[[pipeline.work.step]]
+name = "agent"
+run = {{ agent = "worker" }}
+
+[agent.worker]
+run = "claudeless --scenario {} -p"
+prompt = "Run a slow task."
+on_dead = "done"
+"#,
+            scenario_path.display()
+        ),
+    );
+
+    temp.oj().args(&["daemon", "start"]).passes();
+    temp.oj().args(&["run", "work", "ws-cancel"]).passes();
+
+    // Wait for pipeline to reach agent step
+    let running = wait_for(SPEC_WAIT_MAX_MS, || {
+        let out = temp.oj().args(&["pipeline", "list"]).passes().stdout();
+        out.contains("agent") && out.contains("running")
+    });
+    assert!(
+        running,
+        "pipeline should reach the agent step\ndaemon log:\n{}",
+        temp.daemon_log()
+    );
+
+    // Verify workspace directory exists
+    let workspaces_dir = temp.state_path().join("workspaces");
+    let ws_exists_before = workspaces_dir.exists()
+        && std::fs::read_dir(&workspaces_dir)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false);
+    assert!(
+        ws_exists_before,
+        "workspace directory should exist before cancel"
+    );
+
+    // Cancel the pipeline
+    let pipeline_id = extract_pipeline_id(&temp, "work");
+    temp.oj()
+        .args(&["pipeline", "cancel", &pipeline_id])
+        .passes();
+
+    // Pipeline should reach cancelled status
+    let cancelled = wait_for(SPEC_WAIT_MAX_MS, || {
+        let out = temp.oj().args(&["pipeline", "list"]).passes().stdout();
+        out.contains("cancelled")
+    });
+
+    if !cancelled {
+        eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
+    }
+    assert!(
+        cancelled,
+        "pipeline should transition to cancelled after cancel"
+    );
+
+    // Workspace directory should be cleaned up
+    let ws_cleaned = wait_for(SPEC_WAIT_MAX_MS, || {
+        !workspaces_dir.exists()
+            || std::fs::read_dir(&workspaces_dir)
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(true)
+    });
+    if !ws_cleaned {
+        eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
+        if workspaces_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&workspaces_dir) {
+                for entry in entries.flatten() {
+                    eprintln!("workspace entry: {:?}", entry.path());
+                }
+            }
+        }
+    }
+    assert!(
+        ws_cleaned,
+        "workspace directory should be cleaned up after cancel"
+    );
+}

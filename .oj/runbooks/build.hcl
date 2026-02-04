@@ -26,11 +26,11 @@ pipeline "build" {
   on_cancel = { step = "cancel" }
 
   workspace {
-    git = "worktree"
+    git    = "worktree"
+    branch = "feature/${var.name}-${workspace.nonce}"
   }
 
   locals {
-    branch = "feature/${var.name}-${workspace.nonce}"
     title  = "$(printf '%s' \"feat(${var.name}): ${var.instructions}\" | tr '\\n' ' ' | cut -c1-80)"
     issue  = "$(cd ${invoke.dir} && wok new feature \"${var.instructions}\" -o id)"
   }

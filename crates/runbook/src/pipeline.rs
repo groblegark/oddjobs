@@ -136,6 +136,10 @@ impl<'de> Deserialize<'de> for WorkspaceType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceBlock {
     pub git: GitWorkspaceMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub from_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,7 +153,8 @@ impl WorkspaceConfig {
         matches!(
             self,
             WorkspaceConfig::Block(WorkspaceBlock {
-                git: GitWorkspaceMode::Worktree
+                git: GitWorkspaceMode::Worktree,
+                ..
             })
         )
     }

@@ -12,10 +12,7 @@ pipeline "specs" {
   name      = "specs-${workspace.nonce}"
 
   workspace {
-    git = "worktree"
-  }
-
-  locals {
+    git    = "worktree"
     branch = "fix/specs-${workspace.nonce}"
   }
 

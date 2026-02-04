@@ -70,7 +70,6 @@ where
         let notify_config = pipeline_def.notify.clone();
 
         // Determine execution path and workspace metadata (path, id, type)
-        // Note: workspace effects are built AFTER locals evaluation so local.branch is available
         let is_worktree;
         let workspace_id_str;
         let (execution_path, has_workspace) = match (&pipeline_def.cwd, &pipeline_def.workspace) {
@@ -124,6 +123,71 @@ where
             }
         };
 
+        // Interpolate workspace.branch and workspace.ref from workspace config
+        // (before locals, so locals can reference ${workspace.branch} if needed)
+        let workspace_block = match &pipeline_def.workspace {
+            Some(oj_runbook::WorkspaceConfig::Block(block)) => Some(block.clone()),
+            _ => None,
+        };
+
+        if is_worktree {
+            let pipeline_id_str = pipeline_id.as_str();
+            let nonce = &pipeline_id_str[..8.min(pipeline_id_str.len())];
+
+            // Build lookup for interpolation (same pattern as locals)
+            let lookup: HashMap<String, String> = vars
+                .iter()
+                .flat_map(|(k, v)| {
+                    let prefixed = format!("var.{}", k);
+                    vec![(k.clone(), v.clone()), (prefixed, v.clone())]
+                })
+                .collect();
+
+            // Branch: interpolate from workspace config, or auto-generate ws-<nonce>
+            let branch_name = if let Some(ref template) =
+                workspace_block.as_ref().and_then(|b| b.branch.clone())
+            {
+                oj_runbook::interpolate(template, &lookup)
+            } else {
+                format!("ws-{}", nonce)
+            };
+            vars.insert("workspace.branch".to_string(), branch_name);
+
+            // Ref: interpolate from workspace config, eagerly evaluate $(...) shell expressions
+            if let Some(ref template) = workspace_block.as_ref().and_then(|b| b.from_ref.clone()) {
+                let value = oj_runbook::interpolate(template, &lookup);
+                let value = if value.contains("$(") {
+                    let cwd = vars
+                        .get("invoke.dir")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                    let output = tokio::process::Command::new("bash")
+                        .arg("-c")
+                        .arg(format!("printf '%s' {}", value))
+                        .current_dir(&cwd)
+                        .output()
+                        .await
+                        .map_err(|e| {
+                            RuntimeError::ShellError(format!(
+                                "failed to evaluate workspace.ref: {}",
+                                e
+                            ))
+                        })?;
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        return Err(RuntimeError::ShellError(format!(
+                            "workspace.ref evaluation failed: {}",
+                            stderr.trim()
+                        )));
+                    }
+                    String::from_utf8_lossy(&output.stdout).to_string()
+                } else {
+                    value
+                };
+                vars.insert("workspace.ref".to_string(), value);
+            }
+        }
+
         // Evaluate locals: interpolate each value with current vars, then add as local.*
         // Build a lookup map that includes var.*-prefixed keys so templates like
         // ${var.name} resolve (the vars map stores raw keys like "name").
@@ -175,7 +239,7 @@ where
             }
         }
 
-        // Build workspace effects AFTER locals evaluation (so local.branch is available)
+        // Build workspace effects using workspace.branch and workspace.ref from vars
         let workspace_effects = if has_workspace {
             let (repo_root, branch, start_point) = if is_worktree {
                 let invoke_dir = vars
@@ -207,19 +271,19 @@ where
                         .to_string(),
                 );
 
-                let pipeline_id_str = pipeline_id.as_str();
-                let nonce = &pipeline_id_str[..8.min(pipeline_id_str.len())];
-
-                // Branch: use local.branch if defined, otherwise generate ws-<nonce>
-                let branch_name = vars
-                    .get("local.branch")
+                // Safety: workspace.branch is always injected above when is_worktree
+                let branch_name = vars.get("workspace.branch").cloned().unwrap_or_else(|| {
+                    format!(
+                        "ws-{}",
+                        &pipeline_id.as_str()[..8.min(pipeline_id.as_str().len())]
+                    )
+                });
+                let start_point = vars
+                    .get("workspace.ref")
                     .cloned()
-                    .unwrap_or_else(|| format!("ws-{}", nonce));
+                    .unwrap_or_else(|| "HEAD".to_string());
 
-                // Inject workspace.branch template variable
-                vars.insert("workspace.branch".to_string(), branch_name.clone());
-
-                (Some(repo_root), Some(branch_name), Some("HEAD".to_string()))
+                (Some(repo_root), Some(branch_name), Some(start_point))
             } else {
                 (None, None, None)
             };

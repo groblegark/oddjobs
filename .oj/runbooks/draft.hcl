@@ -80,11 +80,11 @@ pipeline "draft" {
   vars      = ["name", "instructions", "base"]
 
   workspace {
-    git = "worktree"
+    git    = "worktree"
+    branch = "draft/${var.name}-${workspace.nonce}"
   }
 
   locals {
-    branch = "draft/${var.name}-${workspace.nonce}"
     title  = "$(printf '%s' \"draft(${var.name}): ${var.instructions}\" | tr '\\n' ' ' | cut -c1-80)"
   }
 

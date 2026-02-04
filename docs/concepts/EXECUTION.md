@@ -17,7 +17,7 @@ An **isolated directory for work** -- typically populated by a pipeline's init s
 A workspace provides:
 - **Identity**: Unique name for this work context
 - **Isolation**: Separate from other concurrent work
-- **Lifecycle**: Created before work, cleaned up on success, kept on failure for debugging
+- **Lifecycle**: Created before work, cleaned up on success or cancellation, kept on failure for debugging
 - **Context**: Values tasks can reference (`${workspace.root}`, `${workspace.id}`, `${workspace.branch}`)
 
 ### Workspace Types
@@ -33,9 +33,17 @@ Using XDG state directory keeps the project directory clean and survives `git cl
 
 ### Workspace Setup
 
-For `workspace { git = "worktree" }`, the engine creates a git worktree automatically. The branch name comes from `local.branch` if defined, otherwise `ws-<nonce>`. The `${workspace.branch}` template variable is available in step templates.
+For `workspace { git = "worktree" }`, the engine creates a git worktree automatically. The branch name comes from `workspace.branch` if set, otherwise `ws-<nonce>`. The start point comes from `workspace.ref` if set, otherwise `HEAD`. Both fields support `${var.*}` and `${workspace.*}` interpolation; `ref` also supports `$(...)` shell expressions. The `${workspace.branch}` template variable is available in step templates.
 
-For `workspace = "folder"`, the engine creates an empty directory. The pipeline's init step populates it -- useful when custom git start points are needed:
+```hcl
+workspace {
+  git    = "worktree"
+  branch = "feature/${var.name}-${workspace.nonce}"
+  ref    = "origin/main"
+}
+```
+
+For `workspace = "folder"`, the engine creates an empty directory. The pipeline's init step populates it -- useful when fully custom worktree management is needed:
 
 ```hcl
 step "init" {

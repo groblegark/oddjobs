@@ -33,12 +33,12 @@ pipeline "fix" {
   on_cancel = { step = "cancel" }
 
   workspace {
-    git = "worktree"
+    git    = "worktree"
+    branch = "fix/${var.bug.id}-${workspace.nonce}"
   }
 
   locals {
     base   = "main"
-    branch = "fix/${var.bug.id}-${workspace.nonce}"
     title  = "$(printf '%s' \"fix: ${var.bug.title}\" | tr '\\n' ' ' | cut -c1-80)"
   }
 

@@ -294,7 +294,8 @@ where
                     }
                 } else if pipeline.cancelling {
                     // Cancel cleanup step completed; go to terminal "cancelled"
-                    let effects = steps::cancellation_effects(pipeline);
+                    let mut effects = steps::cancellation_effects(pipeline);
+                    effects.extend(self.workspace_cleanup_effects(pipeline));
                     result_events.extend(self.executor.execute_all(effects).await?);
                     self.breadcrumb.delete(&pipeline.id);
                     // Update queue item status immediately (don't rely on event loop)
@@ -453,6 +454,29 @@ where
         Ok(result_events)
     }
 
+    /// Build workspace cleanup effects for a pipeline (if it has a workspace).
+    fn workspace_cleanup_effects(&self, pipeline: &Pipeline) -> Vec<Effect> {
+        // Try pipeline.workspace_id first; fall back to scanning workspaces by owner
+        let ws_id = pipeline.workspace_id.clone().or_else(|| {
+            self.lock_state(|s| {
+                s.workspaces
+                    .values()
+                    .find(|ws| ws.owner.as_deref() == Some(&pipeline.id))
+                    .map(|ws| oj_core::WorkspaceId::new(&ws.id))
+            })
+        });
+        if let Some(ws_id) = ws_id {
+            let exists = self.lock_state(|s| s.workspaces.contains_key(ws_id.as_str()));
+
+            if exists {
+                return vec![Effect::DeleteWorkspace {
+                    workspace_id: ws_id,
+                }];
+            }
+        }
+        vec![]
+    }
+
     pub(crate) async fn complete_pipeline(
         &self,
         pipeline: &Pipeline,
@@ -463,15 +487,7 @@ where
         let mut effects = steps::completion_effects(pipeline);
 
         // Clean up workspaces on successful completion
-        if let Some(ws_id) = &pipeline.workspace_id {
-            let workspace_exists =
-                self.lock_state(|state| state.workspaces.contains_key(ws_id.as_str()));
-            if workspace_exists {
-                effects.push(Effect::DeleteWorkspace {
-                    workspace_id: ws_id.clone(),
-                });
-            }
-        }
+        effects.extend(self.workspace_cleanup_effects(pipeline));
 
         let mut result_events = self.executor.execute_all(effects).await?;
 
@@ -658,7 +674,8 @@ where
                 );
             } else {
                 // Already at the cancel target; go terminal
-                let effects = steps::cancellation_effects(pipeline);
+                let mut effects = steps::cancellation_effects(pipeline);
+                effects.extend(self.workspace_cleanup_effects(pipeline));
                 result_events.extend(self.executor.execute_all(effects).await?);
                 self.breadcrumb.delete(&pipeline.id);
                 // Update queue item status immediately (don't rely on event loop)
@@ -669,7 +686,8 @@ where
             }
         } else {
             // No on_cancel configured; terminal cancellation as before
-            let effects = steps::cancellation_effects(pipeline);
+            let mut effects = steps::cancellation_effects(pipeline);
+            effects.extend(self.workspace_cleanup_effects(pipeline));
             result_events.extend(self.executor.execute_all(effects).await?);
             self.breadcrumb.delete(&pipeline.id);
             // Update queue item status immediately (don't rely on event loop)

@@ -579,7 +579,9 @@ pipeline "test" {
     assert_eq!(
         pipeline.workspace,
         Some(WorkspaceConfig::Block(WorkspaceBlock {
-            git: GitWorkspaceMode::Worktree
+            git: GitWorkspaceMode::Worktree,
+            branch: None,
+            from_ref: None,
         }))
     );
 }
@@ -630,6 +632,96 @@ fn workspace_config_is_git_worktree() {
 
     let worktree = WorkspaceConfig::Block(WorkspaceBlock {
         git: GitWorkspaceMode::Worktree,
+        branch: None,
+        from_ref: None,
     });
     assert!(worktree.is_git_worktree());
+}
+
+#[test]
+fn parse_hcl_workspace_git_worktree_with_branch() {
+    let hcl = r#"
+pipeline "test" {
+    vars = ["name"]
+
+    workspace {
+        git    = "worktree"
+        branch = "feat/${var.name}"
+    }
+
+    step "init" {
+        run = "echo init"
+    }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let pipeline = runbook.get_pipeline("test").unwrap();
+    assert!(pipeline.workspace.as_ref().unwrap().is_git_worktree());
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Block(WorkspaceBlock {
+            git: GitWorkspaceMode::Worktree,
+            branch: Some("feat/${var.name}".to_string()),
+            from_ref: None,
+        }))
+    );
+}
+
+#[test]
+fn parse_hcl_workspace_git_worktree_with_ref() {
+    let hcl = r#"
+pipeline "test" {
+    vars = ["name"]
+
+    workspace {
+        git = "worktree"
+        ref = "origin/main"
+    }
+
+    step "init" {
+        run = "echo init"
+    }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let pipeline = runbook.get_pipeline("test").unwrap();
+    assert!(pipeline.workspace.as_ref().unwrap().is_git_worktree());
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Block(WorkspaceBlock {
+            git: GitWorkspaceMode::Worktree,
+            branch: None,
+            from_ref: Some("origin/main".to_string()),
+        }))
+    );
+}
+
+#[test]
+fn parse_hcl_workspace_git_worktree_with_branch_and_ref() {
+    let hcl = r#"
+pipeline "test" {
+    vars = ["name"]
+
+    workspace {
+        git    = "worktree"
+        branch = "feat/${var.name}-${workspace.nonce}"
+        ref    = "origin/main"
+    }
+
+    step "init" {
+        run = "echo init"
+    }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let pipeline = runbook.get_pipeline("test").unwrap();
+    assert!(pipeline.workspace.as_ref().unwrap().is_git_worktree());
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Block(WorkspaceBlock {
+            git: GitWorkspaceMode::Worktree,
+            branch: Some("feat/${var.name}-${workspace.nonce}".to_string()),
+            from_ref: Some("origin/main".to_string()),
+        }))
+    );
 }

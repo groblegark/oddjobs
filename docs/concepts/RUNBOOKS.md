@@ -106,11 +106,11 @@ pipeline "fix" {
   vars      = ["bug"]
 
   workspace {
-    git = "worktree"
+    git    = "worktree"
+    branch = "fix/${var.bug.id}-${workspace.nonce}"
   }
 
   locals {
-    branch = "fix/${var.bug.id}-${workspace.nonce}"
     title  = "fix: ${var.bug.title}"
   }
 
@@ -142,7 +142,7 @@ Pipeline fields:
 - **defaults**: Default values for vars
 - **locals**: Map of local variables computed once at pipeline creation time (see [Locals](#locals) below)
 - **cwd**: Base directory for execution (supports template interpolation)
-- **workspace**: Workspace type -- `"folder"` (plain directory) or `workspace { git = "worktree" }` (engine-managed git worktree). Workspaces are deleted on success, kept on failure for debugging.
+- **workspace**: Workspace type -- `"folder"` (plain directory) or `workspace { git = "worktree" }` (engine-managed git worktree). Workspaces are deleted on completion (success or cancellation), kept on failure for debugging. Optional fields: `branch` (worktree branch name template, default `ws-<nonce>`) and `ref` (start point for worktree, default `HEAD`, supports `$(...)` shell expressions).
 - **notify**: Desktop notification templates for pipeline lifecycle (see [Desktop Integration](../interface/DESKTOP.md))
 - **on_done**: Default step to route to when a step completes without an explicit `on_done`
 - **on_fail**: Default step to route to when a step fails without an explicit `on_fail`
@@ -170,11 +170,11 @@ pipeline "build" {
   vars      = ["name", "instructions"]
 
   workspace {
-    git = "worktree"
+    git    = "worktree"
+    branch = "feature/${var.name}-${workspace.nonce}"
   }
 
   locals {
-    branch = "feature/${var.name}-${workspace.nonce}"
     title  = "feat(${var.name}): ${var.instructions}"
   }
 
@@ -185,7 +185,17 @@ pipeline "build" {
 }
 ```
 
-With `workspace { git = "worktree" }`, the engine handles git worktree creation and cleanup automatically, using `local.branch` as the branch name. The `${workspace.branch}` variable is available in step templates for push commands. For pipelines that need custom start points (not HEAD), use `workspace = "folder"` with manual git worktree commands in the init step.
+With `workspace { git = "worktree" }`, the engine handles git worktree creation and cleanup automatically. The `branch` field sets the worktree branch name (default: `ws-<nonce>`). The `ref` field sets the start point (default: `HEAD`). Both support `${var.*}` and `${workspace.*}` interpolation; `ref` also supports `$(...)` shell expressions. The `${workspace.branch}` variable is available in step templates for push commands.
+
+```hcl
+workspace {
+  git    = "worktree"
+  branch = "fix/${var.bug.id}-${workspace.nonce}"
+  ref    = "origin/main"
+}
+```
+
+For pipelines that need fully custom worktree management (e.g., checking out an existing remote branch), use `workspace = "folder"` with manual git worktree commands in the init step.
 
 ### Steps
 

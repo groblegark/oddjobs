@@ -44,6 +44,11 @@ All string fields in runbooks support two-step interpolation:
 
 Variable names support dotted notation (e.g., `${var.bug.title}`) and unknown variables are left as-is.
 
+**Substring extraction**: `${var:offset:length}` extracts a substring (0-indexed, character-based). Both offset and length are optional:
+- `${var.title:0:72}` — first 72 characters
+- `${var.name:6}` — from character 6 to end
+- Values shorter than the range are returned as-is; unknown variables are left as-is
+
 Available variable namespaces:
 
 | Prefix | Source | Example |
@@ -164,6 +169,8 @@ pipeline "build" {
 ### Locals
 
 The `locals` block defines variables computed once at pipeline creation time. Local values support `${var.*}`, `${workspace.*}`, and `${invoke.*}` interpolation. Once evaluated, locals are available in all step templates as `${local.*}`.
+
+Locals containing shell expressions (`$(...)`) use shell-safe interpolation: variable values with `$`, backticks, or double quotes are escaped before substitution, so user-provided input won't be interpreted as shell syntax.
 
 ```hcl
 pipeline "build" {

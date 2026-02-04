@@ -54,6 +54,8 @@ oj run build --runbook path/to/custom.hcl auth "Add auth"
 
 Named arguments are passed with `-a`/`--arg key=value` and are available in the runbook as `var.<key>`.
 
+When listing commands, `oj run` shows warnings for any runbook files that failed to parse, helping diagnose missing commands.
+
 ## Resources
 
 ### oj pipeline

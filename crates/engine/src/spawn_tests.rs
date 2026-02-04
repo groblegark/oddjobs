@@ -819,6 +819,7 @@ fn build_spawn_effects_injects_user_env_vars() {
         &HashMap::new(),
         workspace.path(),
         state_dir.path(),
+        None,
     )
     .unwrap();
 
@@ -856,6 +857,7 @@ fn build_spawn_effects_user_env_does_not_override_system_vars() {
         &HashMap::new(),
         workspace.path(),
         state_dir.path(),
+        None,
     )
     .unwrap();
 
@@ -904,6 +906,7 @@ fn build_spawn_effects_project_env_overrides_global() {
         &HashMap::new(),
         workspace.path(),
         state_dir.path(),
+        None,
     )
     .unwrap();
 

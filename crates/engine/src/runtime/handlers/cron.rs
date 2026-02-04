@@ -258,13 +258,17 @@ where
                     .await?,
             );
         } else {
+            // Set invoke.dir to project root so runbooks can reference ${invoke.dir}
+            let mut vars = HashMap::new();
+            vars.insert("invoke.dir".to_string(), project_root.display().to_string());
+
             // Pipeline target (original behavior)
             result_events.extend(
                 self.create_and_start_pipeline(CreatePipelineParams {
                     pipeline_id: pipeline_id.clone(),
                     pipeline_name: pipeline_name.to_string(),
                     pipeline_kind: pipeline_kind.to_string(),
-                    vars: HashMap::new(),
+                    vars,
                     runbook_hash: runbook_hash.to_string(),
                     runbook_json: None,
                     runbook,
@@ -358,13 +362,17 @@ where
                     &namespace,
                 );
 
+                // Set invoke.dir to project root so runbooks can reference ${invoke.dir}
+                let mut vars = HashMap::new();
+                vars.insert("invoke.dir".to_string(), project_root.display().to_string());
+
                 // Create and start pipeline
                 result_events.extend(
                     self.create_and_start_pipeline(CreatePipelineParams {
                         pipeline_id: pipeline_id.clone(),
                         pipeline_name: display_name,
                         pipeline_kind: pipeline_name.clone(),
-                        vars: HashMap::new(),
+                        vars,
                         runbook_hash: runbook_hash.clone(),
                         runbook_json: None,
                         runbook,

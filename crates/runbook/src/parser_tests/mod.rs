@@ -1283,7 +1283,7 @@ fn parse_epic_hcl_builder_agent() {
     assert_eq!(agent.on_idle.attempts(), Attempts::Forever);
 
     // on_dead = recover with append
-    assert_eq!(agent.on_dead.action(), &AgentAction::Recover);
+    assert_eq!(agent.on_dead.action(), &AgentAction::Resume);
     assert!(agent.on_dead.append());
     assert!(agent.on_dead.message().is_some());
 

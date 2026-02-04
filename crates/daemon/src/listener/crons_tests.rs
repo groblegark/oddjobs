@@ -398,6 +398,7 @@ async fn once_with_wrong_project_root_falls_back_to_namespace() {
             status: "running".to_string(),
             interval: "24h".to_string(),
             pipeline_name: "deploy".to_string(),
+            run_target: String::new(),
             started_at_ms: 1_000,
             last_fired_at_ms: None,
         },

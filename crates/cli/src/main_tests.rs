@@ -59,7 +59,7 @@ fn run_short_help_shows_custom_output() {
     assert_eq!(err.kind(), ErrorKind::DisplayHelp);
     let help = err.to_string();
     assert!(
-        help.contains("Usage: oj run <COMMAND> [ARGS]..."),
+        help.contains("Usage: oj run <COMMAND>"),
         "should show custom usage line, got:\n{help}"
     );
     // Must NOT contain clap's auto-generated argument descriptions
@@ -77,7 +77,7 @@ fn run_long_help_shows_custom_output() {
     assert_eq!(err.kind(), ErrorKind::DisplayHelp);
     let help = err.to_string();
     assert!(
-        help.contains("Usage: oj run <COMMAND> [ARGS]..."),
+        help.contains("Usage: oj run <COMMAND>"),
         "should show custom usage line, got:\n{help}"
     );
 }
@@ -90,7 +90,7 @@ fn help_subcommand_run_shows_custom_output() {
     assert_eq!(err.kind(), ErrorKind::DisplayHelp);
     let help = err.to_string();
     assert!(
-        help.contains("Usage: oj run <COMMAND> [ARGS]..."),
+        help.contains("Usage: oj run <COMMAND>"),
         "should show custom usage line, got:\n{help}"
     );
     assert!(

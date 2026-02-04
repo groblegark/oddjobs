@@ -275,8 +275,8 @@ fn format_available_commands_empty_shows_no_commands() {
 
     assert!(buf.contains("No commands found."));
     assert!(buf.contains("Define commands in .oj/runbooks/*.hcl"));
-    assert!(buf.contains("Usage: oj run <COMMAND> [ARGS]..."));
-    assert!(buf.contains("For more information, try '--help'."));
+    assert!(buf.contains("Usage: oj run <COMMAND>\n"));
+    assert!(buf.contains("For more information, try 'oj run <COMMAND> -h'."));
     assert!(!buf.contains("Commands:"));
 }
 
@@ -299,7 +299,8 @@ fn format_available_commands_shows_commands() {
 
     assert!(buf.contains("Commands:"));
     assert!(buf.contains("build"));
-    assert!(buf.contains("greet <name>"));
+    assert!(buf.contains("greet"));
+    assert!(!buf.contains("<name>")); // args no longer shown in listing
     assert!(!buf.contains("No commands found."));
 }
 

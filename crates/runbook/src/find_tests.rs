@@ -558,3 +558,128 @@ fn collect_all_crons_skips_invalid() {
     assert_eq!(crons.len(), 1);
     assert_eq!(crons[0].0, "daily-backup");
 }
+
+// ============================================================================
+// extract_block_comments tests
+// ============================================================================
+
+#[test]
+fn extract_block_comments_multi_command_file() {
+    let content = r#"# First command description.
+#
+# Examples:
+#   oj run first
+
+command "first" {
+  run = "echo first"
+}
+
+# Second command description.
+command "second" {
+  run = "echo second"
+}
+"#;
+    let comments = extract_block_comments(content);
+    assert_eq!(comments.len(), 2);
+    assert_eq!(comments["first"].short, "First command description.");
+    assert!(comments["first"].long.contains("Examples:"));
+    assert_eq!(comments["second"].short, "Second command description.");
+    assert!(comments["second"].long.is_empty());
+}
+
+#[test]
+fn extract_block_comments_no_comment() {
+    let content = r#"command "bare" { run = "echo" }"#;
+    let comments = extract_block_comments(content);
+    assert!(comments.is_empty());
+}
+
+#[test]
+fn extract_block_comments_ignores_section_separators() {
+    // The "# ---" separator should not bleed into the second command's comment
+    let content = r#"# First description
+command "first" {
+  run = "echo"
+}
+
+# ------------------------------------------------------------------
+# Agents
+# ------------------------------------------------------------------
+
+# Second description
+command "second" {
+  run = "echo"
+}
+"#;
+    let comments = extract_block_comments(content);
+    assert_eq!(comments["second"].short, "Second description");
+}
+
+#[test]
+fn extract_block_comments_blank_lines_between() {
+    // Blank lines between comment block and command line are skipped
+    let content = r#"# Description here
+
+command "test" {
+  run = "echo"
+}
+"#;
+    let comments = extract_block_comments(content);
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments["test"].short, "Description here");
+}
+
+#[test]
+fn collect_all_commands_per_block_descriptions() {
+    let tmp = TempDir::new().unwrap();
+    let content = r#"# First command
+command "alpha" {
+  run = "echo alpha"
+}
+
+# Second command
+command "beta" {
+  run = "echo beta"
+}
+"#;
+    write_hcl(tmp.path(), "multi.hcl", content);
+    let commands = collect_all_commands(tmp.path()).unwrap();
+    let alpha = commands.iter().find(|(n, _)| n == "alpha").unwrap();
+    let beta = commands.iter().find(|(n, _)| n == "beta").unwrap();
+    assert_eq!(alpha.1.description.as_deref(), Some("First command"));
+    assert_eq!(beta.1.description.as_deref(), Some("Second command"));
+}
+
+#[test]
+fn find_command_with_comment_uses_block_comment() {
+    let tmp = TempDir::new().unwrap();
+    let content = r#"# File-level comment
+# Shared description
+
+# Alpha-specific description
+#
+# Alpha long details
+command "alpha" {
+  run = "echo alpha"
+}
+
+# Beta-specific description
+command "beta" {
+  run = "echo beta"
+}
+"#;
+    write_hcl(tmp.path(), "multi.hcl", content);
+
+    let result = find_command_with_comment(tmp.path(), "alpha").unwrap();
+    let (cmd, comment) = result.unwrap();
+    assert_eq!(cmd.name, "alpha");
+    let comment = comment.unwrap();
+    assert_eq!(comment.short, "Alpha-specific description");
+    assert!(comment.long.contains("Alpha long details"));
+
+    let result = find_command_with_comment(tmp.path(), "beta").unwrap();
+    let (cmd, comment) = result.unwrap();
+    assert_eq!(cmd.name, "beta");
+    let comment = comment.unwrap();
+    assert_eq!(comment.short, "Beta-specific description");
+}

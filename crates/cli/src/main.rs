@@ -572,6 +572,26 @@ fn print_formatted_help(args: &[String]) {
         non_flags.iter().map(|s| s.as_str()).collect()
     };
 
+    // Route "run <command>" to per-command help
+    if subcommand_names.first() == Some(&"run") && subcommand_names.len() > 1 {
+        let command_name = subcommand_names[1];
+        let project_root = find_project_root_from_args();
+        let runbook_dir = project_root.join(".oj/runbooks");
+
+        if let Ok(Some(runbook)) = oj_runbook::find_runbook_by_command(&runbook_dir, command_name) {
+            if let Some(cmd_def) = runbook.get_command(command_name) {
+                let comment = oj_runbook::find_command_with_comment(&runbook_dir, command_name)
+                    .ok()
+                    .flatten()
+                    .and_then(|(_, comment)| comment);
+
+                eprint!("{}", cmd_def.format_help(command_name, comment.as_ref()));
+                return;
+            }
+        }
+        // Fall through to normal help if command not found
+    }
+
     let mut target_cmd = find_subcommand(cmd, &subcommand_names);
     help::print_help(&mut target_cmd);
 }

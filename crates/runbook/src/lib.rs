@@ -33,8 +33,9 @@ pub use command::{
 pub use cron::CronDef;
 pub use find::{
     collect_all_commands, collect_all_crons, collect_all_queues, collect_all_workers,
-    extract_file_comment, find_command_with_comment, find_runbook_by_command, find_runbook_by_cron,
-    find_runbook_by_queue, find_runbook_by_worker, validate_runbook_dir, FileComment, FindError,
+    extract_block_comments, extract_file_comment, find_command_with_comment,
+    find_runbook_by_command, find_runbook_by_cron, find_runbook_by_queue, find_runbook_by_worker,
+    validate_runbook_dir, FileComment, FindError,
 };
 pub use parser::{parse_runbook, parse_runbook_with_format, Format, ParseError, Runbook};
 pub use pipeline::{

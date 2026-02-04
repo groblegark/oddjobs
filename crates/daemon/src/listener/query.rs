@@ -528,34 +528,62 @@ pub(super) fn handle_query(
 
         Query::GetAgentSignal { agent_id } => {
             // Check standalone agent runs first
-            let signal = state.agent_runs.values().find_map(|ar| {
-                (ar.agent_id.as_deref() == Some(&agent_id)).then_some(ar.agent_signal.as_ref())?
-            });
-            if let Some(s) = signal {
+            let agent_run_match = state
+                .agent_runs
+                .values()
+                .find(|ar| ar.agent_id.as_deref() == Some(&agent_id));
+            if let Some(ar) = agent_run_match {
+                if let Some(s) = &ar.agent_signal {
+                    return Response::AgentSignal {
+                        signaled: true,
+                        kind: Some(s.kind.clone()),
+                        message: s.message.clone(),
+                    };
+                }
+                // Agent run exists but no signal — don't allow exit
                 return Response::AgentSignal {
-                    signaled: true,
-                    kind: Some(s.kind.clone()),
-                    message: s.message.clone(),
+                    signaled: false,
+                    kind: None,
+                    message: None,
                 };
             }
 
             // Find pipeline by agent_id in current step and return its signal
-            let signal = state.pipelines.values().find_map(|p| {
-                (p.step_history.last()?.agent_id.as_deref() == Some(&agent_id))
-                    .then_some(p.agent_signal.as_ref())?
+            let pipeline_signal = state.pipelines.values().find_map(|p| {
+                let matches = p
+                    .step_history
+                    .iter()
+                    .rfind(|r| r.name == p.step)
+                    .and_then(|r| r.agent_id.as_deref())
+                    == Some(&agent_id);
+                if matches {
+                    Some(p.agent_signal.as_ref())
+                } else {
+                    None
+                }
             });
-            signal.map_or(
-                Response::AgentSignal {
-                    signaled: false,
-                    kind: None,
-                    message: None,
-                },
-                |s| Response::AgentSignal {
+
+            match pipeline_signal {
+                Some(Some(s)) => Response::AgentSignal {
                     signaled: true,
                     kind: Some(s.kind.clone()),
                     message: s.message.clone(),
                 },
-            )
+                Some(None) => Response::AgentSignal {
+                    signaled: false,
+                    kind: None,
+                    message: None,
+                },
+                None => {
+                    // No pipeline or agent_run owns this agent — orphaned or pipeline advanced.
+                    // Allow exit to prevent the agent from getting stuck.
+                    Response::AgentSignal {
+                        signaled: true,
+                        kind: None,
+                        message: None,
+                    }
+                }
+            }
         }
 
         Query::ListAgents {

@@ -218,6 +218,11 @@ pub struct AgentDef {
     #[serde(default = "default_on_error")]
     pub on_error: ErrorActionConfig,
 
+    /// What to do when agent tries to exit (Stop hook).
+    /// None = context-dependent default (pipeline: signal, standalone: escalate)
+    #[serde(default)]
+    pub on_stop: Option<StopActionConfig>,
+
     /// Maximum concurrent instances of this agent. None = unlimited.
     #[serde(default)]
     pub max_concurrency: Option<u32>,
@@ -508,6 +513,35 @@ fn default_on_error() -> ErrorActionConfig {
     ErrorActionConfig::default()
 }
 
+/// What to do when the agent's Stop hook fires (agent tries to exit)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum StopAction {
+    /// Block exit until agent calls `oj emit agent:signal` (pipeline default)
+    Signal,
+    /// Treat stop as idle — fire on_idle handler
+    Idle,
+    /// Block exit and escalate to human (standalone default)
+    Escalate,
+}
+
+/// Configuration for the on_stop lifecycle handler
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum StopActionConfig {
+    Simple(StopAction),
+    WithOptions { action: StopAction },
+}
+
+impl StopActionConfig {
+    pub fn action(&self) -> &StopAction {
+        match self {
+            StopActionConfig::Simple(a) => a,
+            StopActionConfig::WithOptions { action } => action,
+        }
+    }
+}
+
 impl Default for AgentDef {
     fn default() -> Self {
         Self {
@@ -522,6 +556,7 @@ impl Default for AgentDef {
             on_dead: default_on_dead(),
             on_prompt: default_on_prompt(),
             on_error: default_on_error(),
+            on_stop: None,
             max_concurrency: None,
             notify: Default::default(),
             session: HashMap::new(),

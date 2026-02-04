@@ -234,11 +234,13 @@ Agent fields:
 - **prime**: Shell commands to run at session start for context injection (string or array)
 - **on_idle**: What to do when agent is waiting for input (default: `"nudge"`)
 - **on_dead**: What to do when agent process exits (default: `"escalate"`)
+- **on_stop**: What to do when agent tries to exit via Stop hook (default: `"signal"` for pipeline, `"escalate"` for standalone)
 - **on_error**: What to do on API errors (default: `"escalate"`)
 
 Valid actions per trigger:
 - **on_idle**: `nudge`, `done`, `fail`, `escalate`, `gate`
 - **on_dead**: `done`, `recover`, `fail`, `escalate`, `gate`
+- **on_stop**: `signal`, `idle`, `escalate`
 - **on_error**: `fail`, `escalate`, `gate`
 
 Action options:

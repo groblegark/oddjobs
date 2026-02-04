@@ -99,6 +99,7 @@ fn agent_build_command_with_prompt_field() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -125,6 +126,7 @@ fn agent_build_command_with_inline_prompt() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -151,6 +153,7 @@ fn agent_build_command_print_mode() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -181,6 +184,7 @@ fn agent_build_env() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -212,6 +216,7 @@ fn agent_get_prompt_from_field() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -242,6 +247,7 @@ fn agent_get_prompt_empty_when_unset() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -272,6 +278,7 @@ fn agent_get_prompt_from_file() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -302,6 +309,7 @@ fn agent_get_prompt_file_not_found() {
         on_dead: default_on_dead(),
         on_prompt: default_on_prompt(),
         on_error: default_on_error(),
+        on_stop: None,
         max_concurrency: None,
         notify: Default::default(),
         session: HashMap::new(),
@@ -939,4 +947,94 @@ fn session_config_serialization_roundtrip() {
     let status = parsed.status.unwrap();
     assert_eq!(status.left.as_deref(), Some("left text"));
     assert_eq!(status.right.as_deref(), Some("right text"));
+}
+
+// =============================================================================
+// on_stop Tests
+// =============================================================================
+
+#[test]
+fn on_stop_simple_signal() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+        on_stop = "signal"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    let config = agent.on_stop.unwrap();
+    assert_eq!(config.action(), &StopAction::Signal);
+}
+
+#[test]
+fn on_stop_simple_idle() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+        on_stop = "idle"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    let config = agent.on_stop.unwrap();
+    assert_eq!(config.action(), &StopAction::Idle);
+}
+
+#[test]
+fn on_stop_simple_escalate() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+        on_stop = "escalate"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    let config = agent.on_stop.unwrap();
+    assert_eq!(config.action(), &StopAction::Escalate);
+}
+
+#[test]
+fn on_stop_object_form() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+        on_stop = { action = "idle" }
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    let config = agent.on_stop.unwrap();
+    assert_eq!(config.action(), &StopAction::Idle);
+}
+
+#[test]
+fn on_stop_default_is_none() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+    "#;
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    assert!(agent.on_stop.is_none());
+}
+
+#[test]
+fn on_stop_invalid_value_rejected() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+        on_stop = "nudge"
+    "#;
+    let result: Result<AgentDef, _> = toml::from_str(toml);
+    assert!(
+        result.is_err(),
+        "on_stop = 'nudge' should be rejected as invalid"
+    );
+}
+
+#[test]
+fn on_stop_invalid_object_value_rejected() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+        on_stop = { action = "done" }
+    "#;
+    let result: Result<AgentDef, _> = toml::from_str(toml);
+    assert!(
+        result.is_err(),
+        "on_stop = {{ action = 'done' }} should be rejected as invalid"
+    );
 }

@@ -89,6 +89,10 @@ where
                 result_events.extend(self.handle_agent_idle_hook(agent_id).await?);
             }
 
+            Event::AgentStop { agent_id } => {
+                result_events.extend(self.handle_agent_stop_hook(agent_id).await?);
+            }
+
             Event::AgentPrompt {
                 agent_id,
                 prompt_type,

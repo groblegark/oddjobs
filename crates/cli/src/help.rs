@@ -42,6 +42,8 @@ pub fn commands() -> String {
     "\
 Actions:
   run         Run a command from the runbook
+  cancel      Cancel one or more running pipelines
+  resume      Resume an escalated pipeline
   status      Show overview of active work across all projects
   show        Show details of a pipeline, agent, session, or queue
   peek        Peek at the active tmux session

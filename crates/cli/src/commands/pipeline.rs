@@ -121,7 +121,7 @@ pub enum PipelineCommand {
 }
 
 /// Parse a key=value string for input arguments.
-fn parse_key_value(s: &str) -> Result<(String, String), String> {
+pub(crate) fn parse_key_value(s: &str) -> Result<(String, String), String> {
     let pos = s
         .find('=')
         .ok_or_else(|| format!("invalid input format '{}': must be key=value", s))?;

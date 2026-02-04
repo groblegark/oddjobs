@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use clap::error::ErrorKind;
 use clap::FromArgMatches;
 
-use super::{cli_command, resolve_effective_namespace, Cli};
+use super::{cli_command, resolve_effective_namespace, Cli, Commands};
 
 // -- Version flag -----------------------------------------------------------
 
@@ -216,4 +216,44 @@ fn subcommand_project_flag_no_longer_exists() {
         result.is_ok(),
         "global --project should still parse on subcommands"
     );
+}
+
+// -- Cancel shortcut --------------------------------------------------------
+
+#[test]
+fn cancel_requires_at_least_one_id() {
+    let result = cli_command().try_get_matches_from(["oj", "cancel"]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn cancel_accepts_multiple_ids() {
+    let matches = cli_command()
+        .try_get_matches_from(["oj", "cancel", "abc", "def"])
+        .unwrap();
+    let cli = Cli::from_arg_matches(&matches).unwrap();
+    assert!(matches!(cli.command, Some(Commands::Cancel { ids }) if ids.len() == 2));
+}
+
+// -- Resume shortcut --------------------------------------------------------
+
+#[test]
+fn resume_accepts_id_and_message() {
+    let matches = cli_command()
+        .try_get_matches_from(["oj", "resume", "abc", "-m", "try again"])
+        .unwrap();
+    let cli = Cli::from_arg_matches(&matches).unwrap();
+    assert!(
+        matches!(cli.command, Some(Commands::Resume { id, message, .. })
+        if id == "abc" && message.as_deref() == Some("try again"))
+    );
+}
+
+#[test]
+fn resume_accepts_var_flags() {
+    let matches = cli_command()
+        .try_get_matches_from(["oj", "resume", "abc", "--var", "key=val"])
+        .unwrap();
+    let cli = Cli::from_arg_matches(&matches).unwrap();
+    assert!(matches!(cli.command, Some(Commands::Resume { var, .. }) if var.len() == 1));
 }

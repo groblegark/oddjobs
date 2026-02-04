@@ -3,8 +3,8 @@
 
 //! Pipeline identifier and state machine.
 
+use crate::action_tracker::ActionTracker;
 use crate::clock::Clock;
-use crate::event::AgentSignalKind;
 use crate::workspace::WorkspaceId;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Instant;
+
+pub use crate::action_tracker::AgentSignal;
 
 /// Unique identifier for a pipeline instance.
 ///
@@ -199,13 +201,6 @@ pub struct StepRecord {
     pub agent_name: Option<String>,
 }
 
-/// Signal from agent indicating completion intent
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentSignal {
-    pub kind: AgentSignalKind,
-    pub message: Option<String>,
-}
-
 /// Configuration for creating a new pipeline
 #[derive(Debug, Clone)]
 pub struct PipelineConfig {
@@ -256,16 +251,9 @@ pub struct Pipeline {
     #[serde(skip, default = "Instant::now")]
     pub created_at: Instant,
     pub error: Option<String>,
-    /// Tracks attempt counts per (trigger, chain_position).
-    /// Reset on success transitions (on_done); preserved on failure transitions
-    /// (on_fail) so that attempt limits work across on_fail cycles.
-    /// Key format: "trigger:chain_pos" (e.g., "on_fail:0").
-    #[serde(default)]
-    pub action_attempts: HashMap<String, u32>,
-    /// Signal from agent indicating completion intent.
-    /// Cleared when step transitions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_signal: Option<AgentSignal>,
+    /// Action attempt tracking and agent signal state.
+    #[serde(flatten)]
+    pub action_tracker: ActionTracker,
     /// True when running an on_cancel cleanup step. Prevents re-cancellation.
     #[serde(default)]
     pub cancelling: bool,
@@ -280,11 +268,6 @@ pub struct Pipeline {
     /// Name of the cron that spawned this pipeline, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cron_name: Option<String>,
-}
-
-/// Build the string key for action_attempts: "trigger:chain_pos".
-fn action_key(trigger: &str, chain_pos: usize) -> String {
-    format!("{trigger}:{chain_pos}")
 }
 
 impl Pipeline {
@@ -319,8 +302,7 @@ impl Pipeline {
                 agent_id: None,
                 agent_name: None,
             }],
-            action_attempts: HashMap::new(),
-            agent_signal: None,
+            action_tracker: ActionTracker::default(),
             cancelling: false,
             total_retries: 0,
             step_visits: HashMap::new(),
@@ -396,33 +378,31 @@ impl Pipeline {
         self
     }
 
-    /// Increment and return the new attempt count for a given action
+    /// Increment and return the new attempt count for a given action.
+    /// Also tracks cumulative retries (when attempt count > 1).
     pub fn increment_action_attempt(&mut self, trigger: &str, chain_pos: usize) -> u32 {
-        let key = action_key(trigger, chain_pos);
-        let count = self.action_attempts.entry(key).or_insert(0);
-        *count += 1;
-        if *count > 1 {
+        let count = self
+            .action_tracker
+            .increment_action_attempt(trigger, chain_pos);
+        if count > 1 {
             self.total_retries += 1;
         }
-        *count
+        count
     }
 
     /// Get current attempt count for a given action
     pub fn get_action_attempt(&self, trigger: &str, chain_pos: usize) -> u32 {
-        self.action_attempts
-            .get(&action_key(trigger, chain_pos))
-            .copied()
-            .unwrap_or(0)
+        self.action_tracker.get_action_attempt(trigger, chain_pos)
     }
 
     /// Reset action attempts (called on success step transitions, not on_fail)
     pub fn reset_action_attempts(&mut self) {
-        self.action_attempts.clear();
+        self.action_tracker.reset_action_attempts();
     }
 
     /// Clear agent signal (called on step transition)
     pub fn clear_agent_signal(&mut self) {
-        self.agent_signal = None;
+        self.action_tracker.clear_agent_signal();
     }
 
     /// Record a visit to a step. Returns the new visit count.

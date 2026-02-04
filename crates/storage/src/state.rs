@@ -564,13 +564,13 @@ impl MaterializedState {
                     .values_mut()
                     .find(|r| r.agent_id.as_deref() == Some(agent_id.as_str()));
                 if let Some(run) = found_agent_run {
-                    run.agent_signal = Some(AgentSignal {
+                    run.action_tracker.agent_signal = Some(AgentSignal {
                         kind: kind.clone(),
                         message: message.clone(),
                     });
                 } else if let Some(pipeline) = self.find_pipeline_by_agent_id(agent_id.as_str()) {
                     // Find pipeline by agent_id in current step
-                    pipeline.agent_signal = Some(AgentSignal {
+                    pipeline.action_tracker.agent_signal = Some(AgentSignal {
                         kind: kind.clone(),
                         message: message.clone(),
                     });
@@ -898,8 +898,7 @@ impl MaterializedState {
                         error: None,
                         created_at_ms: *created_at_epoch_ms,
                         updated_at_ms: *created_at_epoch_ms,
-                        action_attempts: HashMap::new(),
-                        agent_signal: None,
+                        action_tracker: Default::default(),
                         vars: vars.clone(),
                     },
                 );

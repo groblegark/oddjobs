@@ -7,7 +7,7 @@
 //! `command { run = { agent = "..." } }` block. Unlike pipeline-embedded agents,
 //! standalone agents are top-level WAL entities with self-resolving lifecycle.
 
-use crate::pipeline::AgentSignal;
+use crate::action_tracker::ActionTracker;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -131,20 +131,12 @@ pub struct AgentRun {
     pub created_at_ms: u64,
     /// Epoch milliseconds of last update
     pub updated_at_ms: u64,
-    /// Action attempt tracking (same pattern as Pipeline)
-    #[serde(default)]
-    pub action_attempts: HashMap<String, u32>,
-    /// Signal from agent indicating completion intent
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_signal: Option<AgentSignal>,
+    /// Action attempt tracking and agent signal state.
+    #[serde(flatten)]
+    pub action_tracker: ActionTracker,
     /// Variables passed to the command
     #[serde(default)]
     pub vars: HashMap<String, String>,
-}
-
-/// Build the string key for action_attempts: "trigger:chain_pos".
-fn action_key(trigger: &str, chain_pos: usize) -> String {
-    format!("{trigger}:{chain_pos}")
 }
 
 impl AgentRun {
@@ -155,20 +147,18 @@ impl AgentRun {
 
     /// Increment and return the new attempt count for a given action
     pub fn increment_action_attempt(&mut self, trigger: &str, chain_pos: usize) -> u32 {
-        let key = action_key(trigger, chain_pos);
-        let count = self.action_attempts.entry(key).or_insert(0);
-        *count += 1;
-        *count
+        self.action_tracker
+            .increment_action_attempt(trigger, chain_pos)
     }
 
     /// Reset action attempts
     pub fn reset_action_attempts(&mut self) {
-        self.action_attempts.clear();
+        self.action_tracker.reset_action_attempts();
     }
 
     /// Clear agent signal
     pub fn clear_agent_signal(&mut self) {
-        self.agent_signal = None;
+        self.action_tracker.clear_agent_signal();
     }
 }
 

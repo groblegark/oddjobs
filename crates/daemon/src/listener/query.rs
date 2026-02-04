@@ -533,7 +533,7 @@ pub(super) fn handle_query(
                 .values()
                 .find(|ar| ar.agent_id.as_deref() == Some(&agent_id));
             if let Some(ar) = agent_run_match {
-                if let Some(s) = &ar.agent_signal {
+                if let Some(s) = &ar.action_tracker.agent_signal {
                     return Response::AgentSignal {
                         signaled: true,
                         kind: Some(s.kind.clone()),
@@ -557,7 +557,7 @@ pub(super) fn handle_query(
                     .and_then(|r| r.agent_id.as_deref())
                     == Some(&agent_id);
                 if matches {
-                    Some(p.agent_signal.as_ref())
+                    Some(p.action_tracker.agent_signal.as_ref())
                 } else {
                     None
                 }

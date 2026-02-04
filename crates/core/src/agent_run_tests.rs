@@ -52,8 +52,7 @@ fn agent_run_action_attempts() {
         error: None,
         created_at_ms: 1000,
         updated_at_ms: 1000,
-        action_attempts: HashMap::new(),
-        agent_signal: None,
+        action_tracker: ActionTracker::default(),
         vars: HashMap::new(),
     };
 
@@ -80,8 +79,7 @@ fn agent_run_serde_roundtrip() {
         error: None,
         created_at_ms: 1000,
         updated_at_ms: 2000,
-        action_attempts: HashMap::new(),
-        agent_signal: None,
+        action_tracker: ActionTracker::default(),
         vars: HashMap::from([("key".to_string(), "value".to_string())]),
     };
 

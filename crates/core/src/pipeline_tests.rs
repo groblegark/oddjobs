@@ -120,7 +120,7 @@ fn pipeline_with_session() {
 fn pipeline_action_attempts_starts_empty() {
     let clock = FakeClock::new();
     let pipeline = Pipeline::new(test_config("pipe-1"), &clock);
-    assert!(pipeline.action_attempts.is_empty());
+    assert!(pipeline.action_tracker.action_attempts.is_empty());
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn pipeline_reset_action_attempts() {
 
     assert_eq!(pipeline.get_action_attempt("idle", 0), 0);
     assert_eq!(pipeline.get_action_attempt("exit", 0), 0);
-    assert!(pipeline.action_attempts.is_empty());
+    assert!(pipeline.action_tracker.action_attempts.is_empty());
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn pipeline_total_retries_persists_across_step_reset() {
 
     // Reset action_attempts (as happens on step transition)
     pipeline.reset_action_attempts();
-    assert!(pipeline.action_attempts.is_empty());
+    assert!(pipeline.action_tracker.action_attempts.is_empty());
 
     // total_retries is preserved
     assert_eq!(pipeline.total_retries, 2);

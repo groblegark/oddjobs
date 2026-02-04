@@ -708,6 +708,27 @@ fn parses_action_with_attempts_and_cooldown() {
 }
 
 // =============================================================================
+// on_exit alias removal
+// =============================================================================
+
+#[test]
+fn on_exit_alias_no_longer_populates_on_dead() {
+    let toml = r#"
+        name = "worker"
+        run = "claude"
+        on_exit = "done"
+    "#;
+    // on_exit is now an unknown field; it should be silently ignored
+    // and on_dead should retain its default (escalate)
+    let agent: AgentDef = toml::from_str(toml).unwrap();
+    assert_eq!(
+        agent.on_dead.action(),
+        &AgentAction::Escalate,
+        "on_exit should not populate on_dead"
+    );
+}
+
+// =============================================================================
 // Notify Config Tests
 // =============================================================================
 

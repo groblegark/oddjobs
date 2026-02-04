@@ -233,7 +233,7 @@ Agent fields:
 - **cwd**: Working directory (supports template interpolation)
 - **prime**: Shell commands to run at session start for context injection (string or array)
 - **on_idle**: What to do when agent is waiting for input (default: `"nudge"`)
-- **on_dead** (alias: `on_exit`): What to do when agent process exits (default: `"escalate"`)
+- **on_dead**: What to do when agent process exits (default: `"escalate"`)
 - **on_error**: What to do on API errors (default: `"escalate"`)
 
 Valid actions per trigger:

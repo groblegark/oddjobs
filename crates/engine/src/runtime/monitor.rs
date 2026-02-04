@@ -191,7 +191,40 @@ where
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
         let (action_config, trigger) = match state {
-            MonitorState::Working => return Ok(vec![]),
+            MonitorState::Working => {
+                if pipeline.step_status.is_waiting() {
+                    tracing::info!(
+                        pipeline_id = %pipeline.id,
+                        step = %pipeline.step,
+                        "agent active, auto-resuming from escalation"
+                    );
+                    self.logger.append(
+                        &pipeline.id,
+                        &pipeline.step,
+                        "agent active, auto-resuming from escalation",
+                    );
+
+                    let pipeline_id = PipelineId::new(&pipeline.id);
+                    let effects = vec![Effect::Emit {
+                        event: Event::StepStarted {
+                            pipeline_id: pipeline_id.clone(),
+                            step: pipeline.step.clone(),
+                            agent_id: None,
+                            agent_name: None,
+                        },
+                    }];
+
+                    // Reset action attempts — agent demonstrated progress
+                    self.lock_state_mut(|state| {
+                        if let Some(p) = state.pipelines.get_mut(pipeline_id.as_str()) {
+                            p.reset_action_attempts();
+                        }
+                    });
+
+                    return Ok(self.executor.execute_all(effects).await?);
+                }
+                return Ok(vec![]);
+            }
             MonitorState::WaitingForInput => {
                 tracing::info!(pipeline_id = %pipeline.id, step = %pipeline.step, "agent idle (on_idle)");
                 self.logger

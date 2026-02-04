@@ -993,6 +993,7 @@ async fn prompt_hook_noop_when_step_already_waiting() {
         .handle_event(Event::AgentPrompt {
             agent_id: agent_id.clone(),
             prompt_type: oj_core::PromptType::Permission,
+            question_data: None,
         })
         .await
         .unwrap();
@@ -1102,6 +1103,7 @@ async fn standalone_prompt_noop_when_agent_escalated() {
         .handle_event(Event::AgentPrompt {
             agent_id: agent_id.clone(),
             prompt_type: oj_core::PromptType::Permission,
+            question_data: None,
         })
         .await
         .unwrap();

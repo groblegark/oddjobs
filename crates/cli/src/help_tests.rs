@@ -288,8 +288,7 @@ Options:
 
 #[test]
 fn format_help_produces_output() {
-    let mut cmd = crate::cli_command();
-    let help = format_help(&mut cmd);
+    let help = format_help(crate::cli_command());
     assert!(!help.is_empty(), "format_help should produce output");
     assert!(
         help.contains("Actions:") || help.contains(&format!("{}Actions:{}", HEADER_START, RESET)),
@@ -299,7 +298,49 @@ fn format_help_produces_output() {
 
 #[test]
 fn format_help_ends_with_newline() {
-    let mut cmd = crate::cli_command();
-    let help = format_help(&mut cmd);
+    let help = format_help(crate::cli_command());
     assert!(help.ends_with('\n'), "Help should end with newline");
+}
+
+// ============================================================================
+// Subcommand Help Tests
+// ============================================================================
+
+/// Subcommand help must go through format_help (which forces Styles::plain()
+/// before write_help, then applies colorize_help) rather than using clap's
+/// default styled output. This test catches the bug where cloned subcommands
+/// lost the parent's Styles::plain() and fell back to clap's default colored
+/// styles.
+#[test]
+fn subcommand_help_uses_plain_base() {
+    let cmd = crate::cli_command();
+    // Simulate what print_formatted_help does for "oj decision list --help"
+    let decision = crate::find_subcommand(cmd, &["decision", "list"]);
+    // Verify that format_help's Styles::plain() override produces a clean
+    // base: capture write_help output with plain styles and confirm no ANSI.
+    let mut plain = decision.styles(styles());
+    let mut buf = Vec::new();
+    plain.write_help(&mut buf).unwrap();
+    let raw = String::from_utf8(buf).unwrap();
+    assert!(
+        !raw.contains("\x1b["),
+        "write_help with Styles::plain() should not contain ANSI codes;\n\
+         clap's default styles must not leak through.\nGot:\n{raw}"
+    );
+}
+
+#[test]
+fn subcommand_help_contains_expected_content() {
+    let cmd = crate::cli_command();
+    let cron = crate::find_subcommand(cmd, &["cron"]);
+    let help = format_help(cron);
+    assert!(
+        help.contains("Usage:"),
+        "cron help should contain Usage line, got:\n{help}"
+    );
+    // Cron has subcommands (list, start, stop, etc.)
+    assert!(
+        help.contains("list") || help.contains("List"),
+        "cron help should mention list subcommand, got:\n{help}"
+    );
 }

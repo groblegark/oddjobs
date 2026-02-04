@@ -218,7 +218,7 @@ async fn run() -> Result<()> {
         Some(cmd) => cmd,
         None => {
             // No subcommand provided — print colorized help and exit 0
-            help::print_help(&mut cli_command());
+            help::print_help(cli_command());
             return Ok(());
         }
     };
@@ -574,8 +574,8 @@ fn print_formatted_help(args: &[String]) {
         non_flags.iter().map(|s| s.as_str()).collect()
     };
 
-    let mut target_cmd = find_subcommand(cmd, &subcommand_names);
-    help::print_help(&mut target_cmd);
+    let target_cmd = find_subcommand(cmd, &subcommand_names);
+    help::print_help(target_cmd);
 }
 
 /// Strip `-C <value>` and `--project <value>` from args to avoid mistaking
@@ -604,7 +604,7 @@ fn strip_global_flags(args: &[String]) -> Vec<String> {
 }
 
 /// Recursively find a nested subcommand by name path.
-fn find_subcommand(mut cmd: clap::Command, names: &[&str]) -> clap::Command {
+pub(crate) fn find_subcommand(mut cmd: clap::Command, names: &[&str]) -> clap::Command {
     for name in names {
         let mut found_sub = None;
         for sub in cmd.get_subcommands() {

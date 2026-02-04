@@ -65,6 +65,7 @@ pub async fn handle(
     client: &DaemonClient,
     project_root: &std::path::Path,
     namespace: &str,
+    project_filter: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
@@ -138,6 +139,10 @@ pub async fn handle(
             };
             match client.send(&request).await? {
                 Response::Workers { mut workers } => {
+                    // Filter by explicit --project flag (OJ_NAMESPACE is NOT used for filtering)
+                    if let Some(proj) = project_filter {
+                        workers.retain(|w| w.namespace == proj);
+                    }
                     workers.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
                     match format {
                         OutputFormat::Json => {

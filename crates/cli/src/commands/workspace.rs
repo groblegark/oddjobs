@@ -63,11 +63,17 @@ pub async fn handle(
     command: WorkspaceCommand,
     client: &DaemonClient,
     namespace: &str,
+    project_filter: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
         WorkspaceCommand::List { limit, no_limit } => {
             let mut workspaces = client.list_workspaces().await?;
+
+            // Filter by explicit --project flag (OJ_NAMESPACE is NOT used for filtering)
+            if let Some(proj) = project_filter {
+                workspaces.retain(|w| w.namespace == proj);
+            }
 
             // Sort by recency (most recent first)
             workspaces.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));

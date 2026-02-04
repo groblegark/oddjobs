@@ -219,6 +219,7 @@ pub async fn handle(
     command: PipelineCommand,
     client: &DaemonClient,
     namespace: &str,
+    project_filter: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
@@ -229,6 +230,11 @@ pub async fn handle(
             no_limit,
         } => {
             let mut pipelines = client.list_pipelines().await?;
+
+            // Filter by explicit --project flag (OJ_NAMESPACE is NOT used for filtering)
+            if let Some(proj) = project_filter {
+                pipelines.retain(|p| p.namespace == proj);
+            }
 
             // Filter by name substring
             if let Some(ref pat) = name {

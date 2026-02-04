@@ -160,6 +160,7 @@ pub async fn handle_peek(client: &DaemonClient, id: &str, format: OutputFormat) 
                 super::pipeline::PipelineCommand::Peek { id: entity.id },
                 client,
                 "",
+                None,
                 format,
             )
             .await
@@ -169,6 +170,7 @@ pub async fn handle_peek(client: &DaemonClient, id: &str, format: OutputFormat) 
                 super::agent::AgentCommand::Peek { id: entity.id },
                 client,
                 "",
+                None,
                 format,
             )
             .await
@@ -178,6 +180,7 @@ pub async fn handle_peek(client: &DaemonClient, id: &str, format: OutputFormat) 
                 super::session::SessionCommand::Peek { id: entity.id },
                 client,
                 "",
+                None,
                 format,
             )
             .await
@@ -193,6 +196,7 @@ pub async fn handle_attach(client: &DaemonClient, id: &str) -> Result<()> {
                 super::pipeline::PipelineCommand::Attach { id: entity.id },
                 client,
                 "",
+                None,
                 OutputFormat::Text,
             )
             .await
@@ -202,6 +206,7 @@ pub async fn handle_attach(client: &DaemonClient, id: &str) -> Result<()> {
                 super::agent::AgentCommand::Attach { id: entity.id },
                 client,
                 "",
+                None,
                 OutputFormat::Text,
             )
             .await
@@ -229,6 +234,7 @@ pub async fn handle_logs(
                 },
                 client,
                 "",
+                None,
                 format,
             )
             .await
@@ -243,6 +249,7 @@ pub async fn handle_logs(
                 },
                 client,
                 "",
+                None,
                 format,
             )
             .await
@@ -273,6 +280,7 @@ pub async fn handle_show(
                 },
                 client,
                 "",
+                None,
                 format,
             )
             .await
@@ -282,6 +290,7 @@ pub async fn handle_show(
                 super::agent::AgentCommand::Show { id: entity.id },
                 client,
                 "",
+                None,
                 format,
             )
             .await
@@ -291,6 +300,7 @@ pub async fn handle_show(
                 super::session::SessionCommand::Show { id: entity.id },
                 client,
                 "",
+                None,
                 format,
             )
             .await

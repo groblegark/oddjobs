@@ -108,9 +108,9 @@ enum Commands {
         #[arg(long, short = 's')]
         step: Option<String>,
     },
-    /// Show details of a pipeline, agent, or session (auto-detects entity type)
+    /// Show details of a pipeline, agent, session, or queue (auto-detects type)
     Show {
-        /// Entity ID (pipeline, agent, or session — prefix match supported)
+        /// Entity ID or queue name (pipeline, agent, session, or queue)
         id: String,
         /// Show full variable values without truncation
         #[arg(long, short = 'v')]
@@ -323,7 +323,7 @@ async fn run() -> Result<()> {
                     queue::handle(args.command, &client, &project_root, &namespace, format).await?
                 }
                 QueueCommand::List { .. }
-                | QueueCommand::Items { .. }
+                | QueueCommand::Show { .. }
                 | QueueCommand::Logs { .. } => {
                     let client = DaemonClient::for_query()?;
                     queue::handle(args.command, &client, &project_root, &namespace, format).await?
@@ -405,7 +405,20 @@ async fn run() -> Result<()> {
         }
         Commands::Show { id, verbose } => {
             let client = DaemonClient::for_query()?;
-            resolve::handle_show(&client, &id, verbose, format).await?
+            let matches = resolve::resolve_entity(&client, &id).await?;
+            if matches.is_empty() {
+                // No entity match — try as a queue name
+                queue::handle(
+                    queue::QueueCommand::Show { queue: id },
+                    &client,
+                    &project_root,
+                    &namespace,
+                    format,
+                )
+                .await?
+            } else {
+                resolve::handle_show(&client, &id, verbose, format).await?
+            }
         }
 
         Commands::Daemon(_) | Commands::Env(_) => unreachable!(),

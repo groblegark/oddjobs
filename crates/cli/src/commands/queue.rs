@@ -36,7 +36,7 @@ pub enum QueueCommand {
     /// List all known queues
     List {},
     /// Show items in a specific queue
-    Items {
+    Show {
         /// Queue name
         queue: String,
     },
@@ -318,7 +318,7 @@ pub async fn handle(
                 }
             }
         }
-        QueueCommand::Items { queue } => {
+        QueueCommand::Show { queue } => {
             let request = Request::Query {
                 query: Query::ListQueueItems {
                     queue_name: queue.clone(),

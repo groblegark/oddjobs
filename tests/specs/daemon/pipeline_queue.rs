@@ -91,11 +91,7 @@ fn cancel_pipeline_transitions_queue_item_from_active() {
     assert!(running, "pipeline should be running the work step");
 
     // Verify queue item is active
-    let active = temp
-        .oj()
-        .args(&["queue", "items", "jobs"])
-        .passes()
-        .stdout();
+    let active = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
     assert!(active.contains("active"), "queue item should be active");
 
     // Get pipeline ID and cancel it
@@ -106,11 +102,7 @@ fn cancel_pipeline_transitions_queue_item_from_active() {
 
     // Wait for queue item to reach a terminal status (dead or failed)
     let transitioned = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("dead") || out.contains("failed")
     });
 
@@ -143,11 +135,7 @@ fn failed_pipeline_marks_queue_item_dead() {
 
     // Wait for queue item to reach dead status (no retry config → immediate dead)
     let dead = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("dead")
     });
 
@@ -177,11 +165,7 @@ fn completed_pipeline_marks_queue_item_completed() {
 
     // Wait for queue item to reach completed status
     let completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("completed")
     });
 
@@ -200,11 +184,7 @@ fn completed_pipeline_marks_queue_item_completed() {
         .passes();
 
     let second_completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         // Both items should be completed
         out.matches("completed").count() >= 2
     });
@@ -247,11 +227,7 @@ fn one_pipeline_failure_does_not_affect_others() {
     // Check for 3 terminal items (not just absence of non-terminal) to avoid
     // passing vacuously before the daemon has processed all pushes.
     let all_terminal = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         let terminal = out.matches("completed").count()
             + out.matches("dead").count()
             + out.matches("failed").count();
@@ -264,11 +240,7 @@ fn one_pipeline_failure_does_not_affect_others() {
     assert!(all_terminal, "all queue items should reach terminal status");
 
     // Verify: 1 dead (the failed one), 2 completed
-    let items_output = temp
-        .oj()
-        .args(&["queue", "items", "jobs"])
-        .passes()
-        .stdout();
+    let items_output = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
     assert_eq!(
         items_output.matches("completed").count(),
         2,
@@ -367,11 +339,7 @@ fn circuit_breaker_escalates_after_max_attempts() {
     );
 
     // Queue item should still be active (pipeline hasn't terminated, it's waiting)
-    let items = temp
-        .oj()
-        .args(&["queue", "items", "jobs"])
-        .passes()
-        .stdout();
+    let items = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
     assert!(
         items.contains("active"),
         "queue item should remain active while pipeline is waiting for intervention, got: {}",

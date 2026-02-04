@@ -537,11 +537,7 @@ fn cancel_agent_pipeline_frees_queue_slot() {
     );
 
     // Verify queue item is active
-    let active = temp
-        .oj()
-        .args(&["queue", "items", "jobs"])
-        .passes()
-        .stdout();
+    let active = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
     assert!(active.contains("active"), "queue item should be active");
 
     // Cancel the pipeline
@@ -552,11 +548,7 @@ fn cancel_agent_pipeline_frees_queue_slot() {
 
     // Queue item should leave active status
     let transitioned = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         !out.contains("active")
     });
 
@@ -574,11 +566,7 @@ fn cancel_agent_pipeline_frees_queue_slot() {
         .passes();
 
     let second_runs = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp
-            .oj()
-            .args(&["queue", "items", "jobs"])
-            .passes()
-            .stdout();
+        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         // The second item should become active (or complete), proving the slot was freed
         out.matches("active").count() >= 1 || out.matches("completed").count() >= 1
     });

@@ -501,7 +501,7 @@ pub(super) fn handle_query(
                             )
                             .map(|ns| {
                                 suggest::format_cross_project_suggestion(
-                                    "oj queue items",
+                                    "oj queue show",
                                     &queue_name,
                                     &ns,
                                 )

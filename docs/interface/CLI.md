@@ -128,8 +128,8 @@ Manage queues defined in runbooks.
 ```bash
 oj queue list                        # List all known queues
 oj queue list -o json                # JSON output
-oj queue items <queue>               # Show items in a queue
-oj queue items <queue> -o json       # JSON output
+oj queue show <queue>                # Show items in a queue
+oj queue show <queue> -o json        # JSON output
 oj queue push <queue> '<json>'       # Push item to persisted queue
 oj queue drop <queue> <item-id>      # Remove item from queue
 oj queue retry <queue> <item-id>     # Retry a dead or failed item

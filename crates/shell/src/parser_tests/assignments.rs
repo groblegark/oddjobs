@@ -239,10 +239,7 @@ fn standalone_empty_double_quoted_assignment() {
     let cmd = get_simple_command(&ast.commands[0]);
     assert_eq!(cmd.env.len(), 1);
     assert_eq!(cmd.env[0].name, "failures");
-    assert_eq!(
-        cmd.env[0].value.parts,
-        vec![WordPart::double_quoted("")]
-    );
+    assert_eq!(cmd.env[0].value.parts, vec![WordPart::double_quoted("")]);
     assert!(cmd.name.parts.is_empty());
     assert!(cmd.args.is_empty());
 }

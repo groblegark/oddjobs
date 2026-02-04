@@ -291,15 +291,11 @@ fn interpolate_substring_no_slice_unchanged() {
 
 #[test]
 fn interpolate_substring_shell_escaping_after_truncation() {
-    let vars: HashMap<String, String> =
-        [("msg".to_string(), "safe $dollar `tick`".to_string())]
-            .into_iter()
-            .collect();
+    let vars: HashMap<String, String> = [("msg".to_string(), "safe $dollar `tick`".to_string())]
+        .into_iter()
+        .collect();
     // Truncate to "safe $dol" then shell-escape
-    assert_eq!(
-        interpolate_shell("${msg:0:9}", &vars),
-        "safe \\$dol"
-    );
+    assert_eq!(interpolate_shell("${msg:0:9}", &vars), "safe \\$dol");
 }
 
 #[test]
@@ -319,10 +315,12 @@ fn interpolate_substring_beyond_length() {
 
 #[test]
 fn interpolate_substring_with_dotted_key() {
-    let vars: HashMap<String, String> =
-        [("var.instructions".to_string(), "Add feature for handling long descriptions".to_string())]
-            .into_iter()
-            .collect();
+    let vars: HashMap<String, String> = [(
+        "var.instructions".to_string(),
+        "Add feature for handling long descriptions".to_string(),
+    )]
+    .into_iter()
+    .collect();
     assert_eq!(
         interpolate("feat: ${var.instructions:0:20}", &vars),
         "feat: Add feature for hand"

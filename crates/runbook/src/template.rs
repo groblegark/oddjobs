@@ -11,8 +11,10 @@ use std::sync::LazyLock;
 // Allow expect here as the regex is compile-time verified to be valid
 #[allow(clippy::expect_used)]
 pub static VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)(?::(\d+)(?::(\d+))?)?\}")
-        .expect("constant regex pattern is valid")
+    Regex::new(
+        r"\$\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)(?::(\d+)(?::(\d+))?)?\}",
+    )
+    .expect("constant regex pattern is valid")
 });
 
 // Regex pattern for ${VAR:-default} environment variable expansion

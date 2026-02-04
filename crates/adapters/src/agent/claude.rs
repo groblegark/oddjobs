@@ -330,6 +330,19 @@ impl<S: SessionAdapter> ClaudeAgentAdapter<S> {
         self.log_entry_tx = Some(tx);
         self
     }
+
+    /// Register a fake agent for testing (bypasses spawn)
+    #[cfg(test)]
+    fn register_test_agent(&self, agent_id: &AgentId, session_id: &str) {
+        self.agents.lock().insert(
+            agent_id.clone(),
+            AgentInfo {
+                session_id: session_id.to_string(),
+                workspace_path: PathBuf::new(),
+                shutdown_tx: None,
+            },
+        );
+    }
 }
 
 #[async_trait]
@@ -549,12 +562,32 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
                 .ok_or_else(|| AgentError::NotFound(agent_id.to_string()))?
         };
 
-        // Send literal text first, then Enter separately for reliability
+        let pause = Duration::from_millis(50);
+
+        // Clear current input: Esc, pause, Esc
+        self.sessions
+            .send(&session_id, "Escape")
+            .await
+            .map_err(|e| AgentError::SendFailed(e.to_string()))?;
+
+        tokio::time::sleep(pause).await;
+
+        self.sessions
+            .send(&session_id, "Escape")
+            .await
+            .map_err(|e| AgentError::SendFailed(e.to_string()))?;
+
+        tokio::time::sleep(pause).await;
+
+        // Send literal text
         self.sessions
             .send_literal(&session_id, input)
             .await
             .map_err(|e| AgentError::SendFailed(e.to_string()))?;
 
+        tokio::time::sleep(pause).await;
+
+        // Send Enter to submit
         self.sessions
             .send_enter(&session_id)
             .await

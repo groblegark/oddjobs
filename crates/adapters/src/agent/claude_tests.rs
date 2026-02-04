@@ -367,3 +367,68 @@ async fn test_handle_login_prompt_not_present() {
 
     assert_eq!(result, LoginPromptResult::NotPresent);
 }
+
+#[tokio::test]
+async fn send_clears_input_before_message() {
+    use crate::agent::AgentAdapter;
+
+    let sessions = FakeSessionAdapter::new();
+    sessions.add_session("test-session", true);
+
+    let adapter = ClaudeAgentAdapter::new(sessions.clone());
+    let agent_id = AgentId::new("test-agent-1");
+    adapter.register_test_agent(&agent_id, "test-session");
+
+    adapter.send(&agent_id, "hello world").await.unwrap();
+
+    let calls = sessions.calls();
+
+    // Filter to only the calls made by send (skip the add_session setup)
+    // Expected sequence: Send(Escape), Send(Escape), SendLiteral(text), SendEnter
+    let send_calls: Vec<_> = calls
+        .iter()
+        .filter(|c| {
+            matches!(
+                c,
+                SessionCall::Send { .. }
+                    | SessionCall::SendLiteral { .. }
+                    | SessionCall::SendEnter { .. }
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        send_calls.len(),
+        4,
+        "Expected 4 calls, got: {:?}",
+        send_calls
+    );
+
+    // First: Escape to clear input
+    assert!(
+        matches!(&send_calls[0], SessionCall::Send { id, input } if id == "test-session" && input == "Escape"),
+        "Expected first Escape, got: {:?}",
+        send_calls[0]
+    );
+
+    // Second: Escape again
+    assert!(
+        matches!(&send_calls[1], SessionCall::Send { id, input } if id == "test-session" && input == "Escape"),
+        "Expected second Escape, got: {:?}",
+        send_calls[1]
+    );
+
+    // Third: Literal message text
+    assert!(
+        matches!(&send_calls[2], SessionCall::SendLiteral { id, text } if id == "test-session" && text == "hello world"),
+        "Expected SendLiteral with message, got: {:?}",
+        send_calls[2]
+    );
+
+    // Fourth: Enter
+    assert!(
+        matches!(&send_calls[3], SessionCall::SendEnter { id } if id == "test-session"),
+        "Expected SendEnter, got: {:?}",
+        send_calls[3]
+    );
+}

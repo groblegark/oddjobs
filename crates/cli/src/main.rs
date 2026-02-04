@@ -206,15 +206,26 @@ async fn run() -> Result<()> {
     let matches = match cli_command().try_get_matches() {
         Ok(m) => m,
         Err(e) => {
-            if e.kind() == clap::error::ErrorKind::DisplayHelp {
-                // Intercept help requests → post-hoc colorized output
-                let args: Vec<String> = std::env::args().collect();
-                let args = strip_global_flags(&args);
-                print_formatted_help(&args);
-                return Ok(());
+            match e.kind() {
+                clap::error::ErrorKind::DisplayHelp => {
+                    // Intercept help requests → post-hoc colorized output
+                    let args: Vec<String> = std::env::args().collect();
+                    let args = strip_global_flags(&args);
+                    print_formatted_help(&args);
+                    return Ok(());
+                }
+                clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
+                    // Missing required subcommand (e.g. `oj project`) — colorize
+                    let args: Vec<String> = std::env::args().collect();
+                    let args = strip_global_flags(&args);
+                    print_formatted_help(&args);
+                    return Err(exit_error::ExitError::new(2, "").into());
+                }
+                _ => {
+                    // DisplayVersion and other errors: let clap handle
+                    e.exit();
+                }
             }
-            // DisplayVersion and other errors: let clap handle
-            e.exit();
         }
     };
     let cli = Cli::from_arg_matches(&matches)?;
@@ -643,7 +654,11 @@ fn resolve_main_worktree(path: &Path) -> Option<PathBuf> {
 
 /// Print help with post-hoc colorization, resolving the correct subcommand from args.
 fn print_formatted_help(args: &[String]) {
-    let cmd = cli_command();
+    let mut cmd = cli_command();
+    // Propagate global args and bin_name to subcommands so that
+    // cloned subcommands include -C, --project, -o and show the
+    // correct "oj <subcommand>" usage prefix.
+    cmd.build();
 
     // Extract subcommand names from args (skip binary name and flags).
     // Handle both "oj run --help" and "oj help run" patterns.

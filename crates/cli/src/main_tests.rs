@@ -240,6 +240,86 @@ fn subcommand_project_flag_no_longer_exists() {
     );
 }
 
+// -- Missing subcommand shows help ------------------------------------------
+
+#[test]
+fn missing_subcommand_produces_help_error() {
+    let err = cli_command()
+        .try_get_matches_from(["oj", "project"])
+        .unwrap_err();
+    assert_eq!(
+        err.kind(),
+        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand,
+        "missing subcommand should produce DisplayHelpOnMissingArgumentOrSubcommand"
+    );
+}
+
+#[test]
+fn missing_subcommand_help_contains_commands() {
+    let err = cli_command()
+        .try_get_matches_from(["oj", "pipeline"])
+        .unwrap_err();
+    assert_eq!(
+        err.kind(),
+        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    );
+    let help = err.to_string();
+    assert!(
+        help.contains("Pipeline management"),
+        "should show pipeline description, got:\n{help}"
+    );
+}
+
+// -- Subcommand help includes global flags ----------------------------------
+
+#[test]
+fn subcommand_help_includes_global_flags() {
+    let mut cmd = cli_command();
+    cmd.build();
+    let project = super::find_subcommand(cmd, &["project"]);
+    let help = crate::help::format_help(project);
+    assert!(
+        help.contains("-C"),
+        "subcommand help should include -C global flag, got:\n{help}"
+    );
+    assert!(
+        help.contains("--project"),
+        "subcommand help should include --project global flag, got:\n{help}"
+    );
+    assert!(
+        help.contains("--output"),
+        "subcommand help should include --output global flag, got:\n{help}"
+    );
+}
+
+#[test]
+fn subcommand_help_shows_full_usage_prefix() {
+    let mut cmd = cli_command();
+    cmd.build();
+    let project = super::find_subcommand(cmd, &["project"]);
+    let help = crate::help::format_help(project);
+    assert!(
+        help.contains("oj project"),
+        "usage line should include 'oj project', got:\n{help}"
+    );
+}
+
+#[test]
+fn nested_subcommand_help_includes_global_flags() {
+    let mut cmd = cli_command();
+    cmd.build();
+    let decision_list = super::find_subcommand(cmd, &["decision", "list"]);
+    let help = crate::help::format_help(decision_list);
+    assert!(
+        help.contains("-C"),
+        "nested subcommand help should include -C global flag, got:\n{help}"
+    );
+    assert!(
+        help.contains("oj decision list"),
+        "usage line should include 'oj decision list', got:\n{help}"
+    );
+}
+
 // -- Cancel shortcut --------------------------------------------------------
 
 #[test]

@@ -93,7 +93,7 @@ fn format_available_commands(
     commands: &[(String, oj_runbook::CommandDef)],
     warnings: &[String],
 ) {
-    help.usage("oj run <COMMAND> [ARGS]...");
+    help.usage("oj run <COMMAND>");
     help.blank();
 
     if commands.is_empty() {
@@ -102,13 +102,7 @@ fn format_available_commands(
     } else {
         help.header("Commands:");
         for (name, cmd) in commands {
-            let args_str = cmd.args.usage_line();
-            let line = if args_str.is_empty() {
-                name.to_string()
-            } else {
-                format!("{name} {args_str}")
-            };
-            help.entry(&line, 40, cmd.description.as_deref());
+            help.entry(name, 20, cmd.description.as_deref());
         }
     }
 
@@ -121,7 +115,7 @@ fn format_available_commands(
     }
 
     help.blank();
-    help.hint("For more information, try '--help'.");
+    help.hint("For more information, try 'oj run <COMMAND> -h'.");
 }
 
 pub async fn handle(

@@ -56,6 +56,80 @@ pub fn extract_file_comment(content: &str) -> Option<FileComment> {
     })
 }
 
+/// Extract comment blocks preceding each `command "name"` block in HCL content.
+///
+/// Scans the raw text (not the HCL AST) for lines matching `command "name" {`
+/// and collects the preceding `#`-comment block for each.
+///
+/// Returns a map of command_name → FileComment.
+pub fn extract_block_comments(content: &str) -> HashMap<String, FileComment> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = HashMap::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+
+        // Match: command "name" { (with optional trailing content)
+        let Some(rest) = trimmed.strip_prefix("command ") else {
+            continue;
+        };
+        let rest = rest.trim();
+        let name = match rest.strip_prefix('"') {
+            Some(after_quote) => match after_quote.find('"') {
+                Some(end) => &after_quote[..end],
+                None => continue,
+            },
+            None => continue,
+        };
+
+        // Walk backwards from line i-1 collecting # comment lines.
+        // Stop at a non-comment, non-blank line or at the start of file.
+        let mut comment_lines = Vec::new();
+        let mut j = i;
+        while j > 0 {
+            j -= 1;
+            let prev = lines[j].trim();
+            if prev.starts_with('#') {
+                let text = prev
+                    .strip_prefix("# ")
+                    .unwrap_or(prev.strip_prefix('#').unwrap_or(""));
+                comment_lines.push(text);
+            } else if prev.is_empty() {
+                if comment_lines.is_empty() {
+                    continue; // skip blanks between block and comment
+                } else {
+                    break; // blank line above the comment block = stop
+                }
+            } else {
+                break; // hit a non-comment line (e.g., closing brace of previous block)
+            }
+        }
+        comment_lines.reverse();
+
+        if comment_lines.is_empty() {
+            continue;
+        }
+
+        // Split into short/long on first blank comment line
+        let owned: Vec<String> = comment_lines.iter().map(|s| s.to_string()).collect();
+        let split_pos = owned.iter().position(|l| l.is_empty());
+        let (short_lines, long_lines) = match split_pos {
+            Some(pos) => (&owned[..pos], &owned[pos + 1..]),
+            None => (owned.as_slice(), &[][..]),
+        };
+
+        result.insert(
+            name.to_string(),
+            FileComment {
+                short: short_lines.join("\n"),
+                long: long_lines.join("\n"),
+            },
+        );
+    }
+
+    result
+}
+
 /// Find a command definition and its runbook file comment.
 pub fn find_command_with_comment(
     runbook_dir: &Path,
@@ -75,7 +149,10 @@ pub fn find_command_with_comment(
             Err(_) => continue,
         };
         if let Some(cmd) = runbook.commands.get(command_name) {
-            let comment = extract_file_comment(&content);
+            let mut block_comments = extract_block_comments(&content);
+            let comment = block_comments
+                .remove(command_name)
+                .or_else(|| extract_file_comment(&content));
             return Ok(Some((cmd.clone(), comment)));
         }
     }
@@ -156,10 +233,12 @@ pub fn collect_all_commands(
                 continue;
             }
         };
-        let comment = extract_file_comment(&content);
+        let block_comments = extract_block_comments(&content);
+        let file_comment = extract_file_comment(&content);
         for (name, mut cmd) in runbook.commands {
             if cmd.description.is_none() {
-                if let Some(ref comment) = comment {
+                let comment = block_comments.get(&name).or(file_comment.as_ref());
+                if let Some(comment) = comment {
                     let desc_line = comment
                         .short
                         .lines()

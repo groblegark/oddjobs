@@ -8,6 +8,7 @@ mod cron;
 mod prime;
 mod queue_poll;
 mod references;
+mod template_refs;
 
 // New format - uses RunDirective tables and args string syntax
 const SAMPLE_RUNBOOK_NEW: &str = r#"

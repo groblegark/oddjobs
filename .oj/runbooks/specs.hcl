@@ -5,7 +5,7 @@
 
 cron "specs" {
   interval = "20m"
-  pipeline = "specs"
+  run      = { pipeline = "specs" }
 }
 
 pipeline "specs" {

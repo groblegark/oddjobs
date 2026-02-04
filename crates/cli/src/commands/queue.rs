@@ -13,7 +13,7 @@ use oj_daemon::{Query, Request, Response};
 use crate::color;
 
 use crate::client::DaemonClient;
-use crate::output::{display_log, OutputFormat};
+use crate::output::{display_log, format_time_ago, OutputFormat};
 use crate::table::{project_cell, should_show_project, Column, Table};
 
 #[derive(Args)]
@@ -61,6 +61,20 @@ pub enum QueueCommand {
     },
     /// Retry a dead or failed queue item
     Retry {
+        /// Queue name
+        queue: String,
+        /// Item ID (or prefix)
+        item_id: String,
+    },
+    /// Mark an active queue item as failed
+    Fail {
+        /// Queue name
+        queue: String,
+        /// Item ID (or prefix)
+        item_id: String,
+    },
+    /// Mark an active queue item as completed
+    Done {
         /// Queue name
         queue: String,
         /// Item ID (or prefix)
@@ -210,6 +224,56 @@ pub async fn handle(
                 }
             }
         }
+        QueueCommand::Fail { queue, item_id } => {
+            let request = Request::QueueFail {
+                project_root: project_root.to_path_buf(),
+                namespace: namespace.to_string(),
+                queue_name: queue.clone(),
+                item_id: item_id.clone(),
+            };
+
+            match client.send(&request).await? {
+                Response::QueueFailed {
+                    queue_name,
+                    item_id,
+                } => {
+                    println!("Failed item {} in queue {}", item_id.short(8), queue_name);
+                }
+                Response::Error { message } => {
+                    anyhow::bail!("{}", message);
+                }
+                _ => {
+                    anyhow::bail!("unexpected response from daemon");
+                }
+            }
+        }
+        QueueCommand::Done { queue, item_id } => {
+            let request = Request::QueueDone {
+                project_root: project_root.to_path_buf(),
+                namespace: namespace.to_string(),
+                queue_name: queue.clone(),
+                item_id: item_id.clone(),
+            };
+
+            match client.send(&request).await? {
+                Response::QueueCompleted {
+                    queue_name,
+                    item_id,
+                } => {
+                    println!(
+                        "Completed item {} in queue {}",
+                        item_id.short(8),
+                        queue_name
+                    );
+                }
+                Response::Error { message } => {
+                    anyhow::bail!("{}", message);
+                }
+                _ => {
+                    anyhow::bail!("unexpected response from daemon");
+                }
+            }
+        }
         QueueCommand::Drain { queue } => {
             let request = Request::QueueDrain {
                 project_root: project_root.to_path_buf(),
@@ -341,15 +405,18 @@ pub async fn handle(
                             let mut table = Table::new(vec![
                                 Column::muted("ID"),
                                 Column::status("STATUS"),
+                                Column::right("AGE"),
                                 Column::left("WORKER"),
                                 Column::left("DATA"),
                             ]);
                             for item in &items {
                                 let data_str = format_item_data(&item.data);
                                 let worker = item.worker_name.as_deref().unwrap_or("-").to_string();
+                                let age = format_time_ago(item.pushed_at_epoch_ms);
                                 table.row(vec![
                                     item.id.short(8).to_string(),
                                     item.status.clone(),
+                                    age,
                                     worker,
                                     data_str,
                                 ]);

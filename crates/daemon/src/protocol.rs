@@ -256,6 +256,24 @@ pub enum Request {
         queue_name: String,
     },
 
+    /// Force-fail an active queue item
+    QueueFail {
+        project_root: PathBuf,
+        #[serde(default)]
+        namespace: String,
+        queue_name: String,
+        item_id: String,
+    },
+
+    /// Force-complete an active queue item
+    QueueDone {
+        project_root: PathBuf,
+        #[serde(default)]
+        namespace: String,
+        queue_name: String,
+        item_id: String,
+    },
+
     /// Resolve a pending decision
     DecisionResolve {
         id: String,
@@ -566,6 +584,12 @@ pub enum Response {
         queue_name: String,
         items: Vec<QueueItemSummary>,
     },
+
+    /// Item was force-failed
+    QueueFailed { queue_name: String, item_id: String },
+
+    /// Item was force-completed
+    QueueCompleted { queue_name: String, item_id: String },
 
     /// Agent signal query result (for stop hook)
     AgentSignal {

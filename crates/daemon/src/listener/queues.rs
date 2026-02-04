@@ -543,6 +543,165 @@ pub(super) fn handle_queue_drain(
     })
 }
 
+/// Handle a QueueFail request — force-fail an active item.
+pub(super) fn handle_queue_fail(
+    project_root: &Path,
+    namespace: &str,
+    queue_name: &str,
+    item_id: &str,
+    event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
+) -> Result<Response, ConnectionError> {
+    // Load runbook containing the queue.
+    let (_runbook, _effective_root) = match super::load_runbook_with_fallback(
+        project_root,
+        namespace,
+        state,
+        |root| load_runbook_for_queue(root, queue_name),
+        || suggest_for_queue(project_root, queue_name, namespace, "oj queue fail", state),
+    ) {
+        Ok(result) => result,
+        Err(resp) => return Ok(resp),
+    };
+
+    // Validate queue exists and is persisted
+    let queue_def = match _runbook.get_queue(queue_name) {
+        Some(def) => def,
+        None => {
+            return Ok(Response::Error {
+                message: format!("unknown queue: {}", queue_name),
+            })
+        }
+    };
+    if queue_def.queue_type != QueueType::Persisted {
+        return Ok(Response::Error {
+            message: format!("queue '{}' is not a persisted queue", queue_name),
+        });
+    }
+
+    // Resolve item ID (exact or prefix match)
+    let resolved_id = match resolve_queue_item_id(state, namespace, queue_name, item_id) {
+        Ok(id) => id,
+        Err(resp) => return Ok(resp),
+    };
+
+    // Validate item is Active
+    {
+        let st = state.lock();
+        let key = scoped_name(namespace, queue_name);
+        let item = st
+            .queue_items
+            .get(&key)
+            .and_then(|items| items.iter().find(|i| i.id == resolved_id));
+        if let Some(item) = item {
+            use oj_storage::QueueItemStatus;
+            if item.status != QueueItemStatus::Active {
+                return Ok(Response::Error {
+                    message: format!(
+                        "item '{}' is {:?}, only active items can be force-failed",
+                        resolved_id, item.status
+                    ),
+                });
+            }
+        }
+    }
+
+    // Emit QueueFailed event
+    let event = Event::QueueFailed {
+        queue_name: queue_name.to_string(),
+        item_id: resolved_id.clone(),
+        error: "force-failed via oj queue fail".to_string(),
+        namespace: namespace.to_string(),
+    };
+    event_bus
+        .send(event)
+        .map_err(|_| ConnectionError::WalError)?;
+
+    Ok(Response::QueueFailed {
+        queue_name: queue_name.to_string(),
+        item_id: resolved_id,
+    })
+}
+
+/// Handle a QueueDone request — force-complete an active item.
+pub(super) fn handle_queue_done(
+    project_root: &Path,
+    namespace: &str,
+    queue_name: &str,
+    item_id: &str,
+    event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
+) -> Result<Response, ConnectionError> {
+    // Load runbook containing the queue.
+    let (_runbook, _effective_root) = match super::load_runbook_with_fallback(
+        project_root,
+        namespace,
+        state,
+        |root| load_runbook_for_queue(root, queue_name),
+        || suggest_for_queue(project_root, queue_name, namespace, "oj queue done", state),
+    ) {
+        Ok(result) => result,
+        Err(resp) => return Ok(resp),
+    };
+
+    // Validate queue exists and is persisted
+    let queue_def = match _runbook.get_queue(queue_name) {
+        Some(def) => def,
+        None => {
+            return Ok(Response::Error {
+                message: format!("unknown queue: {}", queue_name),
+            })
+        }
+    };
+    if queue_def.queue_type != QueueType::Persisted {
+        return Ok(Response::Error {
+            message: format!("queue '{}' is not a persisted queue", queue_name),
+        });
+    }
+
+    // Resolve item ID (exact or prefix match)
+    let resolved_id = match resolve_queue_item_id(state, namespace, queue_name, item_id) {
+        Ok(id) => id,
+        Err(resp) => return Ok(resp),
+    };
+
+    // Validate item is Active
+    {
+        let st = state.lock();
+        let key = scoped_name(namespace, queue_name);
+        let item = st
+            .queue_items
+            .get(&key)
+            .and_then(|items| items.iter().find(|i| i.id == resolved_id));
+        if let Some(item) = item {
+            use oj_storage::QueueItemStatus;
+            if item.status != QueueItemStatus::Active {
+                return Ok(Response::Error {
+                    message: format!(
+                        "item '{}' is {:?}, only active items can be force-completed",
+                        resolved_id, item.status
+                    ),
+                });
+            }
+        }
+    }
+
+    // Emit QueueCompleted event
+    let event = Event::QueueCompleted {
+        queue_name: queue_name.to_string(),
+        item_id: resolved_id.clone(),
+        namespace: namespace.to_string(),
+    };
+    event_bus
+        .send(event)
+        .map_err(|_| ConnectionError::WalError)?;
+
+    Ok(Response::QueueCompleted {
+        queue_name: queue_name.to_string(),
+        item_id: resolved_id,
+    })
+}
+
 #[cfg(test)]
 #[path = "queues_tests.rs"]
 mod tests;

@@ -443,6 +443,34 @@ async fn handle_request(
             queue_name,
         } => queues::handle_queue_drain(&project_root, &namespace, &queue_name, event_bus, state),
 
+        Request::QueueFail {
+            project_root,
+            namespace,
+            queue_name,
+            item_id,
+        } => queues::handle_queue_fail(
+            &project_root,
+            &namespace,
+            &queue_name,
+            &item_id,
+            event_bus,
+            state,
+        ),
+
+        Request::QueueDone {
+            project_root,
+            namespace,
+            queue_name,
+            item_id,
+        } => queues::handle_queue_done(
+            &project_root,
+            &namespace,
+            &queue_name,
+            &item_id,
+            event_bus,
+            state,
+        ),
+
         Request::DecisionResolve {
             id,
             chosen,

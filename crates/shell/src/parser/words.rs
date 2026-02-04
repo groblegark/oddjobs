@@ -66,6 +66,10 @@ impl Parser {
             TokenKind::Word(s) => Ok(vec![WordPart::literal(s.clone())]),
             TokenKind::SingleQuoted(s) => Ok(vec![WordPart::single_quoted(s.clone())]),
             TokenKind::DoubleQuoted(word_parts) => {
+                if word_parts.is_empty() {
+                    // Empty double-quoted string "" is a valid empty value
+                    return Ok(vec![WordPart::double_quoted("")]);
+                }
                 let mut parts = Vec::new();
                 for wp in word_parts {
                     match wp {

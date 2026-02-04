@@ -227,6 +227,44 @@ fn assignment_with_and_or() {
 }
 
 // =============================================================================
+// Empty Quoted Value Assignments
+// =============================================================================
+
+#[test]
+fn standalone_empty_double_quoted_assignment() {
+    // failures="" is a standalone assignment with an empty double-quoted value
+    let ast = Parser::parse(r#"failures="""#).unwrap();
+    assert_eq!(ast.commands.len(), 1);
+
+    let cmd = get_simple_command(&ast.commands[0]);
+    assert_eq!(cmd.env.len(), 1);
+    assert_eq!(cmd.env[0].name, "failures");
+    assert_eq!(
+        cmd.env[0].value.parts,
+        vec![WordPart::double_quoted("")]
+    );
+    assert!(cmd.name.parts.is_empty());
+    assert!(cmd.args.is_empty());
+}
+
+#[test]
+fn empty_double_quoted_assignment_then_command() {
+    // VAR="" followed by another command on the next line
+    let ast = Parser::parse("VAR=\"\"\necho hello").unwrap();
+    assert_eq!(ast.commands.len(), 2);
+
+    let cmd1 = get_simple_command(&ast.commands[0]);
+    assert_eq!(cmd1.env.len(), 1);
+    assert_eq!(cmd1.env[0].name, "VAR");
+    assert_eq!(cmd1.env[0].value.parts, vec![WordPart::double_quoted("")]);
+    assert!(cmd1.name.parts.is_empty());
+
+    let cmd2 = get_simple_command(&ast.commands[1]);
+    assert!(cmd2.env.is_empty());
+    assert_eq!(cmd_name(cmd2), "echo");
+}
+
+// =============================================================================
 // Span Verification
 // =============================================================================
 

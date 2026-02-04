@@ -19,16 +19,15 @@ command "epic" {
 pipeline "epic" {
   name      = "${var.name}"
   vars      = ["name", "instructions", "blocked-by"]
-  workspace = "ephemeral"
+
+  workspace {
+    git = "worktree"
+  }
 
   locals {
-    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "feature/${var.name}-${workspace.nonce}"
     title  = "feat(${var.name}): ${var.instructions}"
   }
-
-  on_cancel = { step = "abandon" }
-  on_fail   = { step = "abandon" }
 
   notify {
     on_start = "Epic started: ${var.name}"
@@ -37,9 +36,7 @@ pipeline "epic" {
   }
 
   step "init" {
-    run = <<-SHELL
-      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
-    SHELL
+    run     = "true"
     on_done = { step = "decompose" }
   }
 
@@ -58,21 +55,9 @@ pipeline "epic" {
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
       test "$(git rev-list --count HEAD ^origin/main)" -gt 0 || { echo "No changes to submit" >&2; exit 1; }
-      git -C "${local.repo}" push origin "${local.branch}"
-      oj queue push merges --var branch="${local.branch}" --var title="${local.title}"
+      git push origin "${workspace.branch}"
+      oj queue push merges --var branch="${workspace.branch}" --var title="${local.title}"
     SHELL
-    on_done = { step = "cleanup" }
-  }
-
-  step "abandon" {
-    run = <<-SHELL
-      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
-      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
-    SHELL
-  }
-
-  step "cleanup" {
-    run = "git -C \"${local.repo}\" worktree remove --force \"${workspace.root}\" 2>/dev/null || true"
   }
 }
 

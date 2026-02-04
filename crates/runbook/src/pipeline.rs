@@ -100,14 +100,59 @@ impl NotifyConfig {
     }
 }
 
-/// Workspace mode for pipeline execution
+/// Workspace configuration for pipeline execution.
+///
+/// Supports two forms:
+///   `workspace = "folder"`                    — plain directory
+///   `workspace { git = "worktree" }`          — git worktree (engine-managed)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceConfig {
+    /// Short form: `workspace = "folder"` (or legacy `workspace = "ephemeral"`)
+    Simple(WorkspaceType),
+    /// Block form: `workspace { git = "worktree" }`
+    Block(WorkspaceBlock),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspaceType {
+    Folder,
+}
+
+/// Custom deserializer that maps legacy "ephemeral" to Folder
+impl<'de> Deserialize<'de> for WorkspaceType {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match s.as_str() {
+            "folder" => Ok(WorkspaceType::Folder),
+            // Backward compat: treat legacy values as Folder
+            "ephemeral" | "persistent" => Ok(WorkspaceType::Folder),
+            other => Err(de::Error::unknown_variant(other, &["folder"])),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceBlock {
+    pub git: GitWorkspaceMode,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum WorkspaceMode {
-    /// Workspace is deleted on successful completion, kept on failure
-    Ephemeral,
-    /// Workspace is never automatically deleted
-    Persistent,
+pub enum GitWorkspaceMode {
+    Worktree,
+}
+
+impl WorkspaceConfig {
+    pub fn is_git_worktree(&self) -> bool {
+        matches!(
+            self,
+            WorkspaceConfig::Block(WorkspaceBlock {
+                git: GitWorkspaceMode::Worktree
+            })
+        )
+    }
 }
 
 /// A step within a pipeline
@@ -171,9 +216,9 @@ pub struct PipelineDef {
     /// Base directory or repo path for execution (supports template interpolation)
     #[serde(default)]
     pub cwd: Option<String>,
-    /// Workspace mode: "ephemeral" (delete on success) or "persistent" (never delete)
+    /// Workspace configuration: "folder" (plain dir) or `{ git = "worktree" }` (engine-managed)
     #[serde(default)]
-    pub workspace: Option<WorkspaceMode>,
+    pub workspace: Option<WorkspaceConfig>,
     /// Step to route to when the pipeline completes (no step-level on_done)
     #[serde(default)]
     pub on_done: Option<StepTransition>,

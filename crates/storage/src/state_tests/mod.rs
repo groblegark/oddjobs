@@ -68,7 +68,7 @@ fn workspace_create_event(
         path: PathBuf::from(path),
         branch: branch.map(String::from),
         owner: owner.map(String::from),
-        mode: None,
+        workspace_type: None,
     }
 }
 
@@ -132,6 +132,143 @@ fn apply_event_workspace_lifecycle() {
 
     state.apply_event(&workspace_delete_event("ws-1"));
     assert!(!state.workspaces.contains_key("ws-1"));
+}
+
+#[test]
+fn apply_event_workspace_type_folder() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::WorkspaceCreated {
+        id: WorkspaceId::new("ws-f"),
+        path: PathBuf::from("/tmp/folder-ws"),
+        branch: None,
+        owner: None,
+        workspace_type: Some("folder".to_string()),
+    });
+
+    assert_eq!(
+        state.workspaces["ws-f"].workspace_type,
+        WorkspaceType::Folder
+    );
+}
+
+#[test]
+fn apply_event_workspace_type_worktree() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::WorkspaceCreated {
+        id: WorkspaceId::new("ws-w"),
+        path: PathBuf::from("/tmp/worktree-ws"),
+        branch: Some("feature/test".to_string()),
+        owner: Some("pipe-1".to_string()),
+        workspace_type: Some("worktree".to_string()),
+    });
+
+    assert_eq!(
+        state.workspaces["ws-w"].workspace_type,
+        WorkspaceType::Worktree
+    );
+    assert_eq!(
+        state.workspaces["ws-w"].branch,
+        Some("feature/test".to_string())
+    );
+}
+
+#[test]
+fn apply_event_workspace_type_none_defaults_to_folder() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&workspace_create_event("ws-d", "/tmp/default", None, None));
+
+    assert_eq!(
+        state.workspaces["ws-d"].workspace_type,
+        WorkspaceType::Folder
+    );
+}
+
+#[test]
+fn workspace_type_legacy_ephemeral_maps_to_folder() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::WorkspaceCreated {
+        id: WorkspaceId::new("ws-legacy"),
+        path: PathBuf::from("/tmp/legacy"),
+        branch: None,
+        owner: None,
+        workspace_type: Some("ephemeral".to_string()),
+    });
+
+    assert_eq!(
+        state.workspaces["ws-legacy"].workspace_type,
+        WorkspaceType::Folder
+    );
+}
+
+#[test]
+fn workspace_type_legacy_persistent_maps_to_folder() {
+    let mut state = MaterializedState::default();
+    state.apply_event(&Event::WorkspaceCreated {
+        id: WorkspaceId::new("ws-legacy-p"),
+        path: PathBuf::from("/tmp/legacy-p"),
+        branch: None,
+        owner: None,
+        workspace_type: Some("persistent".to_string()),
+    });
+
+    assert_eq!(
+        state.workspaces["ws-legacy-p"].workspace_type,
+        WorkspaceType::Folder
+    );
+}
+
+#[test]
+fn workspace_backward_compat_mode_alias_deserializes() {
+    // Simulate an old WAL event with "mode" instead of "workspace_type"
+    let json = r#"{
+        "type": "workspace:created",
+        "id": "ws-old",
+        "path": "/tmp/old",
+        "branch": null,
+        "owner": null,
+        "mode": "ephemeral"
+    }"#;
+
+    let event: Event = serde_json::from_str(json).unwrap();
+    let mut state = MaterializedState::default();
+    state.apply_event(&event);
+
+    assert!(state.workspaces.contains_key("ws-old"));
+    assert_eq!(
+        state.workspaces["ws-old"].workspace_type,
+        WorkspaceType::Folder
+    );
+}
+
+#[test]
+fn workspace_snapshot_backward_compat_mode_field() {
+    // Simulate an old snapshot with "mode" field on workspace records
+    let json = r#"{
+        "pipelines": {},
+        "sessions": {},
+        "workspaces": {
+            "ws-old": {
+                "id": "ws-old",
+                "path": "/tmp/old",
+                "branch": null,
+                "owner": null,
+                "status": "Ready",
+                "mode": "ephemeral"
+            }
+        },
+        "workers": {},
+        "runbooks": {}
+    }"#;
+
+    let state: MaterializedState = serde_json::from_str(json).unwrap();
+    assert!(state.workspaces.contains_key("ws-old"));
+    // "mode" alias on Workspace struct maps to workspace_type,
+    // but the value "ephemeral" doesn't match the WorkspaceType enum's
+    // rename_all = "lowercase" for Folder/Worktree, so it falls back to default (Folder)
+    assert_eq!(
+        state.workspaces["ws-old"].workspace_type,
+        WorkspaceType::Folder
+    );
 }
 
 #[test]

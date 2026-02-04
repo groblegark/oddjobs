@@ -38,7 +38,7 @@ locals {
 }
 ```
 
-Use `local.repo` to resolve the main repo root from an ephemeral worktree.
+Use `local.repo` to resolve the main repo root when using `workspace = "folder"` with manual worktree commands.
 
 **Pipeline name templates** — human-readable names: `name = "${var.name}"`
 
@@ -112,7 +112,7 @@ command "mayor" {
 ```
 
 Standalone agents are top-level WAL entities. They run in the invoking
-directory (no ephemeral worktree) and are visible via `oj agent list`.
+directory (no workspace) and are visible via `oj agent list`.
 
 **Crew** — long-lived standalone agents designed for ongoing, interactive
 roles (coordinators, triagers, reviewers). Unlike pipeline agents that
@@ -156,9 +156,9 @@ Key patterns for crew agents:
 - `run = <<-SHELL ... SHELL` for inline shell (e.g. launching crons, quick operations)
 
 **Workspaces:**
-- `workspace = "ephemeral"` for isolated git worktrees
+- `workspace { git = "worktree" }` for engine-managed git worktrees (init/cleanup handled automatically)
+- `workspace = "folder"` for plain directories with manual git worktree setup (needed for custom start points)
 - Share build cache: `.cargo/config.toml` → main repo's `target/` dir
-- Always add a cleanup step: `git worktree remove --force`
 
 **Workers and queues:**
 - `queue` + `worker` for pull-based processing

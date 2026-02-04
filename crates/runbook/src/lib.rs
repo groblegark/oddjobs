@@ -37,7 +37,10 @@ pub use find::{
     find_runbook_by_queue, find_runbook_by_worker, validate_runbook_dir, FileComment, FindError,
 };
 pub use parser::{parse_runbook, parse_runbook_with_format, Format, ParseError, Runbook};
-pub use pipeline::{NotifyConfig, PipelineDef, StepDef, StepTransition, WorkspaceMode};
+pub use pipeline::{
+    GitWorkspaceMode, NotifyConfig, PipelineDef, StepDef, StepTransition, WorkspaceBlock,
+    WorkspaceConfig, WorkspaceType,
+};
 pub use queue::{QueueDef, QueueType};
 pub use slug::{pipeline_display_name, slugify};
 pub use template::{escape_for_shell, interpolate, interpolate_shell};

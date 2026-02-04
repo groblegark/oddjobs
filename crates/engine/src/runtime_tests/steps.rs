@@ -859,7 +859,7 @@ run = { pipeline = "build" }
 
 [pipeline.build]
 input = ["name"]
-workspace = "ephemeral"
+workspace = "folder"
 
 [pipeline.build.locals]
 branch = "feature/${var.name}-${workspace.nonce}"

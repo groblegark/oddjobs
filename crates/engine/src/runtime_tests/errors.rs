@@ -78,7 +78,7 @@ run = { pipeline = "build" }
 
 [pipeline.build]
 input  = ["name"]
-workspace = "ephemeral"
+workspace = "folder"
 
 [[pipeline.build.step]]
 name = "init"

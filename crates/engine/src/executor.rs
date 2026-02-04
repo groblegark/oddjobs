@@ -189,25 +189,87 @@ where
                 workspace_id,
                 path,
                 owner,
-                mode,
+                workspace_type,
+                repo_root,
+                branch,
+                start_point,
             } => {
+                let is_worktree = workspace_type.as_deref() == Some("worktree");
+
                 // Create workspace record first via state event
                 let create_event = Event::WorkspaceCreated {
                     id: workspace_id.clone(),
                     path: path.clone(),
-                    branch: None,
+                    branch: branch.clone(),
                     owner,
-                    mode,
+                    workspace_type,
                 };
                 {
                     let mut state = self.state.lock();
                     state.apply_event(&create_event);
                 }
 
-                // Create empty directory (git setup is done by runbook init step)
-                tokio::fs::create_dir_all(&path).await.map_err(|e| {
-                    ExecuteError::Shell(format!("failed to create workspace dir: {}", e))
-                })?;
+                if is_worktree {
+                    // Create parent directory
+                    if let Some(parent) = path.parent() {
+                        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                            ExecuteError::Shell(format!(
+                                "failed to create workspace parent dir: {}",
+                                e
+                            ))
+                        })?;
+                    }
+
+                    // Run: git -C <repo_root> worktree add -b <branch> <path> <start_point>
+                    let repo_root = repo_root.ok_or_else(|| {
+                        ExecuteError::Shell("repo_root required for worktree workspace".to_string())
+                    })?;
+                    let branch = branch.ok_or_else(|| {
+                        ExecuteError::Shell("branch required for worktree workspace".to_string())
+                    })?;
+                    let start_point = start_point.unwrap_or_else(|| "HEAD".to_string());
+
+                    let path_str = path.display().to_string();
+                    let output = tokio::process::Command::new("git")
+                        .args([
+                            "-C",
+                            &repo_root.display().to_string(),
+                            "worktree",
+                            "add",
+                            "-b",
+                            &branch,
+                            &path_str,
+                            &start_point,
+                        ])
+                        .env_remove("GIT_DIR")
+                        .env_remove("GIT_WORK_TREE")
+                        .output()
+                        .await
+                        .map_err(|e| {
+                            ExecuteError::Shell(format!("git worktree add failed: {}", e))
+                        })?;
+
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let fail_event = Event::WorkspaceFailed {
+                            id: workspace_id.clone(),
+                            reason: format!("git worktree add failed: {}", stderr.trim()),
+                        };
+                        {
+                            let mut state = self.state.lock();
+                            state.apply_event(&fail_event);
+                        }
+                        return Err(ExecuteError::Shell(format!(
+                            "git worktree add failed: {}",
+                            stderr.trim()
+                        )));
+                    }
+                } else {
+                    // Create empty directory (folder workspace)
+                    tokio::fs::create_dir_all(&path).await.map_err(|e| {
+                        ExecuteError::Shell(format!("failed to create workspace dir: {}", e))
+                    })?;
+                }
 
                 // Update status to Ready
                 let ready_event = Event::WorkspaceReady {
@@ -223,14 +285,14 @@ where
             }
 
             Effect::DeleteWorkspace { workspace_id } => {
-                // Look up workspace path
-                let workspace_path = {
+                // Look up workspace path and branch
+                let (workspace_path, workspace_branch) = {
                     let state = self.state.lock();
-                    state
+                    let ws = state
                         .workspaces
                         .get(workspace_id.as_str())
-                        .map(|w| w.path.clone())
-                        .ok_or_else(|| ExecuteError::WorkspaceNotFound(workspace_id.to_string()))?
+                        .ok_or_else(|| ExecuteError::WorkspaceNotFound(workspace_id.to_string()))?;
+                    (ws.path.clone(), ws.branch.clone())
                 };
 
                 // Update status to Cleaning (transient, not persisted)
@@ -258,6 +320,36 @@ where
                         .current_dir(&workspace_path)
                         .output()
                         .await;
+
+                    // Best-effort: clean up the branch
+                    if let Some(ref branch) = workspace_branch {
+                        // Find the repo root from the worktree's .git file
+                        if let Ok(contents) = tokio::fs::read_to_string(&dot_git).await {
+                            // .git file contains: gitdir: /path/to/repo/.git/worktrees/<name>
+                            if let Some(gitdir) = contents.trim().strip_prefix("gitdir: ") {
+                                // Navigate up from .git/worktrees/<name> to .git, then parent
+                                let gitdir_path = std::path::Path::new(gitdir);
+                                if let Some(repo_root) = gitdir_path
+                                    .parent()
+                                    .and_then(|p| p.parent())
+                                    .and_then(|p| p.parent())
+                                {
+                                    let _ = tokio::process::Command::new("git")
+                                        .args([
+                                            "-C",
+                                            &repo_root.display().to_string(),
+                                            "branch",
+                                            "-D",
+                                            branch,
+                                        ])
+                                        .env_remove("GIT_DIR")
+                                        .env_remove("GIT_WORK_TREE")
+                                        .output()
+                                        .await;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Remove workspace directory (in case worktree remove left remnants)

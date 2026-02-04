@@ -104,10 +104,12 @@ Stepped execution with state tracking. Commands and workers invoke pipelines.
 pipeline "fix" {
   name      = "${var.bug.title}"
   vars      = ["bug"]
-  workspace = "ephemeral"
+
+  workspace {
+    git = "worktree"
+  }
 
   locals {
-    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "fix/${var.bug.id}-${workspace.nonce}"
     title  = "fix: ${var.bug.title}"
   }
@@ -127,8 +129,8 @@ pipeline "fix" {
     run = <<-SHELL
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
-      git -C "${local.repo}" push origin "${local.branch}"
-      oj queue push merges --var branch="${local.branch}" --var title="${local.title}"
+      git push origin "${workspace.branch}"
+      oj queue push merges --var branch="${workspace.branch}" --var title="${local.title}"
     SHELL
   }
 }
@@ -140,7 +142,7 @@ Pipeline fields:
 - **defaults**: Default values for vars
 - **locals**: Map of local variables computed once at pipeline creation time (see [Locals](#locals) below)
 - **cwd**: Base directory for execution (supports template interpolation)
-- **workspace**: Workspace mode -- `"ephemeral"` (deleted on success, kept on failure) or `"persistent"` (never deleted)
+- **workspace**: Workspace type -- `"folder"` (plain directory) or `workspace { git = "worktree" }` (engine-managed git worktree). Workspaces are deleted on success, kept on failure for debugging.
 - **notify**: Desktop notification templates for pipeline lifecycle (see [Desktop Integration](../interface/DESKTOP.md))
 - **on_done**: Default step to route to when a step completes without an explicit `on_done`
 - **on_fail**: Default step to route to when a step fails without an explicit `on_fail`
@@ -166,24 +168,24 @@ The `locals` block defines variables computed once at pipeline creation time. Lo
 ```hcl
 pipeline "build" {
   vars      = ["name", "instructions"]
-  workspace = "ephemeral"
+
+  workspace {
+    git = "worktree"
+  }
 
   locals {
-    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "feature/${var.name}-${workspace.nonce}"
     title  = "feat(${var.name}): ${var.instructions}"
   }
 
   step "init" {
-    run = <<-SHELL
-      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
-    SHELL
+    run     = "mkdir -p plans"
     on_done = { step = "work" }
   }
 }
 ```
 
-The `local.repo` pattern is particularly useful for ephemeral workspaces — it resolves the main repository root from the invocation directory, allowing steps to interact with the original repo (push branches, manage worktrees) while running inside an isolated workspace.
+With `workspace { git = "worktree" }`, the engine handles git worktree creation and cleanup automatically, using `local.branch` as the branch name. The `${workspace.branch}` variable is available in step templates for push commands. For pipelines that need custom start points (not HEAD), use `workspace = "folder"` with manual git worktree commands in the init step.
 
 ### Steps
 

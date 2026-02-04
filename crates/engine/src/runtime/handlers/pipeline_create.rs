@@ -7,7 +7,7 @@ use super::super::Runtime;
 use crate::error::RuntimeError;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{Clock, Effect, Event, PipelineId, WorkspaceId};
-use oj_runbook::{NotifyConfig, Runbook, WorkspaceMode};
+use oj_runbook::{NotifyConfig, Runbook};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -69,19 +69,23 @@ where
         // Capture notify config before runbook is moved into cache
         let notify_config = pipeline_def.notify.clone();
 
-        // Determine execution path: cwd-only runs in-place, workspace creates directory
-        let (execution_path, workspace_effects) = match (&pipeline_def.cwd, &pipeline_def.workspace)
-        {
+        // Determine execution path and workspace metadata (path, id, type)
+        // Note: workspace effects are built AFTER locals evaluation so local.branch is available
+        let is_worktree;
+        let workspace_id_str;
+        let (execution_path, has_workspace) = match (&pipeline_def.cwd, &pipeline_def.workspace) {
             (Some(cwd), None) => {
                 // cwd set, workspace omitted: run directly in cwd (interpolated)
-                (PathBuf::from(oj_runbook::interpolate(cwd, &vars)), vec![])
+                is_worktree = false;
+                workspace_id_str = String::new();
+                (PathBuf::from(oj_runbook::interpolate(cwd, &vars)), false)
             }
             (Some(_), Some(_)) | (None, Some(_)) => {
                 // Create workspace directory
                 let pipeline_id_str = pipeline_id.as_str();
                 let nonce = &pipeline_id_str[..8.min(pipeline_id_str.len())];
                 let ws_name = pipeline_name.strip_prefix("oj-").unwrap_or(&pipeline_name);
-                let workspace_id = if ws_name.ends_with(nonce) {
+                let ws_id = if ws_name.ends_with(nonce) {
                     format!("ws-{}", ws_name)
                 } else {
                     format!("ws-{}-{}", ws_name, nonce)
@@ -89,38 +93,34 @@ where
 
                 // Compute workspace path from state_dir
                 let workspaces_dir = self.state_dir.join("workspaces");
-                let workspace_path = workspaces_dir.join(&workspace_id);
+                let workspace_path = workspaces_dir.join(&ws_id);
 
-                let mode_str = pipeline_def.workspace.as_ref().map(|m| match m {
-                    WorkspaceMode::Ephemeral => "ephemeral".to_string(),
-                    WorkspaceMode::Persistent => "persistent".to_string(),
-                });
+                is_worktree = pipeline_def
+                    .workspace
+                    .as_ref()
+                    .map(|w| w.is_git_worktree())
+                    .unwrap_or(false);
 
                 // Inject workspace template variables
-                vars.insert("workspace.id".to_string(), workspace_id.clone());
+                vars.insert("workspace.id".to_string(), ws_id.clone());
                 vars.insert(
                     "workspace.root".to_string(),
                     workspace_path.display().to_string(),
                 );
                 vars.insert("workspace.nonce".to_string(), nonce.to_string());
 
-                (
-                    workspace_path.clone(),
-                    vec![Effect::CreateWorkspace {
-                        workspace_id: WorkspaceId::new(workspace_id),
-                        path: workspace_path,
-                        owner: Some(pipeline_id.to_string()),
-                        mode: mode_str,
-                    }],
-                )
+                workspace_id_str = ws_id;
+                (workspace_path, true)
             }
             // Default: run in cwd (where oj CLI was invoked)
             (None, None) => {
+                is_worktree = false;
+                workspace_id_str = String::new();
                 let cwd = vars
                     .get("invoke.dir")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-                (cwd, vec![])
+                (cwd, false)
             }
         };
 
@@ -174,6 +174,74 @@ where
                 vars.insert(format!("local.{}", key), value);
             }
         }
+
+        // Build workspace effects AFTER locals evaluation (so local.branch is available)
+        let workspace_effects = if has_workspace {
+            let (repo_root, branch, start_point) = if is_worktree {
+                let invoke_dir = vars
+                    .get("invoke.dir")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                let repo_root_output = tokio::process::Command::new("git")
+                    .args([
+                        "-C",
+                        &invoke_dir.display().to_string(),
+                        "rev-parse",
+                        "--show-toplevel",
+                    ])
+                    .env_remove("GIT_DIR")
+                    .env_remove("GIT_WORK_TREE")
+                    .output()
+                    .await
+                    .map_err(|e| {
+                        RuntimeError::ShellError(format!("git rev-parse failed: {}", e))
+                    })?;
+                if !repo_root_output.status.success() {
+                    return Err(RuntimeError::ShellError(
+                        "git rev-parse --show-toplevel failed: not a git repository".to_string(),
+                    ));
+                }
+                let repo_root = PathBuf::from(
+                    String::from_utf8_lossy(&repo_root_output.stdout)
+                        .trim()
+                        .to_string(),
+                );
+
+                let pipeline_id_str = pipeline_id.as_str();
+                let nonce = &pipeline_id_str[..8.min(pipeline_id_str.len())];
+
+                // Branch: use local.branch if defined, otherwise generate ws-<nonce>
+                let branch_name = vars
+                    .get("local.branch")
+                    .cloned()
+                    .unwrap_or_else(|| format!("ws-{}", nonce));
+
+                // Inject workspace.branch template variable
+                vars.insert("workspace.branch".to_string(), branch_name.clone());
+
+                (Some(repo_root), Some(branch_name), Some("HEAD".to_string()))
+            } else {
+                (None, None, None)
+            };
+
+            let workspace_type_str = if is_worktree {
+                Some("worktree".to_string())
+            } else {
+                Some("folder".to_string())
+            };
+
+            vec![Effect::CreateWorkspace {
+                workspace_id: WorkspaceId::new(workspace_id_str),
+                path: execution_path.clone(),
+                owner: Some(pipeline_id.to_string()),
+                workspace_type: workspace_type_str,
+                repo_root,
+                branch,
+                start_point,
+            }]
+        } else {
+            vec![]
+        };
 
         // Compute initial step
         let initial_step = pipeline_def

@@ -66,7 +66,18 @@ pub enum Effect {
         workspace_id: WorkspaceId,
         path: PathBuf,
         owner: Option<String>,
-        mode: Option<String>,
+        /// "folder" or "worktree" (replaces old "mode" field)
+        #[serde(default, alias = "mode")]
+        workspace_type: Option<String>,
+        /// For worktree: the repo root to create the worktree from
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repo_root: Option<PathBuf>,
+        /// For worktree: the branch name to create
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<String>,
+        /// For worktree: the start point (commit/branch to base from)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_point: Option<String>,
     },
 
     /// Delete a managed workspace (removes directory and cleans up)

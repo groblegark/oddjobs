@@ -26,15 +26,34 @@ pub struct Session {
     pub pipeline_id: String,
 }
 
-/// Workspace mode for lifecycle management
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum WorkspaceMode {
-    /// Workspace is deleted on successful completion, kept on failure
+/// Workspace type for lifecycle management
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorkspaceType {
+    /// Plain directory — engine creates/deletes the directory
     #[default]
-    Ephemeral,
-    /// Workspace is never automatically deleted
-    Persistent,
+    Folder,
+    /// Git worktree — engine manages worktree add/remove and branch lifecycle
+    Worktree,
+}
+
+impl serde::Serialize for WorkspaceType {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            WorkspaceType::Folder => serializer.serialize_str("folder"),
+            WorkspaceType::Worktree => serializer.serialize_str("worktree"),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for WorkspaceType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "worktree" => Ok(WorkspaceType::Worktree),
+            // "folder" + legacy values ("ephemeral", "persistent") all map to Folder
+            _ => Ok(WorkspaceType::Folder),
+        }
+    }
 }
 
 /// Workspace record with lifecycle management
@@ -42,15 +61,15 @@ pub enum WorkspaceMode {
 pub struct Workspace {
     pub id: String,
     pub path: PathBuf,
-    /// Branch for the worktree (None means use HEAD)
+    /// Branch for the worktree (None for folder workspaces)
     pub branch: Option<String>,
     /// Owner of the workspace (pipeline_id or worker_name)
     pub owner: Option<String>,
     /// Current lifecycle status
     pub status: WorkspaceStatus,
-    /// Workspace mode (ephemeral = delete on success, persistent = never delete)
-    #[serde(default)]
-    pub mode: WorkspaceMode,
+    /// Workspace type (folder or worktree)
+    #[serde(default, alias = "mode")]
+    pub workspace_type: WorkspaceType,
     /// Epoch milliseconds when workspace was created (0 for pre-existing workspaces)
     #[serde(default)]
     pub created_at_ms: u64,
@@ -495,13 +514,14 @@ impl MaterializedState {
                 path,
                 branch,
                 owner,
-                mode,
+                workspace_type,
             } => {
-                let ws_mode = mode
+                let ws_type = workspace_type
                     .as_deref()
                     .map(|s| match s {
-                        "persistent" => WorkspaceMode::Persistent,
-                        _ => WorkspaceMode::Ephemeral,
+                        "worktree" => WorkspaceType::Worktree,
+                        // Map legacy values to Folder
+                        _ => WorkspaceType::Folder,
                     })
                     .unwrap_or_default();
 
@@ -521,7 +541,7 @@ impl MaterializedState {
                         branch: branch.clone(),
                         owner: owner.clone(),
                         status: WorkspaceStatus::Creating,
-                        mode: ws_mode,
+                        workspace_type: ws_type,
                         created_at_ms: epoch_ms_now(),
                     },
                 );

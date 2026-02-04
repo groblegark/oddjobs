@@ -33,7 +33,7 @@ worker "merge" {
 pipeline "merge" {
   name      = "${var.mr.title}"
   vars      = ["mr"]
-  workspace = "ephemeral"
+  workspace = "folder"
 
   locals {
     repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"

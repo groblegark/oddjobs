@@ -15,6 +15,6 @@ mod wal;
 pub use snapshot::{Snapshot, SnapshotError};
 pub use state::{
     CronRecord, MaterializedState, QueueItem, QueueItemStatus, Session, WorkerRecord, Workspace,
-    WorkspaceMode,
+    WorkspaceType,
 };
 pub use wal::{Wal, WalEntry, WalError};

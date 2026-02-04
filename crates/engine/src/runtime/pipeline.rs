@@ -462,16 +462,11 @@ where
         self.breadcrumb.delete(&pipeline.id);
         let mut effects = steps::completion_effects(pipeline);
 
-        // Clean up ephemeral workspaces on successful completion
+        // Clean up workspaces on successful completion
         if let Some(ws_id) = &pipeline.workspace_id {
-            let is_ephemeral = self.lock_state(|state| {
-                state
-                    .workspaces
-                    .get(ws_id.as_str())
-                    .map(|ws| ws.mode == oj_storage::WorkspaceMode::Ephemeral)
-                    .unwrap_or(false)
-            });
-            if is_ephemeral {
+            let workspace_exists =
+                self.lock_state(|state| state.workspaces.contains_key(ws_id.as_str()));
+            if workspace_exists {
                 effects.push(Effect::DeleteWorkspace {
                     workspace_id: ws_id.clone(),
                 });

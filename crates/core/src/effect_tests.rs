@@ -42,7 +42,10 @@ fn effect_serialization_roundtrip() {
             workspace_id: crate::WorkspaceId::new("ws-1"),
             path: PathBuf::from("/work/tree"),
             owner: Some("pipe-1".to_string()),
-            mode: Some("ephemeral".to_string()),
+            workspace_type: Some("folder".to_string()),
+            repo_root: None,
+            branch: None,
+            start_point: None,
         },
         Effect::DeleteWorkspace {
             workspace_id: crate::WorkspaceId::new("ws-1"),
@@ -131,7 +134,10 @@ fn traced_effect_names() {
                 workspace_id: crate::WorkspaceId::new("ws"),
                 path: PathBuf::from("/p"),
                 owner: None,
-                mode: None,
+                workspace_type: None,
+                repo_root: None,
+                branch: None,
+                start_point: None,
             },
             "create_workspace",
         ),
@@ -247,7 +253,10 @@ fn traced_effect_fields() {
         workspace_id: crate::WorkspaceId::new("ws-1"),
         path: PathBuf::from("/work"),
         owner: Some("pipe-1".to_string()),
-        mode: Some("ephemeral".to_string()),
+        workspace_type: Some("folder".to_string()),
+        repo_root: None,
+        branch: None,
+        start_point: None,
     };
     let fields = effect.fields();
     assert_eq!(

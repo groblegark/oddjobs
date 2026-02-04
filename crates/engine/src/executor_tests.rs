@@ -366,7 +366,7 @@ async fn delete_workspace_removes_plain_directory() {
                 branch: None,
                 owner: None,
                 status: oj_core::WorkspaceStatus::Ready,
-                mode: oj_storage::WorkspaceMode::Ephemeral,
+                workspace_type: oj_storage::WorkspaceType::Folder,
                 created_at_ms: 0,
             },
         );
@@ -444,7 +444,7 @@ async fn delete_workspace_removes_git_worktree() {
                 branch: None,
                 owner: None,
                 status: oj_core::WorkspaceStatus::Ready,
-                mode: oj_storage::WorkspaceMode::Ephemeral,
+                workspace_type: oj_storage::WorkspaceType::Folder,
                 created_at_ms: 0,
             },
         );

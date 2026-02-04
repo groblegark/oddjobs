@@ -536,3 +536,100 @@ run = "echo init"
     assert_eq!(pipeline.kind, "deploy");
     assert_eq!(pipeline.name.as_deref(), Some("${var.env}"));
 }
+
+#[test]
+fn parse_hcl_workspace_folder() {
+    let hcl = r#"
+pipeline "test" {
+    vars = ["name"]
+    workspace = "folder"
+
+    step "init" {
+        run = "echo init"
+    }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let pipeline = runbook.get_pipeline("test").unwrap();
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Simple(WorkspaceType::Folder))
+    );
+    assert!(!pipeline.workspace.as_ref().unwrap().is_git_worktree());
+}
+
+#[test]
+fn parse_hcl_workspace_git_worktree() {
+    let hcl = r#"
+pipeline "test" {
+    vars = ["name"]
+
+    workspace {
+        git = "worktree"
+    }
+
+    step "init" {
+        run = "echo init"
+    }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let pipeline = runbook.get_pipeline("test").unwrap();
+    assert!(pipeline.workspace.as_ref().unwrap().is_git_worktree());
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Block(WorkspaceBlock {
+            git: GitWorkspaceMode::Worktree
+        }))
+    );
+}
+
+#[test]
+fn parse_hcl_workspace_ephemeral_compat() {
+    let hcl = r#"
+pipeline "test" {
+    vars = ["name"]
+    workspace = "ephemeral"
+
+    step "init" {
+        run = "echo init"
+    }
+}
+"#;
+    let runbook = parse_runbook_with_format(hcl, Format::Hcl).unwrap();
+    let pipeline = runbook.get_pipeline("test").unwrap();
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Simple(WorkspaceType::Folder))
+    );
+}
+
+#[test]
+fn parse_toml_workspace_folder() {
+    let toml = r#"
+[pipeline.test]
+vars = ["name"]
+workspace = "folder"
+
+[[pipeline.test.step]]
+name = "init"
+run = "echo init"
+"#;
+    let runbook = parse_runbook(toml).unwrap();
+    let pipeline = runbook.get_pipeline("test").unwrap();
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Simple(WorkspaceType::Folder))
+    );
+}
+
+#[test]
+fn workspace_config_is_git_worktree() {
+    let folder = WorkspaceConfig::Simple(WorkspaceType::Folder);
+    assert!(!folder.is_git_worktree());
+
+    let worktree = WorkspaceConfig::Block(WorkspaceBlock {
+        git: GitWorkspaceMode::Worktree,
+    });
+    assert!(worktree.is_git_worktree());
+}

@@ -78,15 +78,15 @@ command "drafts" {
 pipeline "draft" {
   name      = "${var.name}"
   vars      = ["name", "instructions", "base"]
-  workspace = "ephemeral"
+
+  workspace {
+    git = "worktree"
+  }
 
   locals {
-    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
     branch = "draft/${var.name}-${workspace.nonce}"
     title  = "draft(${var.name}): ${var.instructions}"
   }
-
-  on_cancel = { step = "cleanup" }
 
   notify {
     on_start = "Drafting: ${var.name}"
@@ -95,10 +95,7 @@ pipeline "draft" {
   }
 
   step "init" {
-    run = <<-SHELL
-      git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" HEAD
-      mkdir -p plans
-    SHELL
+    run     = "mkdir -p plans"
     on_done = { step = "plan" }
   }
 
@@ -116,15 +113,7 @@ pipeline "draft" {
     run = <<-SHELL
       git add -A
       git diff --cached --quiet || git commit -m "${local.title}"
-      git -C "${local.repo}" push origin "${local.branch}"
-    SHELL
-    on_done = { step = "cleanup" }
-  }
-
-  step "cleanup" {
-    run = <<-SHELL
-      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
-      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+      git push origin "${workspace.branch}"
     SHELL
   }
 }
@@ -132,7 +121,7 @@ pipeline "draft" {
 pipeline "draft-rebase" {
   name      = "rebase-${var.name}"
   vars      = ["name", "base"]
-  workspace = "ephemeral"
+  workspace = "folder"
 
   locals {
     repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
@@ -185,7 +174,7 @@ pipeline "draft-rebase" {
 pipeline "draft-refine" {
   name      = "refine-${var.name}"
   vars      = ["name", "instructions"]
-  workspace = "ephemeral"
+  workspace = "folder"
 
   locals {
     repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"

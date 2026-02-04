@@ -17,15 +17,15 @@ An **isolated directory for work** -- typically populated by a pipeline's init s
 A workspace provides:
 - **Identity**: Unique name for this work context
 - **Isolation**: Separate from other concurrent work
-- **Lifecycle**: Created before work, cleaned up after (ephemeral) or kept (persistent)
-- **Context**: Values tasks can reference (`${workspace.root}`, `${workspace.id}`)
+- **Lifecycle**: Created before work, cleaned up on success, kept on failure for debugging
+- **Context**: Values tasks can reference (`${workspace.root}`, `${workspace.id}`, `${workspace.branch}`)
 
-### Workspace Modes
+### Workspace Types
 
-| Mode | Behavior |
-|------|----------|
-| `ephemeral` | Deleted on successful pipeline completion, kept on failure for debugging |
-| `persistent` | Never automatically deleted |
+| Type | Syntax | Behavior |
+|------|--------|----------|
+| `folder` | `workspace = "folder"` | Plain directory. Engine creates the directory; the init step populates it. |
+| `worktree` | `workspace { git = "worktree" }` | Engine-managed git worktree. The engine handles `git worktree add`, `git worktree remove`, and branch cleanup automatically. |
 
 **Storage location**: `~/.local/state/oj/workspaces/ws-<pipeline-name>-<nonce>/`
 
@@ -33,18 +33,18 @@ Using XDG state directory keeps the project directory clean and survives `git cl
 
 ### Workspace Setup
 
-The engine creates an empty directory. The pipeline's init step populates it -- typically by cloning a git repository:
+For `workspace { git = "worktree" }`, the engine creates a git worktree automatically. The branch name comes from `local.branch` if defined, otherwise `ws-<nonce>`. The `${workspace.branch}` template variable is available in step templates.
+
+For `workspace = "folder"`, the engine creates an empty directory. The pipeline's init step populates it -- useful when custom git start points are needed:
 
 ```hcl
 step "init" {
   run = <<-SHELL
-    git clone "$(git -C ${invoke.dir} rev-parse --show-toplevel)" .
+    git -C "${local.repo}" worktree add -b "${local.branch}" "${workspace.root}" origin/${var.base}
   SHELL
   on_done = { step = "work" }
 }
 ```
-
-This keeps the engine git-agnostic. Multi-repo workspaces are supported by cloning multiple repositories into subdirectories.
 
 **Settings sync**: Agent-specific settings (including the Stop hook for `oj agent hook stop`) are stored in `~/.local/state/oj/agents/<agent-id>/claude-settings.json` and passed to the agent via `--settings`. Project settings from `<workspace>/.claude/settings.json` are loaded (if they exist) and merged into these agent-specific settings.
 

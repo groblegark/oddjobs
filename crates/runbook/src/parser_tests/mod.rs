@@ -1179,7 +1179,7 @@ agent "epic-builder" {
 "#;
 
 use crate::agent::{AgentAction, Attempts, PrimeDef};
-use crate::pipeline::WorkspaceMode;
+use crate::pipeline::{WorkspaceConfig, WorkspaceType};
 
 #[test]
 fn parse_epic_hcl_command() {
@@ -1204,7 +1204,10 @@ fn parse_epic_hcl_pipeline() {
     let pipeline = &runbook.pipelines["epic"];
     assert_eq!(pipeline.name.as_deref(), Some("${var.name}"));
     assert_eq!(pipeline.vars, vec!["name", "instructions", "blocked-by"]);
-    assert_eq!(pipeline.workspace, Some(WorkspaceMode::Ephemeral));
+    assert_eq!(
+        pipeline.workspace,
+        Some(WorkspaceConfig::Simple(WorkspaceType::Folder))
+    );
     assert_eq!(pipeline.steps.len(), 5);
 
     // Step names and transitions

@@ -484,7 +484,7 @@ fn resolve_effective_namespace(project: Option<&str>, project_root: &Path) -> St
 /// Find the project root by walking up from current directory.
 /// Looks for .oj directory to identify project root.
 ///
-/// When running inside a git worktree (e.g. an ephemeral workspace),
+/// When running inside a git worktree (e.g. a workspace),
 /// resolves to the main worktree's project root so that daemon requests
 /// (queue push, worker start, etc.) reference the canonical project.
 fn find_project_root() -> PathBuf {

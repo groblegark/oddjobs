@@ -254,7 +254,9 @@ pub enum Event {
         path: PathBuf,
         branch: Option<String>,
         owner: Option<String>,
-        mode: Option<String>,
+        /// "folder" or "worktree" (replaces old "mode" field)
+        #[serde(default, alias = "mode")]
+        workspace_type: Option<String>,
     },
 
     #[serde(rename = "workspace:ready")]

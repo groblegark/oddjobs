@@ -23,6 +23,8 @@ mod project_setup;
 // daemon/
 #[path = "specs/daemon/concurrency.rs"]
 mod daemon_concurrency;
+#[path = "specs/daemon/cron_pipeline.rs"]
+mod daemon_cron_pipeline;
 #[path = "specs/daemon/crons.rs"]
 mod daemon_crons;
 #[path = "specs/daemon/help.rs"]

@@ -2,7 +2,8 @@ use oj_daemon::NamespaceStatus;
 use serial_test::serial;
 
 use super::{
-    format_duration, format_text, friendly_name_label, render_frame, truncate_reason, CLEAR_SCREEN,
+    format_duration, format_text, friendly_name_label, render_frame, truncate_reason,
+    watch_preamble, CLEAR_SCREEN,
 };
 
 #[test]
@@ -333,23 +334,23 @@ fn friendly_name_label_shown_when_meaningful() {
 // ── render_frame tests ──────────────────────────────────────────────
 
 #[test]
-fn render_frame_tty_prepends_clear_sequence() {
+fn render_frame_first_tty_prepends_clear_sequence() {
     let content = "oj daemon: running 2m\n";
-    let frame = render_frame(content, true);
+    let frame = render_frame(content, true, true);
     assert!(
         frame.starts_with(CLEAR_SCREEN),
-        "TTY frame must start with clear-screen sequence"
+        "first TTY frame must start with clear-screen sequence"
     );
     assert!(
-        frame.ends_with(content),
-        "TTY frame must end with the content"
+        frame.contains(content),
+        "TTY frame must contain the content"
     );
 }
 
 #[test]
 fn render_frame_non_tty_no_escape_codes() {
     let content = "oj daemon: running 2m\n";
-    let frame = render_frame(content, false);
+    let frame = render_frame(content, false, true);
     assert_eq!(frame, content, "non-TTY frame should be the raw content");
     assert!(
         !frame.contains('\x1B'),
@@ -382,30 +383,39 @@ fn render_frame_content_identical_across_tty_modes() {
     };
     let text = format_text(60, &[ns], Some("5s"));
 
-    let tty_frame = render_frame(&text, true);
-    let non_tty_frame = render_frame(&text, false);
+    let tty_frame = render_frame(&text, true, true);
+    let non_tty_frame = render_frame(&text, false, true);
 
-    // Strip the clear prefix from TTY frame; remainder must match non-TTY
-    assert_eq!(&tty_frame[CLEAR_SCREEN.len()..], non_tty_frame);
+    // Strip the preamble prefix and trailing \x1B[J from TTY frame; remainder must match non-TTY
+    let stripped = &tty_frame[CLEAR_SCREEN.len()..tty_frame.len() - "\x1B[J".len()];
+    assert_eq!(stripped, non_tty_frame);
 }
 
 #[test]
 #[serial]
-fn consecutive_frames_tty_each_start_with_clear() {
+fn consecutive_frames_tty_first_clears_subsequent_homes() {
     std::env::set_var("NO_COLOR", "1");
     std::env::remove_var("COLOR");
 
     let frame1_content = format_text(60, &[], Some("5s"));
     let frame2_content = format_text(120, &[], Some("5s"));
 
-    let frame1 = render_frame(&frame1_content, true);
-    let frame2 = render_frame(&frame2_content, true);
+    let frame1 = render_frame(&frame1_content, true, true);
+    let frame2 = render_frame(&frame2_content, true, false);
 
-    let combined = format!("{frame1}{frame2}");
-
-    // Count occurrences of the clear sequence
-    let clear_count = combined.matches(CLEAR_SCREEN).count();
-    assert_eq!(clear_count, 2, "each TTY frame must have its own clear");
+    // First frame clears screen (preserves scrollback), second only homes cursor
+    assert!(
+        frame1.starts_with(CLEAR_SCREEN),
+        "first frame must clear screen"
+    );
+    assert!(
+        frame2.starts_with("\x1B[H"),
+        "subsequent frame must home cursor"
+    );
+    assert!(
+        !frame2.starts_with(CLEAR_SCREEN),
+        "subsequent frame must not clear screen"
+    );
 }
 
 #[test]
@@ -417,8 +427,8 @@ fn consecutive_frames_non_tty_no_clear_codes() {
     let frame1_content = format_text(60, &[], Some("5s"));
     let frame2_content = format_text(120, &[], Some("5s"));
 
-    let frame1 = render_frame(&frame1_content, false);
-    let frame2 = render_frame(&frame2_content, false);
+    let frame1 = render_frame(&frame1_content, false, true);
+    let frame2 = render_frame(&frame2_content, false, false);
 
     let combined = format!("{frame1}{frame2}");
 
@@ -509,7 +519,7 @@ fn non_tty_frame_with_full_status_has_no_ansi_escapes() {
     };
 
     let text = format_text(600, &[ns], Some("5s"));
-    let frame = render_frame(&text, false);
+    let frame = render_frame(&text, false, true);
 
     assert!(
         !frame.contains('\x1B'),
@@ -641,7 +651,7 @@ fn tty_frame_preserves_color_codes_in_content() {
     std::env::set_var("COLOR", "1");
 
     let text = format_text(120, &[], Some("5s"));
-    let frame = render_frame(&text, true);
+    let frame = render_frame(&text, true, true);
 
     // Starts with clear sequence
     assert!(frame.starts_with(CLEAR_SCREEN));
@@ -651,5 +661,25 @@ fn tty_frame_preserves_color_codes_in_content() {
     assert!(
         after_clear.contains("\x1b[38;5;"),
         "TTY frame should preserve color codes from content"
+    );
+}
+
+#[test]
+fn watch_preamble_first_clears_screen_and_homes() {
+    let p = watch_preamble(true);
+    assert!(
+        p.contains("\x1B[2J"),
+        "first frame should clear screen to preserve existing content in scrollback"
+    );
+    assert!(p.contains("\x1B[H"), "first frame should home cursor");
+}
+
+#[test]
+fn watch_preamble_subsequent_only_homes() {
+    let p = watch_preamble(false);
+    assert_eq!(p, "\x1B[H");
+    assert!(
+        !p.contains("\x1B[2J"),
+        "subsequent frames should not clear screen (avoids scrollback pollution)"
     );
 }

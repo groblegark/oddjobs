@@ -1192,7 +1192,7 @@ fn worker_columns_are_aligned_across_rows() {
                 name: "long-worker-name".to_string(),
                 namespace: "myproject".to_string(),
                 queue: "default".to_string(),
-                status: "idle".to_string(),
+                status: "stopped".to_string(),
                 active: 0,
                 concurrency: 2,
                 updated_at_ms: 0,
@@ -1208,13 +1208,50 @@ fn worker_columns_are_aligned_across_rows() {
     let lines: Vec<&str> = output.lines().filter(|l| l.contains("active")).collect();
     assert_eq!(lines.len(), 2, "should find exactly 2 worker rows");
 
-    // The indicator (● or ○) should start at the same position in both lines
-    let ind_pos_0 = lines[0].find('●').or_else(|| lines[0].find('○')).unwrap();
-    let ind_pos_1 = lines[1].find('●').or_else(|| lines[1].find('○')).unwrap();
+    // Status labels ("on" / "off") should start at the same column
+    let st_pos_0 = lines[0].find("on").unwrap();
+    let st_pos_1 = lines[1].find("off").unwrap();
     assert_eq!(
-        ind_pos_0, ind_pos_1,
-        "indicator columns should be aligned:\n  {}\n  {}",
+        st_pos_0, st_pos_1,
+        "status columns should be aligned:\n  {}\n  {}",
         lines[0], lines[1]
+    );
+}
+
+#[test]
+#[serial]
+fn worker_shows_full_at_max_concurrency() {
+    std::env::set_var("NO_COLOR", "1");
+    std::env::remove_var("COLOR");
+
+    let ns = NamespaceStatus {
+        namespace: "myproject".to_string(),
+        active_pipelines: vec![],
+        escalated_pipelines: vec![],
+        orphaned_pipelines: vec![],
+        workers: vec![oj_daemon::WorkerSummary {
+            name: "busy".to_string(),
+            namespace: "myproject".to_string(),
+            queue: "default".to_string(),
+            status: "running".to_string(),
+            active: 3,
+            concurrency: 3,
+            updated_at_ms: 0,
+        }],
+        queues: vec![],
+        active_agents: vec![],
+        pending_decisions: 0,
+    };
+
+    let output = format_text(30, &[ns], None);
+    let line = output.lines().find(|l| l.contains("busy")).unwrap();
+    assert!(
+        line.contains("full"),
+        "worker at max concurrency should show 'full': {line}"
+    );
+    assert!(
+        !line.contains("on"),
+        "worker at max concurrency should show 'full' not 'on': {line}"
     );
 }
 

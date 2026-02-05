@@ -399,19 +399,27 @@ fn format_text(
         if !workers.is_empty() {
             let _ = writeln!(out, "  {}", color::header("Workers:"));
             let w_name = workers.iter().map(|w| w.name.len()).max().unwrap_or(0);
-            let w_st = workers.iter().map(|w| w.status.len()).max().unwrap_or(0);
-            for w in &workers {
-                let indicator = if w.status == "running" {
-                    color::green("●")
-                } else {
-                    color::muted("○")
-                };
+            let labels: Vec<&str> = workers
+                .iter()
+                .map(|w| {
+                    if w.status == "running" {
+                        if w.active >= w.concurrency as usize {
+                            "full"
+                        } else {
+                            "on"
+                        }
+                    } else {
+                        "off"
+                    }
+                })
+                .collect();
+            let w_st = labels.iter().map(|l| l.len()).max().unwrap_or(0);
+            for (w, label) in workers.iter().zip(labels.iter()) {
                 let _ = writeln!(
                     out,
-                    "    {:<w_name$}  {} {}  {}/{} active",
+                    "    {:<w_name$}  {}  {}/{} active",
                     w.name,
-                    indicator,
-                    color::status(&format!("{:<w_st$}", w.status)),
+                    color::status(&format!("{:<w_st$}", label)),
                     w.active,
                     w.concurrency,
                 );

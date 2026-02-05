@@ -453,16 +453,10 @@ fn format_text(
                 "  {}",
                 color::header(&format!("Agents ({} running):", ns.active_agents.len()))
             );
-            let labels: Vec<String> = ns
+            let w_name = ns
                 .active_agents
                 .iter()
-                .map(|a| format!("{} ({})", a.agent_name, a.command_name))
-                .collect();
-            let w_label = labels.iter().map(|l| l.len()).max().unwrap_or(0);
-            let w_id = ns
-                .active_agents
-                .iter()
-                .map(|a| a.agent_id.len())
+                .map(|a| a.agent_name.len())
                 .max()
                 .unwrap_or(0);
             let w_st = ns
@@ -471,12 +465,12 @@ fn format_text(
                 .map(|a| a.status.len())
                 .max()
                 .unwrap_or(0);
-            for (a, label) in ns.active_agents.iter().zip(labels.iter()) {
+            for a in &ns.active_agents {
                 let _ = writeln!(
                     out,
-                    "    {:<w_label$}  {}  {}",
-                    label,
-                    color::muted(&format!("{:<w_id$}", a.agent_id)),
+                    "    {}  {:<w_name$}  {}",
+                    color::muted(&a.agent_id.short(8)),
+                    a.agent_name,
                     color::status(&format!("{:<w_st$}", a.status)),
                 );
             }

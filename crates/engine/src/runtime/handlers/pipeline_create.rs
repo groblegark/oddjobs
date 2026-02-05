@@ -158,18 +158,17 @@ where
                         .get("invoke.dir")
                         .map(PathBuf::from)
                         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-                    let output = tokio::process::Command::new("bash")
-                        .arg("-c")
+                    let mut cmd = tokio::process::Command::new("bash");
+                    cmd.arg("-c")
                         .arg(format!("printf '%s' {}", value))
-                        .current_dir(&cwd)
-                        .output()
-                        .await
-                        .map_err(|e| {
-                            RuntimeError::ShellError(format!(
-                                "failed to evaluate workspace.ref: {}",
-                                e
-                            ))
-                        })?;
+                        .current_dir(&cwd);
+                    let output = oj_adapters::subprocess::run_with_timeout(
+                        cmd,
+                        oj_adapters::subprocess::SHELL_EVAL_TIMEOUT,
+                        "evaluate workspace.ref",
+                    )
+                    .await
+                    .map_err(RuntimeError::ShellError)?;
                     if !output.status.success() {
                         let stderr = String::from_utf8_lossy(&output.stderr);
                         return Err(RuntimeError::ShellError(format!(
@@ -222,18 +221,16 @@ where
                     } else {
                         format!("printf '%s' \"{}\"", value)
                     };
-                    let output = tokio::process::Command::new("bash")
-                        .arg("-c")
-                        .arg(&shell_cmd)
-                        .current_dir(&cwd)
-                        .output()
-                        .await
-                        .map_err(|e| {
-                            RuntimeError::ShellError(format!(
-                                "failed to evaluate local.{}: {}",
-                                key, e
-                            ))
-                        })?;
+                    let desc = format!("evaluate local.{}", key);
+                    let mut cmd = tokio::process::Command::new("bash");
+                    cmd.arg("-c").arg(&shell_cmd).current_dir(&cwd);
+                    let output = oj_adapters::subprocess::run_with_timeout(
+                        cmd,
+                        oj_adapters::subprocess::SHELL_EVAL_TIMEOUT,
+                        &desc,
+                    )
+                    .await
+                    .map_err(RuntimeError::ShellError)?;
                     if !output.status.success() {
                         let stderr = String::from_utf8_lossy(&output.stderr);
                         return Err(RuntimeError::ShellError(format!(
@@ -262,20 +259,22 @@ where
                     .get("invoke.dir")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-                let repo_root_output = tokio::process::Command::new("git")
-                    .args([
-                        "-C",
-                        &invoke_dir.display().to_string(),
-                        "rev-parse",
-                        "--show-toplevel",
-                    ])
-                    .env_remove("GIT_DIR")
-                    .env_remove("GIT_WORK_TREE")
-                    .output()
-                    .await
-                    .map_err(|e| {
-                        RuntimeError::ShellError(format!("git rev-parse failed: {}", e))
-                    })?;
+                let mut cmd = tokio::process::Command::new("git");
+                cmd.args([
+                    "-C",
+                    &invoke_dir.display().to_string(),
+                    "rev-parse",
+                    "--show-toplevel",
+                ])
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE");
+                let repo_root_output = oj_adapters::subprocess::run_with_timeout(
+                    cmd,
+                    oj_adapters::subprocess::SHELL_EVAL_TIMEOUT,
+                    "git rev-parse",
+                )
+                .await
+                .map_err(RuntimeError::ShellError)?;
                 if !repo_root_output.status.success() {
                     return Err(RuntimeError::ShellError(
                         "git rev-parse --show-toplevel failed: not a git repository".to_string(),

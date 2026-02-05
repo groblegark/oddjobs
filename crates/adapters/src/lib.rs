@@ -14,6 +14,7 @@ pub mod agent;
 mod env;
 pub mod notify;
 pub mod session;
+pub mod subprocess;
 pub mod traced;
 
 pub use agent::{

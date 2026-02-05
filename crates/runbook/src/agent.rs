@@ -617,5 +617,5 @@ impl AgentDef {
 }
 
 #[cfg(test)]
-#[path = "agent_tests.rs"]
+#[path = "agent_tests/mod.rs"]
 mod tests;

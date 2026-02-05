@@ -36,6 +36,11 @@ impl Scheduler {
         self.timers.remove(id);
     }
 
+    /// Cancel all timers matching a prefix
+    pub fn cancel_timers_with_prefix(&mut self, prefix: &str) {
+        self.timers.retain(|id, _| !id.starts_with(prefix));
+    }
+
     /// Get all timers that have fired
     pub fn fired_timers(&mut self, now: Instant) -> Vec<Event> {
         let mut events = Vec::new();

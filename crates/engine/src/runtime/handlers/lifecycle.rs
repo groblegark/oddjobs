@@ -6,7 +6,7 @@
 use super::super::Runtime;
 use crate::error::RuntimeError;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
-use oj_core::{Clock, Effect, Event, JobId, SessionId, ShortId, StepOutcome, WorkspaceId};
+use oj_core::{AgentId, Clock, Effect, Event, JobId, SessionId, ShortId, StepOutcome, WorkspaceId};
 use std::collections::HashMap;
 
 impl<S, A, N, C> Runtime<S, A, N, C>
@@ -226,5 +226,133 @@ where
             self.fail_job(&job, &format!("shell exit code: {}", exit_code))
                 .await
         }
+    }
+
+    /// Handle JobDeleted event with cascading cleanup.
+    ///
+    /// This is called when a job is explicitly deleted (e.g., via `oj agent prune`).
+    /// It cleans up all associated resources:
+    /// - Cancels all job-scoped timers
+    /// - Deregisters agent→job mappings
+    /// - Kills any running agents/sessions
+    /// - Deletes associated workspaces
+    ///
+    /// All cleanup is best-effort: errors are logged but don't fail the deletion.
+    pub(crate) async fn handle_job_deleted(
+        &self,
+        job_id: &JobId,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        // Snapshot job info BEFORE it gets deleted from state.
+        // This handler runs before MaterializedState::apply_event.
+        let job = self.get_job(job_id.as_str());
+
+        // 1. Cancel all job-scoped timers using prefix match
+        // Timer IDs are formatted as "type:job_id" (e.g., "liveness:abc123")
+        let timer_prefix = format!(":{}", job_id.as_str());
+        {
+            let scheduler = self.executor.scheduler();
+            let mut sched = scheduler.lock();
+            // Cancel known timer types
+            sched.cancel_timer(&format!("liveness{}", timer_prefix));
+            sched.cancel_timer(&format!("exit-deferred{}", timer_prefix));
+            sched.cancel_timer(&format!("idle-grace{}", timer_prefix));
+            // Cancel any cooldown timers (dynamic suffixes like cooldown:abc123:exit:0)
+            sched.cancel_timers_with_prefix(&format!("cooldown:{}", job_id.as_str()));
+        }
+
+        // The following cleanup depends on having job info
+        let Some(job) = job else {
+            tracing::debug!(job_id = %job_id, "job_deleted: job not found (already deleted or never existed)");
+            return Ok(vec![]);
+        };
+
+        // 2. Collect agent IDs from step history to deregister
+        let agent_ids: Vec<AgentId> = job
+            .step_history
+            .iter()
+            .filter_map(|r| r.agent_id.as_ref().map(AgentId::new))
+            .collect();
+
+        // 3. Deregister agent→job mappings (prevents stale watcher events)
+        for agent_id in &agent_ids {
+            self.agent_jobs.lock().remove(agent_id);
+        }
+
+        // 4. Kill agents (this also stops their watchers)
+        for agent_id in &agent_ids {
+            if let Err(e) = self
+                .executor
+                .execute(Effect::KillAgent {
+                    agent_id: agent_id.clone(),
+                })
+                .await
+            {
+                tracing::debug!(
+                    job_id = %job_id,
+                    agent_id = %agent_id,
+                    error = %e,
+                    "job_deleted: failed to kill agent (may already be dead)"
+                );
+            }
+        }
+
+        // 5. Kill session as fallback (in case agent kill didn't cover it)
+        if let Some(session_id) = &job.session_id {
+            let sid = SessionId::new(session_id);
+            if let Err(e) = self
+                .executor
+                .execute(Effect::KillSession {
+                    session_id: sid.clone(),
+                })
+                .await
+            {
+                tracing::debug!(
+                    job_id = %job_id,
+                    session_id = %session_id,
+                    error = %e,
+                    "job_deleted: failed to kill session (may already be dead)"
+                );
+            }
+            // Emit SessionDeleted event so state is consistent
+            let _ = self
+                .executor
+                .execute(Effect::Emit {
+                    event: Event::SessionDeleted { id: sid },
+                })
+                .await;
+        }
+
+        // 6. Delete workspace if one exists
+        let ws_id = job.workspace_id.clone().or_else(|| {
+            self.lock_state(|s| {
+                s.workspaces
+                    .values()
+                    .find(|ws| ws.owner.as_deref() == Some(&job.id))
+                    .map(|ws| oj_core::WorkspaceId::new(&ws.id))
+            })
+        });
+
+        if let Some(ws_id) = ws_id {
+            let exists = self.lock_state(|s| s.workspaces.contains_key(ws_id.as_str()));
+            if exists {
+                if let Err(e) = self
+                    .executor
+                    .execute(Effect::DeleteWorkspace {
+                        workspace_id: ws_id.clone(),
+                    })
+                    .await
+                {
+                    tracing::debug!(
+                        job_id = %job_id,
+                        workspace_id = %ws_id,
+                        error = %e,
+                        "job_deleted: failed to delete workspace"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(job_id = %job_id, "cascading cleanup for deleted job");
+        Ok(vec![])
     }
 }

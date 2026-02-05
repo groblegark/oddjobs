@@ -8,6 +8,7 @@ mod client_lifecycle;
 mod color;
 mod commands;
 mod daemon_process;
+mod env;
 mod exit_error;
 mod help;
 mod output;
@@ -18,8 +19,8 @@ use output::OutputFormat;
 use anyhow::Result;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use commands::{
-    agent, cron, daemon, decision, emit, env, pipeline, project, queue, resolve, run, session,
-    status, worker, workspace,
+    agent, cron, daemon, decision, emit, env as env_cmd, pipeline, project, queue, resolve, run,
+    session, status, worker, workspace,
 };
 use std::path::{Path, PathBuf};
 
@@ -70,7 +71,7 @@ enum Commands {
     /// Daemon management
     Daemon(daemon::DaemonArgs),
     /// Environment variable management
-    Env(env::EnvArgs),
+    Env(env_cmd::EnvArgs),
     /// Queue management
     Queue(queue::QueueArgs),
     /// Worker management
@@ -261,7 +262,7 @@ async fn run() -> Result<()> {
 
     // Handle env command separately (doesn't need client connection)
     if let Commands::Env(args) = command {
-        return env::handle(args.command, format);
+        return env_cmd::handle(args.command, format);
     }
 
     // Find project root for runbook loading (now from potentially-changed cwd)
@@ -587,10 +588,8 @@ fn resolve_effective_namespace(project: Option<&str>, project_root: &Path) -> St
     if let Some(p) = project {
         return p.to_string();
     }
-    if let Ok(ns) = std::env::var("OJ_NAMESPACE") {
-        if !ns.is_empty() {
-            return ns;
-        }
+    if let Some(ns) = crate::env::namespace() {
+        return ns;
     }
     oj_core::namespace::resolve_namespace(project_root)
 }

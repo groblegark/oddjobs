@@ -56,11 +56,8 @@ fn write_cli_log(message: String) {
     use std::time::SystemTime;
 
     let log_path = daemon_dir()
-        .unwrap_or_else(|_| {
-            std::env::var("HOME")
-                .map(|h| PathBuf::from(h).join(".local/state/oj"))
-                .unwrap_or_else(|_| PathBuf::from("/tmp"))
-        })
+        .or_else(|_| crate::env::state_dir())
+        .unwrap_or_else(|_| PathBuf::from("/tmp"))
         .join("cli.log");
 
     if let Some(parent) = log_path.parent() {
@@ -80,7 +77,7 @@ fn write_cli_log(message: String) {
         let cwd = std::env::current_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "(unknown)".to_string());
-        let state_dir = std::env::var("OJ_STATE_DIR").unwrap_or_else(|_| "(not set)".to_string());
+        let state_dir = crate::env::state_dir_raw().unwrap_or_else(|| "(not set)".to_string());
 
         let _ = writeln!(
             file,

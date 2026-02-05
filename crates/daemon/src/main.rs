@@ -14,6 +14,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 #![cfg_attr(test, allow(clippy::expect_used))]
 
+mod env;
 mod event_bus;
 mod lifecycle;
 mod listener;
@@ -296,11 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Timer check interval, configurable via `OJ_TIMER_CHECK_MS` (default: 1000ms).
 fn timer_check_interval() -> Duration {
-    std::env::var("OJ_TIMER_CHECK_MS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(Duration::from_millis)
-        .unwrap_or(Duration::from_secs(1))
+    crate::env::timer_check_ms().unwrap_or(Duration::from_secs(1))
 }
 
 /// Flush interval for group commit (~10ms durability window)

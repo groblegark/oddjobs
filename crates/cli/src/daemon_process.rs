@@ -70,7 +70,7 @@ pub async fn wait_for_exit(pid: u32, timeout: Duration) -> bool {
 
 /// Find the ojd binary
 fn find_ojd_binary() -> Result<PathBuf, ClientError> {
-    if let Ok(path) = std::env::var("OJ_DAEMON_BINARY") {
+    if let Some(path) = crate::env::daemon_binary() {
         return Ok(PathBuf::from(path));
     }
 
@@ -86,7 +86,7 @@ fn find_ojd_binary() -> Result<PathBuf, ClientError> {
         .unwrap_or(false);
 
     if is_debug_build {
-        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        if let Some(manifest_dir) = crate::env::cargo_manifest_dir() {
             let dev_path = PathBuf::from(manifest_dir)
                 .parent()
                 .and_then(|p| p.parent())
@@ -119,16 +119,7 @@ pub fn daemon_socket() -> Result<PathBuf, ClientError> {
 
 /// Get the state directory for oj (user-level daemon).
 pub fn daemon_dir() -> Result<PathBuf, ClientError> {
-    if let Ok(dir) = std::env::var("OJ_STATE_DIR") {
-        return Ok(PathBuf::from(dir));
-    }
-
-    if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
-        return Ok(PathBuf::from(xdg).join("oj"));
-    }
-
-    let home = std::env::var("HOME").map_err(|_| ClientError::NoStateDir)?;
-    Ok(PathBuf::from(home).join(".local/state/oj"))
+    crate::env::state_dir()
 }
 
 /// Clean up orphaned PID file during shutdown.

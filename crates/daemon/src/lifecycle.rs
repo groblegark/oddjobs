@@ -841,18 +841,7 @@ pub(crate) async fn reconcile_state(
 
 /// Get the state directory for oj
 fn state_dir() -> Result<PathBuf, LifecycleError> {
-    // OJ_STATE_DIR takes priority (used by tests for isolation)
-    if let Ok(dir) = std::env::var("OJ_STATE_DIR") {
-        return Ok(PathBuf::from(dir));
-    }
-
-    // Fall back to XDG_STATE_HOME/oj or ~/.local/state/oj
-    if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
-        return Ok(PathBuf::from(xdg).join("oj"));
-    }
-
-    let home = std::env::var("HOME").map_err(|_| LifecycleError::NoStateDir)?;
-    Ok(PathBuf::from(home).join(".local/state/oj"))
+    crate::env::state_dir()
 }
 
 #[cfg(test)]

@@ -472,17 +472,7 @@ pub async fn handle(
 
 /// Resolve the OJ state directory from environment or default.
 fn get_state_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("OJ_STATE_DIR") {
-        return PathBuf::from(dir);
-    }
-    std::env::var("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::var("HOME")
-                .map(|h| PathBuf::from(h).join(".local/state"))
-                .unwrap_or_else(|_| PathBuf::from("."))
-        })
-        .join("oj")
+    crate::env::state_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 /// Format current UTC time as an ISO 8601 timestamp.

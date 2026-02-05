@@ -728,13 +728,8 @@ pub(super) async fn handle_workspace_prune(
     state: &Arc<Mutex<MaterializedState>>,
     flags: &PruneFlags<'_>,
 ) -> Result<Response, ConnectionError> {
-    let state_dir = std::env::var("OJ_STATE_DIR").unwrap_or_else(|_| {
-        format!(
-            "{}/.local/state/oj",
-            std::env::var("HOME").unwrap_or_default()
-        )
-    });
-    let workspaces_dir = std::path::PathBuf::from(&state_dir).join("workspaces");
+    let state_dir = crate::env::state_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let workspaces_dir = state_dir.join("workspaces");
 
     // When filtering by namespace, build a set of workspace IDs that match.
     // Namespace is derived from the workspace's owner (pipeline or worker).

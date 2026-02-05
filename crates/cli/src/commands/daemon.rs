@@ -404,7 +404,7 @@ fn find_ojd_binary() -> Result<PathBuf> {
         .unwrap_or(false);
 
     if is_debug_build {
-        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        if let Some(manifest_dir) = crate::env::cargo_manifest_dir() {
             let dev_path = PathBuf::from(manifest_dir)
                 .parent()
                 .and_then(|p| p.parent())
@@ -436,20 +436,7 @@ fn find_ojd_binary() -> Result<PathBuf> {
 mod tests;
 
 fn get_log_path() -> Result<PathBuf> {
-    // OJ_STATE_DIR takes priority (used by tests for isolation)
-    if let Ok(dir) = std::env::var("OJ_STATE_DIR") {
-        return Ok(PathBuf::from(dir).join("daemon.log"));
-    }
-
-    // Fall back to XDG_STATE_HOME/oj or ~/.local/state/oj
-    let state_dir = std::env::var("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::var("HOME")
-                .map(|h| PathBuf::from(h).join(".local/state"))
-                .unwrap_or_else(|_| PathBuf::from("."))
-        })
-        .join("oj");
-
+    let state_dir = crate::env::state_dir()
+        .map_err(|e| anyhow!("could not determine state directory: {}", e))?;
     Ok(state_dir.join("daemon.log"))
 }

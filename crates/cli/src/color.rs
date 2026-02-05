@@ -28,10 +28,10 @@ pub mod codes {
 ///
 /// Priority: `NO_COLOR=1` disables → `COLOR=1` forces → TTY check.
 pub fn should_colorize() -> bool {
-    if std::env::var("NO_COLOR").is_ok_and(|v| v == "1") {
+    if crate::env::no_color() {
         return false;
     }
-    if std::env::var("COLOR").is_ok_and(|v| v == "1") {
+    if crate::env::force_color() {
         return true;
     }
     std::io::stdout().is_terminal()

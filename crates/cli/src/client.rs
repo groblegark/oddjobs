@@ -23,42 +23,36 @@ use tokio::net::UnixStream;
 mod queries;
 pub use queries::RunCommandResult;
 
-// Timeout configuration (env vars in milliseconds)
-fn parse_duration_ms(var: &str) -> Option<Duration> {
-    std::env::var(var)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(Duration::from_millis)
-}
+// Timeout configuration (env vars in milliseconds, via crate::env)
 
 /// Timeout for IPC requests (hello, status, event, query, shutdown)
 pub fn timeout_ipc() -> Duration {
-    parse_duration_ms("OJ_TIMEOUT_IPC_MS").unwrap_or(Duration::from_secs(5))
+    crate::env::timeout_ipc_ms().unwrap_or(Duration::from_secs(5))
 }
 
 /// Timeout for waiting for daemon to start
 pub fn timeout_connect() -> Duration {
-    parse_duration_ms("OJ_TIMEOUT_CONNECT_MS").unwrap_or(Duration::from_secs(5))
+    crate::env::timeout_connect_ms().unwrap_or(Duration::from_secs(5))
 }
 
 /// Timeout for waiting for process to exit
 pub fn timeout_exit() -> Duration {
-    parse_duration_ms("OJ_TIMEOUT_EXIT_MS").unwrap_or(Duration::from_secs(2))
+    crate::env::timeout_exit_ms().unwrap_or(Duration::from_secs(2))
 }
 
 /// Polling interval for connection retries
 pub fn poll_interval() -> Duration {
-    parse_duration_ms("OJ_CONNECT_POLL_MS").unwrap_or(Duration::from_millis(50))
+    crate::env::connect_poll_ms().unwrap_or(Duration::from_millis(50))
 }
 
 /// Polling interval for `oj pipeline wait` / `oj agent wait`
 pub fn wait_poll_interval() -> Duration {
-    parse_duration_ms("OJ_WAIT_POLL_MS").unwrap_or(Duration::from_secs(1))
+    crate::env::wait_poll_ms().unwrap_or(Duration::from_secs(1))
 }
 
 /// How long `oj run` waits for a pipeline to start before returning
 pub fn run_wait_timeout() -> Duration {
-    parse_duration_ms("OJ_RUN_WAIT_MS").unwrap_or(Duration::from_secs(10))
+    crate::env::run_wait_ms().unwrap_or(Duration::from_secs(10))
 }
 
 /// Client errors

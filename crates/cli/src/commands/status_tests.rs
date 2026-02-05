@@ -802,7 +802,7 @@ fn non_tty_frame_with_full_status_has_no_ansi_escapes() {
         active_agents: vec![oj_daemon::AgentStatusEntry {
             agent_name: "coder".to_string(),
             command_name: "build".to_string(),
-            agent_id: "agent-001".to_string(),
+            agent_id: "agent-01".to_string(),
             status: "running".to_string(),
         }],
         pending_decisions: 0,
@@ -819,7 +819,7 @@ fn non_tty_frame_with_full_status_has_no_ansi_escapes() {
     assert!(frame.contains("job"));
     assert!(frame.contains("builder"));
     assert!(frame.contains("tasks"));
-    assert!(frame.contains("agent-001"));
+    assert!(frame.contains("agent-01"));
 }
 
 #[test]
@@ -1327,13 +1327,13 @@ fn agent_columns_are_aligned_across_rows() {
             oj_daemon::AgentStatusEntry {
                 agent_name: "coder".to_string(),
                 command_name: "build".to_string(),
-                agent_id: "agent-001".to_string(),
+                agent_id: "agent-01".to_string(),
                 status: "running".to_string(),
             },
             oj_daemon::AgentStatusEntry {
                 agent_name: "long-agent-name".to_string(),
                 command_name: "deploy".to_string(),
-                agent_id: "agent-002".to_string(),
+                agent_id: "agent-02".to_string(),
                 status: "idle".to_string(),
             },
         ],
@@ -1346,8 +1346,8 @@ fn agent_columns_are_aligned_across_rows() {
     assert_eq!(lines.len(), 2, "should find exactly 2 agent rows");
 
     // The agent_id column should start at the same position in both lines
-    let id_pos_0 = lines[0].find("agent-001").unwrap();
-    let id_pos_1 = lines[1].find("agent-002").unwrap();
+    let id_pos_0 = lines[0].find("agent-01").unwrap();
+    let id_pos_1 = lines[1].find("agent-02").unwrap();
     assert_eq!(
         id_pos_0, id_pos_1,
         "agent_id columns should be aligned:\n  {}\n  {}",

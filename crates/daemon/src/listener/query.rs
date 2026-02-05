@@ -1189,5 +1189,5 @@ fn filter_vars_by_scope(
 }
 
 #[cfg(test)]
-#[path = "query_tests.rs"]
+#[path = "query_tests/mod.rs"]
 mod tests;

@@ -469,7 +469,7 @@ fn format_text(
                 let _ = writeln!(
                     out,
                     "    {}  {:<w_name$}  {}",
-                    color::muted(&a.agent_id.short(8)),
+                    color::muted(a.agent_id.short(8)),
                     a.agent_name,
                     color::status(&format!("{:<w_st$}", a.status)),
                 );

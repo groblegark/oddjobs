@@ -205,15 +205,27 @@ impl SessionAdapter for TmuxAdapter {
             return Ok(false);
         }
 
-        // Check if the pane process itself matches the pattern.
-        // When tmux launches a command directly (e.g., `tmux new-session -d -s id cmd`),
-        // the command IS the pane process — not a child of it.
-        let ps_output = Command::new("ps")
-            .args(["-p", &pane_pid, "-o", "command="])
-            .output()
-            .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+        // Run both checks concurrently: the pane process itself and its children.
+        // - ps: checks if the pane process matches (tmux may exec the command directly)
+        // - pgrep: checks child processes (when run via a shell)
+        let (ps_output, pgrep_output) = tokio::try_join!(
+            async {
+                Command::new("ps")
+                    .args(["-p", &pane_pid, "-o", "command="])
+                    .output()
+                    .await
+                    .map_err(|e| SessionError::CommandFailed(e.to_string()))
+            },
+            async {
+                Command::new("pgrep")
+                    .args(["-P", &pane_pid, "-f", pattern])
+                    .output()
+                    .await
+                    .map_err(|e| SessionError::CommandFailed(e.to_string()))
+            },
+        )?;
 
+        // Check if the pane process itself matches the pattern
         if ps_output.status.success() {
             let cmd_line = String::from_utf8_lossy(&ps_output.stdout);
             if cmd_line.contains(pattern) {
@@ -221,14 +233,8 @@ impl SessionAdapter for TmuxAdapter {
             }
         }
 
-        // Also check child processes matching pattern (e.g., when run via a shell)
-        let output = Command::new("pgrep")
-            .args(["-P", &pane_pid, "-f", pattern])
-            .output()
-            .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
-
-        Ok(output.status.success())
+        // Check if any child process matches
+        Ok(pgrep_output.status.success())
     }
 
     async fn configure(&self, id: &str, config: &serde_json::Value) -> Result<(), SessionError> {

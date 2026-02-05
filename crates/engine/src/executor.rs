@@ -230,24 +230,26 @@ where
                     let start_point = start_point.unwrap_or_else(|| "HEAD".to_string());
 
                     let path_str = path.display().to_string();
-                    let output = tokio::process::Command::new("git")
-                        .args([
-                            "-C",
-                            &repo_root.display().to_string(),
-                            "worktree",
-                            "add",
-                            "-b",
-                            &branch,
-                            &path_str,
-                            &start_point,
-                        ])
-                        .env_remove("GIT_DIR")
-                        .env_remove("GIT_WORK_TREE")
-                        .output()
-                        .await
-                        .map_err(|e| {
-                            ExecuteError::Shell(format!("git worktree add failed: {}", e))
-                        })?;
+                    let mut cmd = tokio::process::Command::new("git");
+                    cmd.args([
+                        "-C",
+                        &repo_root.display().to_string(),
+                        "worktree",
+                        "add",
+                        "-b",
+                        &branch,
+                        &path_str,
+                        &start_point,
+                    ])
+                    .env_remove("GIT_DIR")
+                    .env_remove("GIT_WORK_TREE");
+                    let output = oj_adapters::subprocess::run_with_timeout(
+                        cmd,
+                        oj_adapters::subprocess::GIT_WORKTREE_TIMEOUT,
+                        "git worktree add",
+                    )
+                    .await
+                    .map_err(ExecuteError::Shell)?;
 
                     if !output.status.success() {
                         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -312,14 +314,18 @@ where
                 {
                     // Best-effort: git worktree remove --force
                     // Run from within the worktree so git can locate the parent repo.
-                    let _ = tokio::process::Command::new("git")
-                        .arg("worktree")
+                    let mut cmd = tokio::process::Command::new("git");
+                    cmd.arg("worktree")
                         .arg("remove")
                         .arg("--force")
                         .arg(&workspace_path)
-                        .current_dir(&workspace_path)
-                        .output()
-                        .await;
+                        .current_dir(&workspace_path);
+                    let _ = oj_adapters::subprocess::run_with_timeout(
+                        cmd,
+                        oj_adapters::subprocess::GIT_WORKTREE_TIMEOUT,
+                        "git worktree remove",
+                    )
+                    .await;
 
                     // Best-effort: clean up the branch
                     if let Some(ref branch) = workspace_branch {
@@ -334,18 +340,22 @@ where
                                     .and_then(|p| p.parent())
                                     .and_then(|p| p.parent())
                                 {
-                                    let _ = tokio::process::Command::new("git")
-                                        .args([
-                                            "-C",
-                                            &repo_root.display().to_string(),
-                                            "branch",
-                                            "-D",
-                                            branch,
-                                        ])
-                                        .env_remove("GIT_DIR")
-                                        .env_remove("GIT_WORK_TREE")
-                                        .output()
-                                        .await;
+                                    let mut cmd = tokio::process::Command::new("git");
+                                    cmd.args([
+                                        "-C",
+                                        &repo_root.display().to_string(),
+                                        "branch",
+                                        "-D",
+                                        branch,
+                                    ])
+                                    .env_remove("GIT_DIR")
+                                    .env_remove("GIT_WORK_TREE");
+                                    let _ = oj_adapters::subprocess::run_with_timeout(
+                                        cmd,
+                                        oj_adapters::subprocess::GIT_WORKTREE_TIMEOUT,
+                                        "git branch delete",
+                                    )
+                                    .await;
                                 }
                             }
                         }

@@ -1,64 +1,109 @@
+# Process GitHub PRs labeled for auto-merge.
+#
+# Rebases PRs onto main, pushes, and enables auto-merge. GitHub CI runs in the
+# cloud — when checks pass, GitHub merges automatically. If rebase conflicts,
+# an agent resolves them.
+#
+# Prerequisites:
+#   - GitHub CLI (gh) installed and authenticated
+#   - PRs must have the "auto-merge" label
+#   - Repository must have auto-merge enabled in settings
+#
+# Examples:
+#   oj worker start github-prs
+
 queue "github-prs" {
   type = "external"
   list = "gh pr list --json number,title,headRefName --label auto-merge"
   take = "echo ${item.number}"
 }
 
-worker "github-merge" {
-  source  = { queue = "github-prs" }
-  handler = { job = "merge" }
+worker "github-prs" {
+  source      = { queue = "github-prs" }
+  handler     = { job = "github-merge" }
+  concurrency = 1
 }
 
-job "merge" {
-  vars = ["pull"]
+job "github-merge" {
+  name      = "PR #${var.pr.number}: ${var.pr.title}"
+  vars      = ["pr"]
+  workspace = "folder"
+  on_cancel = { step = "cleanup" }
+
+  locals {
+    repo   = "$(git -C ${invoke.dir} rev-parse --show-toplevel)"
+    branch = "pr-${var.pr.number}-${workspace.nonce}"
+  }
+
+  notify {
+    on_start = "Rebasing PR #${var.pr.number}: ${var.pr.title}"
+    on_done  = "Submitted PR #${var.pr.number}: ${var.pr.title}"
+    on_fail  = "Failed PR #${var.pr.number}: ${var.pr.title}"
+  }
+
+  step "init" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+      rm -rf "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" fetch origin main
+      git -C "${local.repo}" fetch origin pull/${var.pr.number}/head:${local.branch}
+      git -C "${local.repo}" worktree add "${workspace.root}" ${local.branch}
+    SHELL
+    on_done = { step = "rebase" }
+  }
 
   step "rebase" {
-    run = <<-SHELL
-      gh pr checkout ${var.pull.number}
-      git fetch origin main
-      git rebase origin/main
-      git push --force-with-lease
-    SHELL
-    on_done = { step = "check" }
+    run     = "git rebase origin/main"
+    on_done = { step = "push" }
     on_fail = { step = "resolve" }
-  }
-
-  step "check" {
-    run     = "make check"
-    on_done = { step = "merge" }
-    on_fail = { step = "resolve" }
-  }
-
-  step "merge" {
-    run = "gh pr merge ${var.pull.number} --squash"
   }
 
   step "resolve" {
-    run     = { agent = "resolver" }
-    on_done = { step = "check" }
+    run     = { agent = "github-resolver" }
+    on_done = { step = "push" }
   }
 
-  step "notify" {
-    run = "gh pr comment ${var.pull.number} --body 'Merge failed'"
+  step "push" {
+    run = <<-SHELL
+      git push --force-with-lease origin ${local.branch}:${var.pr.headRefName}
+      gh pr merge ${var.pr.number} --squash --auto
+    SHELL
+    on_done = { step = "cleanup" }
+  }
+
+  step "cleanup" {
+    run = <<-SHELL
+      git -C "${local.repo}" worktree remove --force "${workspace.root}" 2>/dev/null || true
+      git -C "${local.repo}" branch -D "${local.branch}" 2>/dev/null || true
+    SHELL
   }
 }
 
-agent "resolver" {
-  run      = "claude --dangerously-skip-permissions"
-  on_idle  = { action = "gate", run = "make check", attempts = 5 }
+agent "github-resolver" {
+  run      = "claude --model opus --dangerously-skip-permissions"
+  on_idle  = { action = "gate", command = "test ! -d $(git rev-parse --git-dir)/rebase-merge" }
   on_dead  = { action = "escalate" }
 
+  prime = [
+    "echo '## Git Status'",
+    "git status",
+    "echo '## PR Info'",
+    "gh pr view ${var.pr.number}",
+    "echo '## Conflicted Files'",
+    "git diff --name-only --diff-filter=U",
+  ]
+
   prompt = <<-PROMPT
-    You are resolving issues for PR #${var.pull.number}: ${var.pull.title}
+    You are resolving rebase conflicts for PR #${var.pr.number}: ${var.pr.title}
 
-    The previous step failed -- either a rebase conflict or a test failure.
+    ## Steps
 
-    1. Run `git status` to check for conflicts
-    2. If conflicts exist, resolve them and `git add` the files
-    3. If mid-rebase, run `git rebase --continue`
-    4. Run `make check` to verify everything passes
-    5. Fix any test failures
-    6. Force-push: `git push --force-with-lease`
-    7. When `make check` passes, say "I'm done"
+    1. Run `git status` to see conflicted files
+    2. Resolve each conflict and `git add` the resolved files
+    3. Run `git rebase --continue`
+    4. Repeat until rebase completes
+
+    When the rebase is complete (no more conflicts), say "I'm done".
   PROMPT
 }

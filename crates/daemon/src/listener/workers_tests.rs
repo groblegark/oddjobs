@@ -31,8 +31,15 @@ fn start_does_full_start_even_after_restart() {
     // No runbook on disk, so start should fail with runbook-not-found.
     // This proves it always does a full start (loads runbook) regardless
     // of any stale WAL state.
-    let result =
-        handle_worker_start(std::path::Path::new("/fake"), "", "fix", &event_bus, &state).unwrap();
+    let result = handle_worker_start(
+        std::path::Path::new("/fake"),
+        "",
+        "fix",
+        false,
+        &event_bus,
+        &state,
+    )
+    .unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("no runbook found")),
@@ -73,7 +80,8 @@ job "handle" {
     )
     .unwrap();
 
-    let result = handle_worker_start(project.path(), "", "processer", &event_bus, &state).unwrap();
+    let result =
+        handle_worker_start(project.path(), "", "processer", false, &event_bus, &state).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("did you mean: processor?")),

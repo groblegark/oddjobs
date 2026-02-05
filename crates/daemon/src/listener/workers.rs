@@ -26,9 +26,14 @@ pub(super) fn handle_worker_start(
     project_root: &Path,
     namespace: &str,
     worker_name: &str,
+    all: bool,
     event_bus: &EventBus,
     state: &Arc<Mutex<MaterializedState>>,
 ) -> Result<Response, ConnectionError> {
+    if all {
+        return handle_worker_start_all(project_root, namespace, event_bus, state);
+    }
+
     // Load runbook to validate worker exists.
     let (runbook, effective_root) = match super::load_runbook_with_fallback(
         project_root,
@@ -115,6 +120,46 @@ pub(super) fn handle_worker_start(
     })
 }
 
+/// Handle starting all workers defined in runbooks.
+fn handle_worker_start_all(
+    project_root: &Path,
+    namespace: &str,
+    event_bus: &EventBus,
+    state: &Arc<Mutex<MaterializedState>>,
+) -> Result<Response, ConnectionError> {
+    let runbook_dir = project_root.join(".oj/runbooks");
+    let workers = oj_runbook::collect_all_workers(&runbook_dir).unwrap_or_default();
+
+    let mut started = Vec::new();
+    let mut skipped = Vec::new();
+
+    for (worker_name, _) in workers {
+        match handle_worker_start(
+            project_root,
+            namespace,
+            &worker_name,
+            false,
+            event_bus,
+            state,
+        ) {
+            Ok(Response::WorkerStarted { worker_name }) => {
+                started.push(worker_name);
+            }
+            Ok(Response::Error { message }) => {
+                skipped.push((worker_name, message));
+            }
+            Ok(_) => {
+                skipped.push((worker_name, "unexpected response".to_string()));
+            }
+            Err(e) => {
+                skipped.push((worker_name, e.to_string()));
+            }
+        }
+    }
+
+    Ok(Response::WorkersStarted { started, skipped })
+}
+
 /// Handle a WorkerStop request.
 pub(super) fn handle_worker_stop(
     worker_name: &str,
@@ -179,7 +224,14 @@ pub(super) fn handle_worker_restart(
     }
 
     // Start with fresh runbook
-    handle_worker_start(project_root, namespace, worker_name, event_bus, state)
+    handle_worker_start(
+        project_root,
+        namespace,
+        worker_name,
+        false,
+        event_bus,
+        state,
+    )
 }
 
 #[cfg(test)]

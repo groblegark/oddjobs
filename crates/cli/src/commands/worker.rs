@@ -23,8 +23,11 @@ pub struct WorkerArgs {
 pub enum WorkerCommand {
     /// Start a worker (idempotent: wakes it if already running)
     Start {
-        /// Worker name from runbook
-        name: String,
+        /// Worker name from runbook (required unless --all)
+        name: Option<String>,
+        /// Start all workers defined in runbooks
+        #[arg(long)]
+        all: bool,
     },
     /// Stop a worker (active jobs continue, no new items dispatched)
     Stop {
@@ -70,11 +73,15 @@ pub async fn handle(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        WorkerCommand::Start { name } => {
+        WorkerCommand::Start { name, all } => {
+            if !all && name.is_none() {
+                anyhow::bail!("worker name required (or use --all)");
+            }
             let request = Request::WorkerStart {
                 project_root: project_root.to_path_buf(),
                 namespace: namespace.to_string(),
-                worker_name: name.clone(),
+                worker_name: name.clone().unwrap_or_default(),
+                all,
             };
             match client.send(&request).await? {
                 Response::WorkerStarted { worker_name } => {
@@ -83,6 +90,25 @@ pub async fn handle(
                         color::header(&worker_name),
                         color::muted(namespace)
                     );
+                }
+                Response::WorkersStarted { started, skipped } => {
+                    for worker_name in &started {
+                        println!(
+                            "Worker '{}' started ({})",
+                            color::header(worker_name),
+                            color::muted(namespace)
+                        );
+                    }
+                    for (worker_name, reason) in &skipped {
+                        println!(
+                            "Worker '{}' skipped: {}",
+                            color::header(worker_name),
+                            color::muted(reason)
+                        );
+                    }
+                    if started.is_empty() && skipped.is_empty() {
+                        println!("No workers found in runbooks");
+                    }
                 }
                 Response::Error { message } => {
                     anyhow::bail!("{}", message);

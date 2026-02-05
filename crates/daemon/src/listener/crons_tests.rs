@@ -81,7 +81,8 @@ fn start_applies_state_before_responding() {
     // Before: no crons in state
     assert!(state.lock().crons.is_empty());
 
-    let result = handle_cron_start(project.path(), "", "nightly", &event_bus, &state).unwrap();
+    let result =
+        handle_cron_start(project.path(), "", "nightly", false, &event_bus, &state).unwrap();
 
     // Handler returns CronStarted
     assert!(
@@ -110,8 +111,15 @@ fn start_with_namespace_uses_scoped_key() {
     let (event_bus, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
 
-    let result =
-        handle_cron_start(project.path(), "my-project", "nightly", &event_bus, &state).unwrap();
+    let result = handle_cron_start(
+        project.path(),
+        "my-project",
+        "nightly",
+        false,
+        &event_bus,
+        &state,
+    )
+    .unwrap();
 
     assert!(
         matches!(result, Response::CronStarted { ref cron_name } if cron_name == "nightly"),
@@ -155,7 +163,8 @@ fn start_idempotent_overwrites_existing() {
     assert_eq!(old_started, clock.epoch_ms());
 
     // Start again — should overwrite with fresh runbook data
-    let result = handle_cron_start(project.path(), "", "nightly", &event_bus, &state).unwrap();
+    let result =
+        handle_cron_start(project.path(), "", "nightly", false, &event_bus, &state).unwrap();
 
     assert!(matches!(result, Response::CronStarted { .. }));
 
@@ -237,7 +246,7 @@ fn start_then_immediate_stop_both_visible() {
 
     // Start cron
     let start_result =
-        handle_cron_start(project.path(), "", "nightly", &event_bus, &state).unwrap();
+        handle_cron_start(project.path(), "", "nightly", false, &event_bus, &state).unwrap();
     assert!(matches!(start_result, Response::CronStarted { .. }));
 
     // Immediately verify running

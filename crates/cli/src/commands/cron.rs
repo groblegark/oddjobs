@@ -7,6 +7,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::client::DaemonClient;
+use crate::color;
 use crate::output::{display_log, print_prune_results, OutputFormat};
 use crate::table::{project_cell, should_show_project, Column, Table};
 
@@ -24,8 +25,11 @@ pub enum CronCommand {
     List {},
     /// Start a cron (begins interval timer)
     Start {
-        /// Cron name from runbook
-        name: String,
+        /// Cron name from runbook (required unless --all)
+        name: Option<String>,
+        /// Start all crons defined in runbooks
+        #[arg(long)]
+        all: bool,
     },
     /// Stop a cron (cancels interval timer)
     Stop {
@@ -74,15 +78,42 @@ pub async fn handle(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        CronCommand::Start { name } => {
+        CronCommand::Start { name, all } => {
+            if !all && name.is_none() {
+                anyhow::bail!("cron name required (or use --all)");
+            }
             let request = Request::CronStart {
                 project_root: project_root.to_path_buf(),
                 namespace: namespace.to_string(),
-                cron_name: name,
+                cron_name: name.unwrap_or_default(),
+                all,
             };
             match client.send(&request).await? {
                 Response::CronStarted { cron_name } => {
-                    println!("Cron '{}' started ({})", cron_name, namespace);
+                    println!(
+                        "Cron '{}' started ({})",
+                        color::header(&cron_name),
+                        color::muted(namespace)
+                    );
+                }
+                Response::CronsStarted { started, skipped } => {
+                    for cron_name in &started {
+                        println!(
+                            "Cron '{}' started ({})",
+                            color::header(cron_name),
+                            color::muted(namespace)
+                        );
+                    }
+                    for (cron_name, reason) in &skipped {
+                        println!(
+                            "Cron '{}' skipped: {}",
+                            color::header(cron_name),
+                            color::muted(reason)
+                        );
+                    }
+                    if started.is_empty() && skipped.is_empty() {
+                        println!("No crons found in runbooks");
+                    }
                 }
                 Response::Error { message } => {
                     anyhow::bail!("{}", message);

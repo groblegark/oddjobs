@@ -683,6 +683,14 @@ where
         self.sessions.is_alive(session_id).await.unwrap_or(false)
     }
 
+    /// Check if a named process is running inside a tmux session
+    pub async fn check_process_running(&self, session_id: &str, process_name: &str) -> bool {
+        self.sessions
+            .is_process_running(session_id, process_name)
+            .await
+            .unwrap_or(false)
+    }
+
     /// Get the current state of an agent
     pub async fn get_agent_state(
         &self,

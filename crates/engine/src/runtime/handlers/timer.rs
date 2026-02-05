@@ -195,7 +195,7 @@ where
         Ok(result_events)
     }
 
-    /// Periodic liveness check (30s). Checks if tmux session + claude process are alive.
+    /// Periodic liveness check (30s). Checks if tmux session + agent process are alive.
     async fn handle_liveness_timer(&self, pipeline_id: &str) -> Result<Vec<Event>, RuntimeError> {
         let pipeline = match self.get_pipeline(pipeline_id) {
             Some(p) => p,
@@ -211,30 +211,44 @@ where
             None => return Ok(vec![]),
         };
 
-        let is_alive = self.executor.check_session_alive(&session_id).await;
+        // Check both session AND process — tmux sessions can outlive their
+        // child process, so session-only checks miss dead agents.
+        let is_running = self.executor.check_session_alive(&session_id).await
+            && {
+                let process_name = self
+                    .cached_runbook(&pipeline.runbook_hash)
+                    .ok()
+                    .and_then(|rb| {
+                        crate::monitor::get_agent_def(&rb, &pipeline)
+                            .ok()
+                            .map(|def| oj_adapters::extract_process_name(&def.run))
+                    })
+                    .unwrap_or_else(|| "claude".to_string());
+                self.executor
+                    .check_process_running(&session_id, &process_name)
+                    .await
+            };
 
-        if is_alive {
+        let pid = PipelineId::new(pipeline_id);
+        if is_running {
             // Reschedule liveness timer
-            let pid = PipelineId::new(pipeline_id);
             self.executor
                 .execute(Effect::SetTimer {
                     id: TimerId::liveness(&pid),
                     duration: crate::spawn::LIVENESS_INTERVAL,
                 })
                 .await?;
-            Ok(vec![])
         } else {
-            // Session dead — schedule deferred exit (5s grace period)
-            tracing::info!(pipeline_id, "session dead, scheduling deferred exit");
-            let pid = PipelineId::new(pipeline_id);
+            // Dead — schedule deferred exit (5s grace period)
+            tracing::info!(pipeline_id, "agent process dead, scheduling deferred exit");
             self.executor
                 .execute(Effect::SetTimer {
                     id: TimerId::exit_deferred(&pid),
                     duration: Duration::from_secs(5),
                 })
                 .await?;
-            Ok(vec![])
         }
+        Ok(vec![])
     }
 
     /// Deferred exit handler (5s after liveness detected death).
@@ -317,21 +331,33 @@ where
             None => return Ok(vec![]),
         };
 
-        let is_alive = self.executor.check_session_alive(&session_id).await;
-        let ar_id = oj_core::AgentRunId::new(agent_run_id);
+        let is_running = self.executor.check_session_alive(&session_id).await
+            && {
+                let process_name = self
+                    .cached_runbook(&agent_run.runbook_hash)
+                    .ok()
+                    .and_then(|rb| {
+                        rb.get_agent(&agent_run.agent_name)
+                            .map(|def| oj_adapters::extract_process_name(&def.run))
+                    })
+                    .unwrap_or_else(|| "claude".to_string());
+                self.executor
+                    .check_process_running(&session_id, &process_name)
+                    .await
+            };
 
-        if is_alive {
+        let ar_id = oj_core::AgentRunId::new(agent_run_id);
+        if is_running {
             self.executor
                 .execute(Effect::SetTimer {
                     id: TimerId::liveness_agent_run(&ar_id),
                     duration: crate::spawn::LIVENESS_INTERVAL,
                 })
                 .await?;
-            Ok(vec![])
         } else {
             tracing::info!(
                 agent_run_id,
-                "standalone agent session dead, scheduling deferred exit"
+                "standalone agent process dead, scheduling deferred exit"
             );
             self.executor
                 .execute(Effect::SetTimer {
@@ -339,8 +365,8 @@ where
                     duration: std::time::Duration::from_secs(5),
                 })
                 .await?;
-            Ok(vec![])
         }
+        Ok(vec![])
     }
 
     async fn handle_agent_run_exit_deferred_timer(

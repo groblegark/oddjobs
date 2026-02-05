@@ -795,6 +795,20 @@ fn parse_variadic_both_syntaxes_equivalent() {
 }
 
 #[test]
+fn parse_variadic_optional_both_syntaxes_equivalent() {
+    let spec1 = parse_arg_spec("[files...]").unwrap();
+    let spec2 = parse_arg_spec("[files]...").unwrap();
+    assert_eq!(
+        spec1.variadic.as_ref().unwrap().name,
+        spec2.variadic.as_ref().unwrap().name
+    );
+    assert_eq!(
+        spec1.variadic.as_ref().unwrap().required,
+        spec2.variadic.as_ref().unwrap().required
+    );
+}
+
+#[test]
 fn parse_error_variadic_ellipsis_outside_not_last() {
     let result = parse_arg_spec("<files>... <other>");
     assert!(result.is_err());
@@ -802,13 +816,19 @@ fn parse_error_variadic_ellipsis_outside_not_last() {
 
 #[test]
 fn usage_line_variadic_ellipsis_outside() {
+    // Both syntaxes should produce the same canonical usage line (ellipsis inside brackets)
     let spec = parse_arg_spec("<cmd> <files>...").unwrap();
-    // Canonical output always uses ellipsis inside brackets
     assert_eq!(spec.usage_line(), "<cmd> <files...>");
 }
 
 #[test]
-fn parse_error_ellipsis_after_flag() {
-    let result = parse_arg_spec("[--force]...");
+fn parse_error_ellipsis_on_flag() {
+    let result = parse_arg_spec("[--flag]...");
+    assert!(result.is_err());
+}
+
+#[test]
+fn parse_error_ellipsis_on_option() {
+    let result = parse_arg_spec("[--opt <val>]...");
     assert!(result.is_err());
 }

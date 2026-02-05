@@ -115,11 +115,7 @@ enum BypassPromptResult {
 /// Override with `OJ_PROMPT_POLL_MS` env var (e.g. `200` for a single check).
 /// Default: 3000ms → 15 attempts.
 fn prompt_poll_max_attempts() -> usize {
-    std::env::var("OJ_PROMPT_POLL_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .map(|ms| (ms / 200).max(1) as usize)
-        .unwrap_or(15)
+    crate::env::prompt_poll_max_attempts()
 }
 
 /// Check for and auto-accept the bypass permissions confirmation prompt.

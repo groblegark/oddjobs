@@ -29,11 +29,13 @@ pub struct WatcherConfig {
 /// Get the watcher fallback poll interval.
 /// Configurable via `OJ_WATCHER_POLL_MS` env var (default: 5000ms).
 fn watcher_poll_interval() -> Duration {
-    std::env::var("OJ_WATCHER_POLL_MS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(Duration::from_millis)
-        .unwrap_or(Duration::from_secs(5))
+    crate::env::watcher_poll_ms()
+}
+
+/// Get the session log poll interval for `wait_for_session_log_or_exit`.
+/// Configurable via `OJ_SESSION_POLL_MS` env var (default: 1000ms).
+fn session_log_poll_interval() -> Duration {
+    crate::env::session_poll_ms()
 }
 
 /// Start watching an agent's session log
@@ -456,7 +458,7 @@ async fn wait_for_session_log_or_exit<S: SessionAdapter>(
             check_and_accept_trust_prompt(sessions, tmux_session_id).await;
         }
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(session_log_poll_interval()).await;
     }
 
     let expected_dir = std::env::var("CLAUDE_CONFIG_DIR")

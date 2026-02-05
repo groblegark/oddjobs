@@ -11,6 +11,7 @@
 //! Adapters for external I/O
 
 pub mod agent;
+mod env;
 pub mod notify;
 pub mod session;
 pub mod traced;

@@ -19,6 +19,8 @@ const OJ_CONNECT_POLL_MS: &str = "5";
 const OJ_SESSION_POLL_MS: &str = "50";
 const OJ_WATCHER_POLL_MS: &str = "500";
 const OJ_PROMPT_POLL_MS: &str = "200"; // 200ms (1 check) - tests use trusted=true so no prompt expected
+const OJ_TIMER_CHECK_MS: &str = "100";
+const OJ_RUN_WAIT_MS: &str = "2000";
 
 // Spec polling timeouts
 pub const SPEC_POLL_INTERVAL_MS: u64 = 10;
@@ -129,6 +131,8 @@ impl CliBuilder {
                 ("OJ_SESSION_POLL_MS".into(), OJ_SESSION_POLL_MS.into()),
                 ("OJ_WATCHER_POLL_MS".into(), OJ_WATCHER_POLL_MS.into()),
                 ("OJ_PROMPT_POLL_MS".into(), OJ_PROMPT_POLL_MS.into()),
+                ("OJ_TIMER_CHECK_MS".into(), OJ_TIMER_CHECK_MS.into()),
+                ("OJ_RUN_WAIT_MS".into(), OJ_RUN_WAIT_MS.into()),
             ],
         }
     }

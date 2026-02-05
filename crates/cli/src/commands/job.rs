@@ -70,7 +70,7 @@ pub enum JobCommand {
         #[arg(long)]
         kill: bool,
 
-        /// Resume all escalated/failed jobs
+        /// Resume all resumable jobs (waiting/failed/pending)
         #[arg(long)]
         all: bool,
     },
@@ -437,14 +437,15 @@ pub async fn handle(
 
                 match format {
                     OutputFormat::Text => {
-                        for job_id in &resumed {
-                            println!("Resumed job {}", job_id);
-                        }
-                        for (job_id, reason) in &skipped {
-                            println!("Skipped job {}: {}", job_id, reason);
-                        }
                         if resumed.is_empty() && skipped.is_empty() {
-                            println!("No jobs to resume");
+                            println!("No resumable jobs found");
+                        } else {
+                            for id in &resumed {
+                                println!("Resumed job {}", id);
+                            }
+                            for (id, reason) in &skipped {
+                                println!("Skipped job {} ({})", id, reason);
+                            }
                         }
                     }
                     OutputFormat::Json => {

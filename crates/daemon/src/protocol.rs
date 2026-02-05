@@ -345,6 +345,13 @@ pub enum Request {
         message: Option<String>,
     },
 
+    /// Resume all resumable jobs (waiting/failed/pending)
+    JobResumeAll {
+        /// Kill running agents and restart
+        #[serde(default)]
+        kill: bool,
+    },
+
     /// Resume an agent (re-spawn with --resume to preserve conversation)
     AgentResume {
         /// Agent ID (full or prefix). Empty string for --all mode.
@@ -762,11 +769,11 @@ pub enum Response {
         skipped: Vec<(String, String)>,
     },
 
-    /// Result of job resume --all
+    /// Result of bulk job resume
     JobsResumed {
-        /// Jobs that were resumed (job_id list)
+        /// Job IDs that were resumed
         resumed: Vec<String>,
-        /// Jobs that were skipped with reasons
+        /// Jobs that were skipped with reasons (id, reason)
         skipped: Vec<(String, String)>,
     },
 

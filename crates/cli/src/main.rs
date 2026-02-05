@@ -137,7 +137,7 @@ enum Commands {
         /// Kill running agent and restart (still preserves conversation via --resume)
         #[arg(long)]
         kill: bool,
-        /// Resume all escalated/failed jobs
+        /// Resume all resumable jobs (waiting/failed/pending)
         #[arg(long)]
         all: bool,
     },

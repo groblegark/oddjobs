@@ -296,8 +296,10 @@ pub(super) fn handle_job_resume(
     Ok(Response::Ok)
 }
 
-/// Handle `oj job resume --all`: resume all non-terminal jobs that are
-/// in a waiting (escalated) or failed state.
+/// Handle a bulk job resume request (--all).
+///
+/// Resumes all non-terminal jobs that are in a resumable state:
+/// waiting, failed, or pending. With `--kill`, also resumes running jobs.
 pub(super) fn handle_job_resume_all(
     state: &Arc<Mutex<MaterializedState>>,
     event_bus: &EventBus,
@@ -312,22 +314,24 @@ pub(super) fn handle_job_resume_all(
             if job.is_terminal() {
                 continue;
             }
-            // Only resume jobs that are waiting (escalated) or failed
-            if job.step_status.is_waiting()
-                || matches!(
-                    job.step_status,
-                    oj_core::StepStatus::Failed | oj_core::StepStatus::Pending
-                )
-            {
-                targets.push(job.id.clone());
-            } else if !kill {
-                skipped.push((
-                    job.id.clone(),
-                    format!("job is {:?} (use --kill to force)", job.step_status),
-                ));
-            } else {
-                targets.push(job.id.clone());
+
+            if !kill {
+                // Without --kill, only resume jobs in a resumable state
+                if !job.step_status.is_waiting()
+                    && !matches!(
+                        job.step_status,
+                        oj_core::StepStatus::Failed | oj_core::StepStatus::Pending
+                    )
+                {
+                    skipped.push((
+                        job.id.clone(),
+                        format!("job is {:?} (use --kill to force)", job.step_status),
+                    ));
+                    continue;
+                }
             }
+
+            targets.push(job.id.clone());
         }
 
         (targets, skipped)

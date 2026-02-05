@@ -366,12 +366,18 @@ fn resume_accepts_all_flag() {
         .try_get_matches_from(["oj", "resume", "--all"])
         .unwrap();
     let cli = Cli::from_arg_matches(&matches).unwrap();
-    assert!(matches!(
-        cli.command,
-        Some(Commands::Resume {
-            all: true,
-            id: None,
-            ..
-        })
-    ));
+    assert!(matches!(cli.command, Some(Commands::Resume { id, all, .. })
+        if id.is_none() && all));
+}
+
+#[test]
+fn resume_all_with_kill() {
+    let matches = cli_command()
+        .try_get_matches_from(["oj", "resume", "--all", "--kill"])
+        .unwrap();
+    let cli = Cli::from_arg_matches(&matches).unwrap();
+    assert!(
+        matches!(cli.command, Some(Commands::Resume { id, all, kill, .. })
+        if id.is_none() && all && kill)
+    );
 }

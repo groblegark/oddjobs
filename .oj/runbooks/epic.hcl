@@ -159,7 +159,7 @@ agent "plan" {
   run = <<-CMD
     claude --model opus \
       --dangerously-skip-permissions \
-      --disallowed-tools EnterPlanMode,ExitPlanMode,Write,Edit,NotebookEdit,TodoWrite
+      --disallowed-tools EnterPlanMode,ExitPlanMode,NotebookEdit,TodoWrite
   CMD
 
   on_dead = { action = "gate", run = "wok show ${var.epic.id} -o json | jq -e '.notes | length > 0'" }

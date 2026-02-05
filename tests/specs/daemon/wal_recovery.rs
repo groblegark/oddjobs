@@ -11,10 +11,14 @@ use crate::prelude::*;
 
 /// Runbook with a worker that processes many items to generate high event load.
 /// Based on the working pattern from concurrency.rs tests.
+///
+/// Includes retry config so that orphaned items (jobs lost during crash) get
+/// retried after daemon recovery instead of going straight to Dead status.
 const HIGH_LOAD_RUNBOOK: &str = r#"
 [queue.tasks]
 type = "persisted"
 vars = ["cmd"]
+retry = { attempts = 3, cooldown = "0s" }
 
 [worker.processor]
 source = { queue = "tasks" }

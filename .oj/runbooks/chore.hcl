@@ -18,7 +18,7 @@ queue "chores" {
   type = "external"
   list = "wok ready -t chore -p oj -o json"
   take = "wok start ${item.id}"
-  poll = "1m"
+  poll = "30s"
 }
 
 worker "chore" {

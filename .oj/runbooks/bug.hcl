@@ -18,7 +18,7 @@ queue "bugs" {
   type = "external"
   list = "wok ready -t bug -p oj -o json"
   take = "wok start ${item.id}"
-  poll = "1m"
+  poll = "30s"
 }
 
 worker "bug" {

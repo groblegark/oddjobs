@@ -58,7 +58,7 @@ queue "plans" {
   type = "external"
   list = "wok ready -t epic,feature -l plan:needed -p oj -o json"
   take = "wok start ${item.id}"
-  poll = "1m"
+  poll = "30s"
 }
 
 worker "plan" {
@@ -83,6 +83,7 @@ job "plan" {
       wok unlabel ${var.epic.id} plan:needed
       wok label ${var.epic.id} plan:ready
       wok reopen ${var.epic.id}
+      oj worker start epic
     SHELL
   }
 
@@ -104,7 +105,7 @@ queue "epics" {
   type = "external"
   list = "wok ready -t epic,feature -l build:needed -l plan:ready -p oj -o json"
   take = "wok start ${item.id}"
-  poll = "1m"
+  poll = "30s"
 }
 
 worker "epic" {

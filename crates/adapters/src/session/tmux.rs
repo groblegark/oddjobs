@@ -4,6 +4,7 @@
 //! Tmux session adapter
 
 use super::{SessionAdapter, SessionError};
+use crate::subprocess::{run_with_timeout, TMUX_TIMEOUT};
 use async_trait::async_trait;
 use std::path::Path;
 use tokio::process::Command;
@@ -38,17 +39,15 @@ impl SessionAdapter for TmuxAdapter {
         let session_id = format!("oj-{}", name);
 
         // Check if session already exists and clean it up
-        let existing = Command::new("tmux")
-            .args(["has-session", "-t", &session_id])
-            .output()
-            .await;
+        let mut cmd_has = Command::new("tmux");
+        cmd_has.args(["has-session", "-t", &session_id]);
+        let existing = run_with_timeout(cmd_has, TMUX_TIMEOUT, "tmux has-session").await;
 
         if existing.map(|o| o.status.success()).unwrap_or(false) {
             tracing::warn!(session_id, "session already exists, killing first");
-            let _ = Command::new("tmux")
-                .args(["kill-session", "-t", &session_id])
-                .output()
-                .await;
+            let mut cmd_kill = Command::new("tmux");
+            cmd_kill.args(["kill-session", "-t", &session_id]);
+            let _ = run_with_timeout(cmd_kill, TMUX_TIMEOUT, "tmux kill-session").await;
         }
 
         // Build tmux command
@@ -68,10 +67,9 @@ impl SessionAdapter for TmuxAdapter {
 
         tmux_cmd.arg(cmd);
 
-        let output = tmux_cmd
-            .output()
+        let output = run_with_timeout(tmux_cmd, TMUX_TIMEOUT, "tmux new-session")
             .await
-            .map_err(|e| SessionError::SpawnFailed(e.to_string()))?;
+            .map_err(SessionError::SpawnFailed)?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -97,14 +95,11 @@ impl SessionAdapter for TmuxAdapter {
     }
 
     async fn send(&self, id: &str, input: &str) -> Result<(), SessionError> {
-        let output = Command::new("tmux")
-            .arg("send-keys")
-            .arg("-t")
-            .arg(id)
-            .arg(input)
-            .output()
+        let mut cmd = Command::new("tmux");
+        cmd.arg("send-keys").arg("-t").arg(id).arg(input);
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux send-keys")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         if !output.status.success() {
             return Err(SessionError::NotFound(id.to_string()));
@@ -116,11 +111,11 @@ impl SessionAdapter for TmuxAdapter {
     async fn send_literal(&self, id: &str, text: &str) -> Result<(), SessionError> {
         // -l = literal mode (no key name interpretation)
         // -- = end of options (handles text starting with -)
-        let output = Command::new("tmux")
-            .args(["send-keys", "-t", id, "-l", "--", text])
-            .output()
+        let mut cmd = Command::new("tmux");
+        cmd.args(["send-keys", "-t", id, "-l", "--", text]);
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux send-keys literal")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         if !output.status.success() {
             return Err(SessionError::NotFound(id.to_string()));
@@ -129,11 +124,11 @@ impl SessionAdapter for TmuxAdapter {
     }
 
     async fn send_enter(&self, id: &str) -> Result<(), SessionError> {
-        let output = Command::new("tmux")
-            .args(["send-keys", "-t", id, "Enter"])
-            .output()
+        let mut cmd = Command::new("tmux");
+        cmd.args(["send-keys", "-t", id, "Enter"]);
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux send-keys enter")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         if !output.status.success() {
             return Err(SessionError::NotFound(id.to_string()));
@@ -142,13 +137,11 @@ impl SessionAdapter for TmuxAdapter {
     }
 
     async fn kill(&self, id: &str) -> Result<(), SessionError> {
-        let output = Command::new("tmux")
-            .arg("kill-session")
-            .arg("-t")
-            .arg(id)
-            .output()
+        let mut cmd = Command::new("tmux");
+        cmd.arg("kill-session").arg("-t").arg(id);
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux kill-session")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         if !output.status.success() {
             // Session might already be dead, which is fine
@@ -158,28 +151,26 @@ impl SessionAdapter for TmuxAdapter {
     }
 
     async fn is_alive(&self, id: &str) -> Result<bool, SessionError> {
-        let output = Command::new("tmux")
-            .arg("has-session")
-            .arg("-t")
-            .arg(id)
-            .output()
+        let mut cmd = Command::new("tmux");
+        cmd.arg("has-session").arg("-t").arg(id);
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux has-session")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         Ok(output.status.success())
     }
 
     async fn capture_output(&self, id: &str, lines: u32) -> Result<String, SessionError> {
-        let output = Command::new("tmux")
-            .arg("capture-pane")
+        let mut cmd = Command::new("tmux");
+        cmd.arg("capture-pane")
             .arg("-t")
             .arg(id)
             .arg("-p")
             .arg("-S")
-            .arg(format!("-{}", lines))
-            .output()
+            .arg(format!("-{}", lines));
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux capture-pane")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         if !output.status.success() {
             return Err(SessionError::NotFound(id.to_string()));
@@ -190,11 +181,11 @@ impl SessionAdapter for TmuxAdapter {
 
     async fn is_process_running(&self, id: &str, pattern: &str) -> Result<bool, SessionError> {
         // Get the pane PID
-        let output = Command::new("tmux")
-            .args(["list-panes", "-t", id, "-F", "#{pane_pid}"])
-            .output()
+        let mut cmd = Command::new("tmux");
+        cmd.args(["list-panes", "-t", id, "-F", "#{pane_pid}"]);
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux list-panes")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         if !output.status.success() {
             return Err(SessionError::NotFound(id.to_string()));
@@ -210,18 +201,18 @@ impl SessionAdapter for TmuxAdapter {
         // - pgrep: checks child processes (when run via a shell)
         let (ps_output, pgrep_output) = tokio::try_join!(
             async {
-                Command::new("ps")
-                    .args(["-p", &pane_pid, "-o", "command="])
-                    .output()
+                let mut cmd = Command::new("ps");
+                cmd.args(["-p", &pane_pid, "-o", "command="]);
+                run_with_timeout(cmd, TMUX_TIMEOUT, "ps pane check")
                     .await
-                    .map_err(|e| SessionError::CommandFailed(e.to_string()))
+                    .map_err(SessionError::CommandFailed)
             },
             async {
-                Command::new("pgrep")
-                    .args(["-P", &pane_pid, "-f", pattern])
-                    .output()
+                let mut cmd = Command::new("pgrep");
+                cmd.args(["-P", &pane_pid, "-f", pattern]);
+                run_with_timeout(cmd, TMUX_TIMEOUT, "pgrep child check")
                     .await
-                    .map_err(|e| SessionError::CommandFailed(e.to_string()))
+                    .map_err(SessionError::CommandFailed)
             },
         )?;
 
@@ -267,11 +258,11 @@ impl SessionAdapter for TmuxAdapter {
 
     async fn get_exit_code(&self, id: &str) -> Result<Option<i32>, SessionError> {
         // Query the pane's dead status (exit code when process has exited)
-        let output = Command::new("tmux")
-            .args(["display-message", "-t", id, "-p", "#{pane_dead_status}"])
-            .output()
+        let mut cmd = Command::new("tmux");
+        cmd.args(["display-message", "-t", id, "-p", "#{pane_dead_status}"]);
+        let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux display-message")
             .await
-            .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+            .map_err(SessionError::CommandFailed)?;
 
         if !output.status.success() {
             return Err(SessionError::NotFound(id.to_string()));
@@ -296,11 +287,11 @@ async fn run_tmux_set_option(
     option: &str,
     value: &str,
 ) -> Result<(), SessionError> {
-    let output = Command::new("tmux")
-        .args(["set-option", "-t", session_id, option, value])
-        .output()
+    let mut cmd = Command::new("tmux");
+    cmd.args(["set-option", "-t", session_id, option, value]);
+    let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux set-option")
         .await
-        .map_err(|e| SessionError::CommandFailed(e.to_string()))?;
+        .map_err(SessionError::CommandFailed)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

@@ -8,7 +8,7 @@ The daemon runs on a tokio multi-threaded runtime (`#[tokio::main]` with
 `features = ["full"]`). No explicit runtime builder overrides; worker thread
 count defaults to the number of CPU cores.
 
-```
+```diagram
 OS Threads
 ──────────────────────────────────────────────────────────
   tokio workers       N (= CPU cores, default)
@@ -24,7 +24,7 @@ OS Threads
 All concurrency is expressed as tokio tasks on the shared worker pool. There
 are no long-lived OS threads besides the notify-crate watcher thread.
 
-```
+```diagram
 daemon process
 │
 ├─ main task ─────────── event loop (select!)
@@ -54,7 +54,7 @@ daemon process
 The daemon's core loop in `daemon/src/main.rs` multiplexes five sources with
 `tokio::select!`:
 
-```
+```diagram
 ┌──────────────────────────────────────────────────────────────┐
 │                      tokio::select!                          │
 │                                                              │
@@ -86,7 +86,7 @@ Effects are executed by `executor.execute_all()` in a **sequential for-loop**.
 Each effect in a batch is awaited before the next begins. Effects fall into
 two categories:
 
-```
+```diagram
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                          execute_all()                                    │
 │                                                                          │
@@ -122,7 +122,7 @@ Inline effects block the event loop for their full duration. A `CommandRun`
 event that creates a workspace and spawns an agent executes this chain
 sequentially:
 
-```
+```diagram
 process_event(CommandRun)
   └─ handle_command()
        ├─ load runbook from disk               ~100ms   (blocking file I/O)
@@ -142,7 +142,7 @@ events.
 The listener runs in a separate tokio task, accepting connections independently
 of the event loop. Each connection spawns its own handler task.
 
-```
+```diagram
 listener task (always running)
 │
 └─ loop { socket.accept() }
@@ -173,7 +173,7 @@ is idle.
 All mutexes are `parking_lot::Mutex` (synchronous, non-async). No
 `tokio::sync::Mutex`, `RwLock`, or `spawn_blocking` is used.
 
-```
+```diagram
 Shared State                        Protected By              Held Across .await?
 ─────────────────────────────────── ───────────────────────── ───────────────────
 MaterializedState                   Arc<Mutex<..>>            No
@@ -194,7 +194,7 @@ No nested locking occurs. The parking_lot reentrancy test in
 
 **Channels:**
 
-```
+```diagram
 Channel                             Type                  Capacity   Direction
 ─────────────────────────────────── ───────────────────── ────────── ──────────
 Runtime → EventBus                  tokio::sync::mpsc     100        events
@@ -229,7 +229,7 @@ Each running agent gets one tokio task that monitors Claude's JSONL session
 log via the `notify` crate (OS-level file events) with a fallback polling
 loop:
 
-```
+```diagram
 agent watcher task
 │
 ├─ wait for session log to appear    (polls at OJ_SESSION_POLL_MS, max 30s)
@@ -280,7 +280,7 @@ A single `CommandRun` produces result events (`WorkspaceReady`,
 another `process_event()` iteration that may execute more inline effects.
 The full chain for a workspace+agent pipeline:
 
-```
+```diagram
 CommandRun ─► CreateWorkspace (5-30s) ─► WorkspaceReady
   ─► SpawnAgent (1-9s) ─► SessionCreated ─► SetTimer (~µs)
 ```

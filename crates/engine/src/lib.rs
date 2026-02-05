@@ -8,24 +8,23 @@
 
 //! Odd Jobs execution engine
 
+mod activity_logger;
 mod agent_logger;
 pub mod breadcrumb;
 mod decision_builder;
 pub mod env;
 mod error;
 mod executor;
-mod job_logger;
 pub mod log_paths;
 mod monitor;
-mod queue_logger;
 mod runtime;
 mod scheduler;
 mod spawn;
 mod steps;
 mod time_fmt;
-mod worker_logger;
 mod workspace;
 
+pub use activity_logger::{JobLogger, QueueLogger, WorkerLogger};
 pub use agent_logger::AgentLogger;
 pub use error::RuntimeError;
 pub use runtime::{Runtime, RuntimeConfig, RuntimeDeps};

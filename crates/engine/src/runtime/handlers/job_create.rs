@@ -353,25 +353,7 @@ where
         }
 
         // Namespace user input variables with `var.` prefix for display isolation.
-        // Variables with existing scope prefixes (invoke.*, workspace.*, local.*, etc.)
-        // are kept as-is. Only bare keys (user input) get the `var.` prefix.
-        let namespaced_vars: HashMap<String, String> = vars
-            .iter()
-            .map(|(k, v)| {
-                // Check if key already has a scope prefix
-                let has_prefix = k.starts_with("invoke.")
-                    || k.starts_with("workspace.")
-                    || k.starts_with("local.")
-                    || k.starts_with("var.")
-                    || k.starts_with("args.")
-                    || k.starts_with("item.");
-                if has_prefix {
-                    (k.clone(), v.clone())
-                } else {
-                    (format!("var.{}", k), v.clone())
-                }
-            })
-            .collect();
+        let namespaced_vars = crate::vars::namespace_vars(&vars);
 
         creation_effects.push(Effect::Emit {
             event: Event::JobCreated {
@@ -406,10 +388,7 @@ where
 
         // Emit on_start notification if configured
         if let Some(template) = &notify_config.on_start {
-            let mut notify_vars: HashMap<String, String> = vars
-                .iter()
-                .map(|(k, v)| (format!("var.{}", k), v.clone()))
-                .collect();
+            let mut notify_vars = crate::vars::namespace_vars(&vars);
             notify_vars.insert("job_id".to_string(), job_id.to_string());
             notify_vars.insert("name".to_string(), job_name.clone());
 

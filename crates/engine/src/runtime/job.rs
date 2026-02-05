@@ -80,29 +80,9 @@ where
         // Dispatch based on run directive
         match &step_def.run {
             RunDirective::Shell(cmd) => {
-                // Build template variables
-                // Namespace job vars under "var." prefix (matching monitor.rs)
-                // Values are escaped by interpolate_shell() during substitution
-                //
-                // Keys that already have a scope prefix (var.*, invoke.*, workspace.*,
-                // local.*, args.*, item.*) are kept as-is to avoid double-prefixing
-                // when job.vars is passed on subsequent steps.
-                let mut vars: HashMap<String, String> = input
-                    .iter()
-                    .map(|(k, v)| {
-                        let has_prefix = k.starts_with("var.")
-                            || k.starts_with("invoke.")
-                            || k.starts_with("workspace.")
-                            || k.starts_with("local.")
-                            || k.starts_with("args.")
-                            || k.starts_with("item.");
-                        if has_prefix {
-                            (k.clone(), v.clone())
-                        } else {
-                            (format!("var.{}", k), v.clone())
-                        }
-                    })
-                    .collect();
+                // Build template variables — namespace bare keys under "var." prefix.
+                // Values are escaped by interpolate_shell() during substitution.
+                let mut vars = crate::vars::namespace_vars(input);
                 vars.insert("job_id".to_string(), job_id.to_string());
                 vars.insert("name".to_string(), job.name.clone());
                 vars.insert(
@@ -469,12 +449,7 @@ where
         message_template: Option<&String>,
     ) -> Result<Vec<Event>, RuntimeError> {
         if let Some(template) = message_template {
-            // Build vars for interpolation — keys already have scope prefixes
-            let mut vars: HashMap<String, String> = job
-                .vars
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
+            let mut vars = crate::vars::namespace_vars(&job.vars);
             vars.insert("job_id".to_string(), job.id.clone());
             vars.insert("name".to_string(), job.name.clone());
             if let Some(err) = &job.error {

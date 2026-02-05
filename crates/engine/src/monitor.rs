@@ -448,11 +448,7 @@ pub fn build_agent_run_notify_effect(
     message_template: Option<&String>,
 ) -> Option<Effect> {
     let template = message_template?;
-    let mut vars: HashMap<String, String> = agent_run
-        .vars
-        .iter()
-        .map(|(k, v)| (format!("var.{}", k), v.clone()))
-        .collect();
+    let mut vars = crate::vars::namespace_vars(&agent_run.vars);
     vars.insert("agent_run_id".to_string(), agent_run.id.clone());
     vars.insert("name".to_string(), agent_run.command_name.clone());
     vars.insert("agent".to_string(), agent_def.name.clone());
@@ -474,11 +470,7 @@ pub fn build_agent_notify_effect(
     message_template: Option<&String>,
 ) -> Option<Effect> {
     let template = message_template?;
-    let mut vars: HashMap<String, String> = job
-        .vars
-        .iter()
-        .map(|(k, v)| (format!("var.{}", k), v.clone()))
-        .collect();
+    let mut vars = crate::vars::namespace_vars(&job.vars);
     vars.insert("job_id".to_string(), job.id.clone());
     vars.insert("name".to_string(), job.name.clone());
     vars.insert("agent".to_string(), agent_def.name.clone());

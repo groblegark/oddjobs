@@ -559,12 +559,7 @@ where
                 let execution_dir = self.execution_dir(job);
                 let job_id = JobId::new(&job.id);
 
-                // Namespace job vars under "var." prefix (matching spawn.rs)
-                let mut vars: HashMap<String, String> = job
-                    .vars
-                    .iter()
-                    .map(|(k, v)| (format!("var.{}", k), v.clone()))
-                    .collect();
+                let mut vars = crate::vars::namespace_vars(&job.vars);
 
                 // Add system variables (not namespaced - these are always available)
                 vars.insert("job_id".to_string(), job_id.to_string());

@@ -108,23 +108,7 @@ pub fn build_spawn_effects(
     );
 
     // Step 1: Build variables for prompt interpolation
-    // Namespace bare keys under "var." prefix; skip keys that already have a scope prefix
-    let mut prompt_vars: HashMap<String, String> = input
-        .iter()
-        .map(|(k, v)| {
-            let has_prefix = k.starts_with("var.")
-                || k.starts_with("invoke.")
-                || k.starts_with("workspace.")
-                || k.starts_with("local.")
-                || k.starts_with("args.")
-                || k.starts_with("item.");
-            if has_prefix {
-                (k.clone(), v.clone())
-            } else {
-                (format!("var.{}", k), v.clone())
-            }
-        })
-        .collect();
+    let mut prompt_vars = crate::vars::namespace_vars(input);
 
     // Add system variables (not namespaced - these are always available)
     // These overwrite any bare input keys with the same name.

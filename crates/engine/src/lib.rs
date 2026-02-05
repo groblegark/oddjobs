@@ -22,6 +22,7 @@ mod scheduler;
 mod spawn;
 mod steps;
 mod time_fmt;
+mod vars;
 mod workspace;
 
 pub use activity_logger::{JobLogger, QueueLogger, WorkerLogger};

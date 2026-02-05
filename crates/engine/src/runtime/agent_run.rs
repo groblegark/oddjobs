@@ -130,10 +130,7 @@ where
         // Emit agent on_start notification if configured
         // Build a temporary AgentRun for notification context
         if let Some(effect) = agent_def.notify.on_start.as_ref().map(|template| {
-            let mut vars: HashMap<String, String> = input
-                .iter()
-                .map(|(k, v)| (format!("var.{}", k), v.clone()))
-                .collect();
+            let mut vars = crate::vars::namespace_vars(input);
             vars.insert("agent_run_id".to_string(), agent_run_id.to_string());
             vars.insert("name".to_string(), agent_name.to_string());
             vars.insert("agent".to_string(), agent_def.name.clone());
@@ -491,11 +488,7 @@ where
             }
             ActionEffects::Gate { command } => {
                 // Interpolate command
-                let mut vars: HashMap<String, String> = agent_run
-                    .vars
-                    .iter()
-                    .map(|(k, v)| (format!("var.{}", k), v.clone()))
-                    .collect();
+                let mut vars = crate::vars::namespace_vars(&agent_run.vars);
                 vars.insert("agent_run_id".to_string(), agent_run_id.to_string());
                 vars.insert("name".to_string(), agent_run.command_name.clone());
                 vars.insert("workspace".to_string(), agent_run.cwd.display().to_string());

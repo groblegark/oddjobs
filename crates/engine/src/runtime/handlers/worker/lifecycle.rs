@@ -44,7 +44,7 @@ where
         let queue_type = queue_def.queue_type;
 
         // Restore active pipelines from persisted state (survives daemon restart)
-        let (persisted_active, persisted_item_map) = self.lock_state(|state| {
+        let (persisted_active, persisted_item_map, persisted_inflight) = self.lock_state(|state| {
             let scoped = scoped_name(namespace, worker_name);
             let active: HashSet<PipelineId> = state
                 .workers
@@ -52,22 +52,27 @@ where
                 .map(|w| w.active_pipeline_ids.iter().map(PipelineId::new).collect())
                 .unwrap_or_default();
 
-            let item_map: HashMap<PipelineId, String> = if queue_type == QueueType::Persisted {
-                active
-                    .iter()
-                    .filter_map(|pid| {
-                        state
-                            .pipelines
-                            .get(pid.as_str())
-                            .and_then(|p| p.vars.get("item.id"))
-                            .map(|item_id| (pid.clone(), item_id.clone()))
-                    })
-                    .collect()
+            // Build pipeline→item map from persisted pipeline vars
+            let item_map: HashMap<PipelineId, String> = active
+                .iter()
+                .filter_map(|pid| {
+                    state
+                        .pipelines
+                        .get(pid.as_str())
+                        .and_then(|p| p.vars.get("item.id"))
+                        .map(|item_id| (pid.clone(), item_id.clone()))
+                })
+                .collect();
+
+            // For external queues, restore inflight item IDs so overlapping
+            // polls after restart don't re-dispatch already-active items.
+            let inflight: HashSet<String> = if queue_type == QueueType::External {
+                item_map.values().cloned().collect()
             } else {
-                HashMap::new()
+                HashSet::new()
             };
 
-            (active, item_map)
+            (active, item_map, inflight)
         });
 
         // Store worker state
@@ -85,6 +90,7 @@ where
             namespace: namespace.to_string(),
             poll_interval: poll_interval.clone(),
             pending_takes: 0,
+            inflight_items: persisted_inflight,
         };
 
         {
@@ -158,6 +164,7 @@ where
                 self.worker_logger.append(&scoped, "stopped");
                 state.status = WorkerStatus::Stopped;
                 state.pending_takes = 0;
+                state.inflight_items.clear();
                 state.namespace.clone()
             } else {
                 String::new()

@@ -63,6 +63,9 @@ pub enum Request {
         /// Kill running agent and restart (still uses --resume to preserve conversation)
         #[serde(default)]
         kill: bool,
+        /// Resume all escalated/failed jobs
+        #[serde(default)]
+        all: bool,
     },
 
     /// Cancel one or more running jobs
@@ -756,6 +759,14 @@ pub enum Response {
         /// Agents that were resumed (agent_id list)
         resumed: Vec<String>,
         /// Agents that were skipped with reasons
+        skipped: Vec<(String, String)>,
+    },
+
+    /// Result of job resume --all
+    JobsResumed {
+        /// Jobs that were resumed (job_id list)
+        resumed: Vec<String>,
+        /// Jobs that were skipped with reasons
         skipped: Vec<(String, String)>,
     },
 

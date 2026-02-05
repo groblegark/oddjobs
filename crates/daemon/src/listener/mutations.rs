@@ -296,6 +296,60 @@ pub(super) fn handle_job_resume(
     Ok(Response::Ok)
 }
 
+/// Handle `oj job resume --all`: resume all non-terminal jobs that are
+/// in a waiting (escalated) or failed state.
+pub(super) fn handle_job_resume_all(
+    state: &Arc<Mutex<MaterializedState>>,
+    event_bus: &EventBus,
+    kill: bool,
+) -> Result<Response, ConnectionError> {
+    let (targets, skipped) = {
+        let state_guard = state.lock();
+        let mut targets: Vec<String> = Vec::new();
+        let mut skipped: Vec<(String, String)> = Vec::new();
+
+        for job in state_guard.jobs.values() {
+            if job.is_terminal() {
+                continue;
+            }
+            // Only resume jobs that are waiting (escalated) or failed
+            if job.step_status.is_waiting()
+                || matches!(
+                    job.step_status,
+                    oj_core::StepStatus::Failed | oj_core::StepStatus::Pending
+                )
+            {
+                targets.push(job.id.clone());
+            } else if !kill {
+                skipped.push((
+                    job.id.clone(),
+                    format!("job is {:?} (use --kill to force)", job.step_status),
+                ));
+            } else {
+                targets.push(job.id.clone());
+            }
+        }
+
+        (targets, skipped)
+    };
+
+    let mut resumed = Vec::new();
+    for job_id in targets {
+        emit(
+            event_bus,
+            Event::JobResume {
+                id: JobId::new(&job_id),
+                message: None,
+                vars: std::collections::HashMap::new(),
+                kill,
+            },
+        )?;
+        resumed.push(job_id);
+    }
+
+    Ok(Response::JobsResumed { resumed, skipped })
+}
+
 /// Handle a job cancel request.
 pub(super) fn handle_job_cancel(
     state: &Arc<Mutex<MaterializedState>>,

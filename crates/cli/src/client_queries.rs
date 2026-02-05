@@ -159,8 +159,27 @@ impl DaemonClient {
             message: message.map(String::from),
             vars: vars.clone(),
             kill,
+            all: false,
         };
         self.send_simple(&request).await
+    }
+
+    /// Resume all escalated/failed jobs
+    pub async fn job_resume_all(
+        &self,
+        kill: bool,
+    ) -> Result<(Vec<String>, Vec<(String, String)>), ClientError> {
+        let request = Request::JobResume {
+            id: String::new(),
+            message: None,
+            vars: HashMap::new(),
+            kill,
+            all: true,
+        };
+        match self.send(&request).await? {
+            Response::JobsResumed { resumed, skipped } => Ok((resumed, skipped)),
+            other => Self::reject(other),
+        }
     }
 
     /// Cancel one or more jobs by ID

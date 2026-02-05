@@ -55,8 +55,8 @@ pub enum JobCommand {
     },
     /// Resume monitoring for an escalated job
     Resume {
-        /// Job ID or name
-        id: String,
+        /// Job ID or name. Required unless --all is used.
+        id: Option<String>,
 
         /// Message for nudge/recovery (required for agent steps)
         #[arg(short = 'm', long)]
@@ -69,6 +69,10 @@ pub enum JobCommand {
         /// Kill running agent and restart (still preserves conversation via --resume)
         #[arg(long)]
         kill: bool,
+
+        /// Resume all escalated/failed jobs
+        #[arg(long)]
+        all: bool,
     },
     /// Cancel one or more running jobs
     Cancel {
@@ -423,26 +427,57 @@ pub async fn handle(
             message,
             var,
             kill,
+            all,
         } => {
-            let var_map: HashMap<String, String> = var.into_iter().collect();
-            match client
-                .job_resume(&id, message.as_deref(), &var_map, kill)
-                .await
-            {
-                Ok(()) => {
-                    if !var_map.is_empty() {
-                        println!("Updated vars and resumed job {}", id);
-                    } else {
-                        println!("Resumed job {}", id);
+            if all {
+                if id.is_some() || message.is_some() || !var.is_empty() {
+                    anyhow::bail!("--all cannot be combined with a job ID, --message, or --var");
+                }
+                let (resumed, skipped) = client.job_resume_all(kill).await?;
+
+                match format {
+                    OutputFormat::Text => {
+                        for job_id in &resumed {
+                            println!("Resumed job {}", job_id);
+                        }
+                        for (job_id, reason) in &skipped {
+                            println!("Skipped job {}: {}", job_id, reason);
+                        }
+                        if resumed.is_empty() && skipped.is_empty() {
+                            println!("No jobs to resume");
+                        }
+                    }
+                    OutputFormat::Json => {
+                        let obj = serde_json::json!({
+                            "resumed": resumed,
+                            "skipped": skipped,
+                        });
+                        println!("{}", serde_json::to_string_pretty(&obj)?);
                     }
                 }
-                Err(crate::client::ClientError::Rejected(msg))
-                    if msg.contains("--message") || msg.contains("agent steps require") =>
+            } else {
+                let id =
+                    id.ok_or_else(|| anyhow::anyhow!("Either provide a job ID or use --all"))?;
+                let var_map: HashMap<String, String> = var.into_iter().collect();
+                match client
+                    .job_resume(&id, message.as_deref(), &var_map, kill)
+                    .await
                 {
-                    eprintln!("error: {}", msg);
-                    std::process::exit(1);
+                    Ok(()) => {
+                        if !var_map.is_empty() {
+                            println!("Updated vars and resumed job {}", id);
+                        } else {
+                            println!("Resumed job {}", id);
+                        }
+                    }
+                    Err(crate::client::ClientError::Rejected(msg))
+                        if msg.contains("--message") || msg.contains("agent steps require") =>
+                    {
+                        eprintln!("error: {}", msg);
+                        std::process::exit(1);
+                    }
+                    Err(e) => return Err(e.into()),
                 }
-                Err(e) => return Err(e.into()),
             }
         }
         JobCommand::Cancel { ids } => {

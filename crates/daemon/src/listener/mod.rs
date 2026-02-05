@@ -208,7 +208,14 @@ async fn handle_request(
             message,
             vars,
             kill,
-        } => mutations::handle_job_resume(state, orphans, event_bus, id, message, vars, kill),
+            all,
+        } => {
+            if all {
+                mutations::handle_job_resume_all(state, event_bus, kill)
+            } else {
+                mutations::handle_job_resume(state, orphans, event_bus, id, message, vars, kill)
+            }
+        }
 
         Request::JobCancel { ids } => mutations::handle_job_cancel(state, event_bus, ids),
 

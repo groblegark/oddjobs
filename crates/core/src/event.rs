@@ -1006,5 +1006,5 @@ impl Event {
 }
 
 #[cfg(test)]
-#[path = "event_tests.rs"]
+#[path = "event_tests/mod.rs"]
 mod tests;

@@ -54,7 +54,7 @@ where
         } = params;
 
         // Build a SpawnContext for standalone agent
-        let ctx = crate::spawn::SpawnContext::for_agent_run(agent_run_id, agent_name, namespace);
+        let ctx = crate::spawn::SpawnContext::from_agent_run(agent_run_id, agent_name, namespace);
 
         let effects = crate::spawn::build_spawn_effects(
             agent_def,

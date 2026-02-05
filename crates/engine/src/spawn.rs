@@ -17,7 +17,7 @@ pub const LIVENESS_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Context for spawning an agent, abstracting over jobs and standalone runs.
 pub struct SpawnContext<'a> {
-    /// Owner of this agent (Job or AgentRun)
+    /// Owner of this agent (job or agent_run)
     pub owner: OwnerId,
     /// Display name (job name or command name)
     pub name: &'a str,
@@ -29,21 +29,17 @@ impl<'a> SpawnContext<'a> {
     /// Create a SpawnContext from a Job.
     pub fn from_job(job: &'a Job, job_id: &JobId) -> Self {
         Self {
-            owner: OwnerId::job(job_id.clone()),
+            owner: OwnerId::Job(job_id.clone()),
             name: &job.name,
             namespace: &job.namespace,
         }
     }
 
     /// Create a SpawnContext for a standalone agent run.
-    pub fn for_agent_run(
-        agent_run_id: &AgentRunId,
-        agent_name: &'a str,
-        namespace: &'a str,
-    ) -> Self {
+    pub fn from_agent_run(agent_run_id: &AgentRunId, name: &'a str, namespace: &'a str) -> Self {
         Self {
-            owner: OwnerId::agent_run(agent_run_id.clone()),
-            name: agent_name,
+            owner: OwnerId::AgentRun(agent_run_id.clone()),
+            name,
             namespace,
         }
     }
@@ -73,14 +69,12 @@ pub fn build_spawn_effects(
     // into workspace_path, so settings are found there.
     let project_root = workspace_path.to_path_buf();
 
-    // Format owner for logging/variables
-    let owner_id_str = match &ctx.owner {
-        OwnerId::Job(job_id) => job_id.to_string(),
-        OwnerId::AgentRun(ar_id) => ar_id.to_string(),
+    let owner_str = match &ctx.owner {
+        OwnerId::Job(id) => format!("job:{}", id),
+        OwnerId::AgentRun(id) => format!("agent_run:{}", id),
     };
-
     tracing::debug!(
-        owner_id = %owner_id_str,
+        owner = %owner_str,
         agent_name,
         workspace_path = %workspace_path.display(),
         project_root = %project_root.display(),
@@ -327,7 +321,7 @@ pub fn build_spawn_effects(
     );
 
     tracing::info!(
-        owner_id = %owner_id_str,
+        owner = %owner_str,
         agent_name,
         command,
         effective_cwd = ?effective_cwd,
@@ -364,21 +358,17 @@ pub fn build_spawn_effects(
         config
     };
 
-    // Build liveness timer keyed to the owner
-    let liveness_timer_id = TimerId::owner_liveness(&ctx.owner);
-
-    // Extract job_id and agent_run_id from owner for the SpawnAgent effect
-    let (job_id, agent_run_id) = match &ctx.owner {
-        OwnerId::Job(jid) => (jid.clone(), None),
-        OwnerId::AgentRun(ar_id) => (JobId::new(""), Some(ar_id.clone())),
+    // Build liveness timer keyed to the right owner
+    let liveness_timer_id = match &ctx.owner {
+        OwnerId::Job(job_id) => TimerId::liveness(job_id),
+        OwnerId::AgentRun(ar_id) => TimerId::liveness_agent_run(ar_id),
     };
 
     Ok(vec![
         Effect::SpawnAgent {
             agent_id: AgentId::new(agent_id),
             agent_name: agent_name.to_string(),
-            job_id,
-            agent_run_id,
+            owner: ctx.owner.clone(),
             workspace_path: workspace_path.to_path_buf(),
             input: vars,
             command,

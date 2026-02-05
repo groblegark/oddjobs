@@ -227,10 +227,8 @@ pub enum Event {
     #[serde(rename = "session:created")]
     SessionCreated {
         id: SessionId,
-        job_id: JobId,
-        /// For standalone agents, the AgentRunId that owns this session
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        agent_run_id: Option<AgentRunId>,
+        /// Owner of this session (job or agent_run)
+        owner: OwnerId,
     },
 
     #[serde(rename = "session:input")]
@@ -769,17 +767,10 @@ impl Event {
                     hash.short(12)
                 )
             }
-            Event::SessionCreated {
-                id,
-                job_id,
-                agent_run_id,
-            } => {
-                if let Some(ref ar_id) = agent_run_id {
-                    format!("{t} id={id} agent_run={ar_id}")
-                } else {
-                    format!("{t} id={id} job={job_id}")
-                }
-            }
+            Event::SessionCreated { id, owner } => match owner {
+                OwnerId::Job(job_id) => format!("{t} id={id} job={job_id}"),
+                OwnerId::AgentRun(ar_id) => format!("{t} id={id} agent_run={ar_id}"),
+            },
             Event::SessionInput { id, .. } => format!("{t} id={id}"),
             Event::SessionDeleted { id } => format!("{t} id={id}"),
             Event::ShellExited {
@@ -961,7 +952,6 @@ impl Event {
     pub fn job_id(&self) -> Option<&JobId> {
         match self {
             Event::CommandRun { job_id, .. }
-            | Event::SessionCreated { job_id, .. }
             | Event::ShellExited { job_id, .. }
             | Event::StepStarted { job_id, .. }
             | Event::StepWaiting { job_id, .. }
@@ -1003,6 +993,10 @@ impl Event {
                     Some(job_id)
                 }
             }
+            Event::SessionCreated { owner, .. } => match owner {
+                OwnerId::Job(id) => Some(id),
+                OwnerId::AgentRun(_) => None,
+            },
             _ => None,
         }
     }

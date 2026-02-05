@@ -3,6 +3,7 @@
 
 //! Runtime tests
 
+mod agent_run;
 mod cron;
 mod directives;
 mod errors;

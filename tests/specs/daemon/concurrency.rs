@@ -21,7 +21,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 /// Runbook with two independent queue/worker/job sets.
@@ -49,14 +49,14 @@ vars = ["cmd"]
 
 [[job.alpha_job.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 
 [job.beta_job]
 vars = ["cmd"]
 
 [[job.beta_job.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 // =============================================================================
@@ -184,7 +184,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 #[test]

@@ -24,7 +24,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 /// Same as QUEUE_JOB_RUNBOOK but concurrency = 3.
@@ -43,7 +43,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 /// Extract the first job ID from `oj job list` output

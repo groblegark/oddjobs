@@ -1362,12 +1362,12 @@ async fn worker_dispatch_uses_namespaced_vars_only() {
         "job.vars should contain item.labels"
     );
     assert!(
-        job.vars.contains_key("epic.title"),
-        "job.vars should contain epic.title (from first declared var)"
+        job.vars.contains_key("var.epic.title"),
+        "job.vars should contain var.epic.title (from first declared var, namespaced)"
     );
     assert!(
-        job.vars.contains_key("epic.labels"),
-        "job.vars should contain epic.labels (from first declared var)"
+        job.vars.contains_key("var.epic.labels"),
+        "job.vars should contain var.epic.labels (from first declared var, namespaced)"
     );
 
     // Verify NO bare keys (keys without a dot prefix that came from queue item fields)

@@ -22,7 +22,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 /// Scenario for an agent that runs a slow command.
@@ -335,7 +335,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
     temp.file(".oj/runbooks/queue.toml", multi_worker_runbook);
 

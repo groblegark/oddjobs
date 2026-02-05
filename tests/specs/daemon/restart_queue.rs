@@ -24,7 +24,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 /// Queue-only runbook for testing WAL persistence without worker interference.

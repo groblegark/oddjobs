@@ -22,7 +22,7 @@ vars = ["msg"]
 
 [[job.process.step]]
 name = "work"
-run = "echo ${var.msg}"
+run = "echo ${item.msg}"
 "#;
 
 /// Runbook with a command that runs a job echoing OJ_NAMESPACE.

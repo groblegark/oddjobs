@@ -30,7 +30,7 @@ vars = ["cmd"]
 
 [[job.process.step]]
 name = "work"
-run = "${var.cmd}"
+run = "${item.cmd}"
 "#;
 
 /// Tests recovery after daemon crash with many events in the WAL.

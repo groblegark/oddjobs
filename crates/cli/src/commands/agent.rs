@@ -792,9 +792,7 @@ async fn handle_stop_hook(agent_id: &str, client: &DaemonClient) -> Result<()> {
                 agent_id: AgentId::new(agent_id),
             };
             let _ = client.emit_event(event).await;
-            block_exit(
-                "Stop hook: on_idle handler invoked. Waiting for further instructions.",
-            );
+            block_exit("Stop hook: on_idle handler invoked. Waiting for further instructions.");
         }
         "escalate" => {
             // Emit stop event for escalation, then block

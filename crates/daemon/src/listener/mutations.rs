@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+use oj_adapters::subprocess::{run_with_timeout, GIT_WORKTREE_TIMEOUT, TMUX_TIMEOUT};
 use oj_core::{AgentId, AgentRunId, Event, JobId, SessionId, ShortId, WorkspaceId};
 use oj_engine::breadcrumb::Breadcrumb;
 use oj_runbook::Runbook;
@@ -128,10 +129,9 @@ pub(super) async fn handle_session_kill(
     match session_id {
         Some(sid) => {
             // Kill the tmux session
-            let _ = tokio::process::Command::new("tmux")
-                .args(["kill-session", "-t", &sid])
-                .output()
-                .await;
+            let mut cmd = tokio::process::Command::new("tmux");
+            cmd.args(["kill-session", "-t", &sid]);
+            let _ = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux kill-session").await;
 
             // Emit SessionDeleted to clean up state
             emit(
@@ -502,9 +502,9 @@ pub(super) async fn handle_agent_send(
 
     // (5) Session liveness check: before returning 'not found', verify the
     // tmux session isn't still alive (recovery scenario where state is stale)
-    let session_alive = tokio::process::Command::new("tmux")
-        .args(["has-session", "-t", &agent_id])
-        .output()
+    let mut cmd = tokio::process::Command::new("tmux");
+    cmd.args(["has-session", "-t", &agent_id]);
+    let session_alive = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux has-session")
         .await
         .map(|o| o.status.success())
         .unwrap_or(false);
@@ -920,14 +920,14 @@ async fn workspace_prune_inner(
                 {
                     // Best-effort git worktree remove (ignore failures).
                     // Run from within the worktree so git can locate the parent repo.
-                    let _ = tokio::process::Command::new("git")
-                        .arg("worktree")
+                    let mut cmd = tokio::process::Command::new("git");
+                    cmd.arg("worktree")
                         .arg("remove")
                         .arg("--force")
                         .arg(&ws.path)
-                        .current_dir(&ws.path)
-                        .output()
-                        .await;
+                        .current_dir(&ws.path);
+                    let _ =
+                        run_with_timeout(cmd, GIT_WORKTREE_TIMEOUT, "git worktree remove").await;
                 }
 
                 // Remove directory regardless
@@ -1135,10 +1135,9 @@ pub(super) async fn handle_agent_resume(
         for (_, _, session_id) in &targets {
             if let Some(sid) = session_id {
                 // Kill the tmux session (ignore errors - session may already be dead)
-                let _ = tokio::process::Command::new("tmux")
-                    .args(["kill-session", "-t", sid])
-                    .output()
-                    .await;
+                let mut cmd = tokio::process::Command::new("tmux");
+                cmd.args(["kill-session", "-t", sid]);
+                let _ = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux kill-session").await;
 
                 // Emit SessionDeleted to clean up state
                 let event = Event::SessionDeleted {

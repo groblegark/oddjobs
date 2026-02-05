@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+use oj_adapters::subprocess::{run_with_timeout, TMUX_TIMEOUT};
 use oj_storage::MaterializedState;
 
 /// Capture tmux pane output for a session.
@@ -21,11 +22,9 @@ pub(super) async fn capture_tmux_pane(
         args.push("-e");
     }
 
-    let output = tokio::process::Command::new("tmux")
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| format!("failed to run tmux: {}", e))?;
+    let mut cmd = tokio::process::Command::new("tmux");
+    cmd.args(&args);
+    let output = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux capture-pane").await?;
 
     if !output.status.success() {
         return Err(format!("Session not found: {}", session_id));
@@ -61,10 +60,9 @@ pub(super) async fn kill_state_sessions(state: &Arc<Mutex<MaterializedState>>) {
     for id in &session_ids {
         let id = id.clone();
         handles.push(tokio::spawn(async move {
-            let _ = tokio::process::Command::new("tmux")
-                .args(["kill-session", "-t", &id])
-                .output()
-                .await;
+            let mut cmd = tokio::process::Command::new("tmux");
+            cmd.args(["kill-session", "-t", &id]);
+            let _ = run_with_timeout(cmd, TMUX_TIMEOUT, "tmux kill-session").await;
         }));
     }
     for handle in handles {

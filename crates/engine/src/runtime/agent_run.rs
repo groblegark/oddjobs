@@ -7,6 +7,7 @@ use super::Runtime;
 use crate::error::RuntimeError;
 use crate::monitor::{self, ActionEffects, MonitorState};
 use oj_adapters::agent::find_session_log;
+use oj_adapters::subprocess::{run_with_timeout, GATE_TIMEOUT};
 use oj_adapters::{AgentAdapter, AgentReconnectConfig, NotifyAdapter, SessionAdapter};
 use oj_core::{
     AgentId, AgentRun, AgentRunId, AgentRunStatus, AgentSignalKind, Clock, Effect, Event, JobId,
@@ -607,13 +608,10 @@ where
             "running standalone gate command"
         );
 
-        match tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(&agent_run.cwd)
-            .output()
-            .await
-        {
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg(command).current_dir(&agent_run.cwd);
+
+        match run_with_timeout(cmd, GATE_TIMEOUT, "gate command").await {
             Ok(output) if output.status.success() => Ok(()),
             Ok(output) => {
                 let exit_code = output.status.code().unwrap_or(-1);

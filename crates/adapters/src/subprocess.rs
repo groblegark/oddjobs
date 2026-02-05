@@ -16,6 +16,16 @@ pub const GIT_WORKTREE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Default timeout for shell evaluation commands.
 pub const SHELL_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Default timeout for gate commands (on_idle/on_dead validation).
+pub const GATE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Default timeout for queue list/take commands.
+pub const QUEUE_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Default timeout for job shell step commands.
+/// Set to 10 minutes as a safety net for long-running user scripts.
+pub const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// Run a subprocess command with a timeout.
 ///
 /// Wraps `Command::output()` with `tokio::time::timeout`, converting

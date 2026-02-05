@@ -4,6 +4,7 @@
 //! Effect executor
 
 use crate::{scheduler::Scheduler, RuntimeDeps};
+use oj_adapters::subprocess::{run_with_timeout, QUEUE_COMMAND_TIMEOUT, SHELL_COMMAND_TIMEOUT};
 use oj_adapters::{
     AgentAdapter, AgentReconnectConfig, AgentSpawnConfig, NotifyAdapter, SessionAdapter,
 };
@@ -418,13 +419,10 @@ where
                     );
 
                     let wrapped = format!("set -euo pipefail\n{command}");
-                    let result = tokio::process::Command::new("bash")
-                        .arg("-c")
-                        .arg(&wrapped)
-                        .current_dir(&cwd)
-                        .envs(&env)
-                        .output()
-                        .await;
+                    let mut cmd = tokio::process::Command::new("bash");
+                    cmd.arg("-c").arg(&wrapped).current_dir(&cwd).envs(&env);
+                    let result =
+                        run_with_timeout(cmd, SHELL_COMMAND_TIMEOUT, "shell command").await;
 
                     let (exit_code, stdout, stderr) = match result {
                         Ok(output) => {
@@ -501,12 +499,9 @@ where
                     );
 
                     let wrapped = format!("set -euo pipefail\n{list_command}");
-                    let result = tokio::process::Command::new("bash")
-                        .arg("-c")
-                        .arg(&wrapped)
-                        .current_dir(&cwd)
-                        .output()
-                        .await;
+                    let mut cmd = tokio::process::Command::new("bash");
+                    cmd.arg("-c").arg(&wrapped).current_dir(&cwd);
+                    let result = run_with_timeout(cmd, QUEUE_COMMAND_TIMEOUT, "queue list").await;
 
                     let items = match result {
                         Ok(output) if output.status.success() => {
@@ -572,12 +567,9 @@ where
                     );
 
                     let wrapped = format!("set -euo pipefail\n{take_command}");
-                    let result = tokio::process::Command::new("bash")
-                        .arg("-c")
-                        .arg(&wrapped)
-                        .current_dir(&cwd)
-                        .output()
-                        .await;
+                    let mut cmd = tokio::process::Command::new("bash");
+                    cmd.arg("-c").arg(&wrapped).current_dir(&cwd);
+                    let result = run_with_timeout(cmd, QUEUE_COMMAND_TIMEOUT, "queue take").await;
 
                     let (exit_code, stderr) = match result {
                         Ok(output) => {

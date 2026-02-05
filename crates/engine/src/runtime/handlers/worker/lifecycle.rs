@@ -183,39 +183,41 @@ where
     pub(crate) async fn handle_worker_resized(
         &self,
         worker_name: &str,
+        new_concurrency: u32,
         namespace: &str,
-        concurrency: u32,
     ) -> Result<Vec<Event>, RuntimeError> {
-        let (old_concurrency, queue_name, queue_type) = {
+        let (old_concurrency, should_poll) = {
             let mut workers = self.worker_states.lock();
-            if let Some(state) = workers.get_mut(worker_name) {
-                let old = state.concurrency;
-                state.concurrency = concurrency;
-                let scoped = scoped_name(&state.namespace, worker_name);
-                self.worker_logger.append(
-                    &scoped,
-                    &format!("resized concurrency {} -> {}", old, concurrency),
-                );
-                (old, state.queue_name.clone(), state.queue_type)
-            } else {
-                return Ok(vec![]);
+            match workers.get_mut(worker_name) {
+                Some(state) if state.status == WorkerStatus::Running => {
+                    let old = state.concurrency;
+                    state.concurrency = new_concurrency;
+
+                    // Check if we now have more slots available
+                    let active = state.active_jobs.len() as u32 + state.pending_takes;
+                    let had_capacity = old > active;
+                    let has_capacity = new_concurrency > active;
+                    let should_poll = !had_capacity && has_capacity;
+
+                    (old, should_poll)
+                }
+                _ => return Ok(vec![]),
             }
         };
 
-        // If concurrency increased and we have capacity, trigger a poll to pick up more items
-        if concurrency > old_concurrency {
-            match queue_type {
-                QueueType::Persisted => {
-                    return self.poll_persisted_queue(worker_name, &queue_name, namespace);
-                }
-                QueueType::External => {
-                    // For external queues, wake the worker to trigger a poll
-                    return Ok(vec![Event::WorkerWake {
-                        worker_name: worker_name.to_string(),
-                        namespace: namespace.to_string(),
-                    }]);
-                }
-            }
+        // Log the resize
+        let scoped = scoped_name(namespace, worker_name);
+        self.worker_logger.append(
+            &scoped,
+            &format!(
+                "resized concurrency {} → {}",
+                old_concurrency, new_concurrency
+            ),
+        );
+
+        // If we went from full to having capacity, trigger re-poll
+        if should_poll {
+            return self.handle_worker_wake(worker_name).await;
         }
 
         Ok(vec![])

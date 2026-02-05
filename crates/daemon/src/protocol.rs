@@ -613,10 +613,11 @@ pub enum Response {
         skipped: Vec<(String, String)>,
     },
 
-    /// Worker resized successfully
+    /// Worker concurrency was updated
     WorkerResized {
         worker_name: String,
-        concurrency: u32,
+        old_concurrency: u32,
+        new_concurrency: u32,
     },
 
     /// Cron started successfully

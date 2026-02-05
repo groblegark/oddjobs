@@ -440,9 +440,9 @@ pub enum Event {
     #[serde(rename = "worker:resized")]
     WorkerResized {
         worker_name: String,
+        concurrency: u32,
         #[serde(default)]
         namespace: String,
-        concurrency: u32,
     },
 
     #[serde(rename = "worker:deleted")]
@@ -860,8 +860,14 @@ impl Event {
             Event::WorkerResized {
                 worker_name,
                 concurrency,
-                ..
-            } => format!("{t} worker={worker_name} concurrency={concurrency}"),
+                namespace,
+            } => {
+                if namespace.is_empty() {
+                    format!("{t} worker={worker_name} concurrency={concurrency}")
+                } else {
+                    format!("{t} worker={worker_name} ns={namespace} concurrency={concurrency}")
+                }
+            }
             Event::WorkerDeleted {
                 worker_name,
                 namespace,

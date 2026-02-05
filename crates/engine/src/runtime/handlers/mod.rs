@@ -259,11 +259,11 @@ where
 
             Event::WorkerResized {
                 worker_name,
-                namespace,
                 concurrency,
+                namespace,
             } => {
                 result_events.extend(
-                    self.handle_worker_resized(worker_name, namespace, *concurrency)
+                    self.handle_worker_resized(worker_name, *concurrency, namespace)
                         .await?,
                 );
             }

@@ -234,7 +234,7 @@ pub(super) fn handle_worker_restart(
     )
 }
 
-/// Handle a WorkerResize request.
+/// Handle a WorkerResize request: update concurrency at runtime.
 pub(super) fn handle_worker_resize(
     worker_name: &str,
     namespace: &str,
@@ -249,32 +249,36 @@ pub(super) fn handle_worker_resize(
         });
     }
 
-    // Check if worker exists in state
+    // Check if worker exists
     let scoped = scoped_name(namespace, worker_name);
-    let exists = {
+    let (exists, old_concurrency) = {
         let state = state.lock();
-        state.workers.contains_key(&scoped)
+        match state.workers.get(&scoped) {
+            Some(record) => (true, record.concurrency),
+            None => (false, 0),
+        }
     };
+
     if !exists {
         return Ok(Response::Error {
             message: format!("unknown worker: {}", worker_name),
         });
     }
 
-    // Emit WorkerResized event
+    // Emit event
     let event = Event::WorkerResized {
         worker_name: worker_name.to_string(),
-        namespace: namespace.to_string(),
         concurrency,
+        namespace: namespace.to_string(),
     };
-
     event_bus
         .send(event)
         .map_err(|_| ConnectionError::WalError)?;
 
     Ok(Response::WorkerResized {
         worker_name: worker_name.to_string(),
-        concurrency,
+        old_concurrency,
+        new_concurrency: concurrency,
     })
 }
 

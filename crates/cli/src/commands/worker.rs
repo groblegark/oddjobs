@@ -39,11 +39,11 @@ pub enum WorkerCommand {
         /// Worker name from runbook
         name: String,
     },
-    /// Change a worker's concurrency at runtime
+    /// Resize a worker's concurrency limit at runtime
     Resize {
         /// Worker name from runbook
         name: String,
-        /// New concurrency value (must be >= 1)
+        /// New concurrency limit (must be > 0)
         concurrency: u32,
     },
     /// View worker activity log
@@ -177,12 +177,14 @@ pub async fn handle(
             match client.send(&request).await? {
                 Response::WorkerResized {
                     worker_name,
-                    concurrency,
+                    old_concurrency,
+                    new_concurrency,
                 } => {
                     println!(
-                        "Worker '{}' resized to concurrency {} ({})",
+                        "Worker '{}' resized: {} → {} ({})",
                         color::header(&worker_name),
-                        color::header(&concurrency.to_string()),
+                        old_concurrency,
+                        new_concurrency,
                         color::muted(namespace)
                     );
                 }

@@ -366,28 +366,30 @@ pub async fn handle(
                         }
 
                         if !p.vars.is_empty() {
+                            println!();
                             println!("  {}", color::header("Variables:"));
                             if verbose {
                                 for (k, v) in &p.vars {
                                     if v.contains('\n') {
-                                        println!("    {}:", k);
+                                        println!("    {}", color::context(&format!("{}:", k)));
                                         for line in v.lines() {
                                             println!("      {}", line);
                                         }
                                     } else {
-                                        println!("    {}: {}", k, v);
+                                        println!("    {} {}", color::context(&format!("{}:", k)), v);
                                     }
                                 }
                             } else {
                                 for (k, v) in &p.vars {
-                                    println!("    {}: {}", k, format_var_value(v, 80));
+                                    println!("    {} {}", color::context(&format!("{}:", k)), format_var_value(v, 80));
                                 }
                                 let any_truncated =
                                     p.vars.values().any(|v| is_var_truncated(v, 80));
                                 if any_truncated {
+                                    println!("");
                                     println!(
                                         "  {}",
-                                        color::muted("hint: use --verbose to show full variables")
+                                        color::context("hint: use --verbose to show full variables")
                                     );
                                 }
                             }

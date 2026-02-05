@@ -14,7 +14,7 @@ The core purpose of oj is **background work dispatch** - running agents in isola
 
 ## Process Architecture
 
-```
+```diagram
 ┌─────────────────────────────────────────────────────────────┐
 │  oj (CLI)                                    crates/cli     │
 │                                                             │
@@ -436,7 +436,7 @@ with buffered group commit (~10ms window) followed by `sync_all()`.
 
 Checkpoint I/O runs off the main thread to minimize latency:
 
-```
+```diagram
 Main Thread                 Background Thread
 clone state (~10ms)    →    serialize + compress + I/O (~200ms)
 continue processing         └→ completion signal

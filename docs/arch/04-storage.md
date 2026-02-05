@@ -4,7 +4,7 @@ Write-ahead log (WAL) for durable state persistence with crash recovery.
 
 ## Architecture
 
-```
+```diagram
 Event → WAL (append + fsync) → Materialized State
                   ↓
             Snapshots (periodic)
@@ -123,7 +123,7 @@ Recovery: Load snapshot, migrate if needed, replay only entries after `snapshot.
 
 Checkpoints run every 60 seconds with I/O off the main thread:
 
-```
+```diagram
 Main Thread (async)           Background Thread
 ─────────────────────────     ─────────────────────────────
 clone state (~10ms)

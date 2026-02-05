@@ -29,6 +29,9 @@ pub(crate) struct WorkerState {
     pub namespace: String,
     /// Poll interval for external queues (None = no periodic polling)
     pub poll_interval: Option<String>,
+    /// Number of in-flight take commands for external queues.
+    /// Counted toward concurrency to prevent over-dispatch when polls overlap.
+    pub pending_takes: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

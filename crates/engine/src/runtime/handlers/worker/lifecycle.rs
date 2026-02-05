@@ -84,6 +84,7 @@ where
             item_pipeline_map: persisted_item_map,
             namespace: namespace.to_string(),
             poll_interval: poll_interval.clone(),
+            pending_takes: 0,
         };
 
         {
@@ -156,6 +157,7 @@ where
                 let scoped = scoped_name(&state.namespace, worker_name);
                 self.worker_logger.append(&scoped, "stopped");
                 state.status = WorkerStatus::Stopped;
+                state.pending_takes = 0;
                 state.namespace.clone()
             } else {
                 String::new()

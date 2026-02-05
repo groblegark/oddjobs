@@ -10,6 +10,7 @@ use crate::runtime::Runtime;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{scoped_name, Clock, Effect, Event, IdGen, PipelineId, UuidIdGen};
 use oj_runbook::QueueType;
+use oj_storage::QueueItemStatus;
 use std::collections::HashMap;
 
 impl<S, A, N, C> Runtime<S, A, N, C>
@@ -38,7 +39,7 @@ where
                 _ => return Ok(result_events),
             };
 
-            let active = state.active_pipelines.len() as u32;
+            let active = state.active_pipelines.len() as u32 + state.pending_takes;
             let available = state.concurrency.saturating_sub(active);
             if available == 0 || items.is_empty() {
                 let scoped = scoped_name(&state.namespace, worker_name);
@@ -69,7 +70,12 @@ where
             )
         };
 
-        for item in items.iter().take(available_slots) {
+        let mut dispatched_count = 0;
+        for item in items.iter() {
+            if dispatched_count >= available_slots {
+                break;
+            }
+
             let item_id = item
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -95,6 +101,15 @@ where
                         &vars,
                     );
 
+                    // Reserve concurrency slot before firing the take command.
+                    // The slot is released in handle_worker_take_complete/failed.
+                    {
+                        let mut workers = self.worker_states.lock();
+                        if let Some(state) = workers.get_mut(worker_name) {
+                            state.pending_takes += 1;
+                        }
+                    }
+
                     // Fire take command as background task. Pipeline creation is
                     // deferred to handle_worker_take_complete when the command
                     // succeeds.
@@ -106,8 +121,26 @@ where
                             item: item.clone(),
                         })
                         .await?;
+                    dispatched_count += 1;
                 }
                 QueueType::Persisted => {
+                    // Guard against stale WorkerPollComplete events: if multiple
+                    // polls run before any dispatches are processed, their payloads
+                    // overlap. Skip items that are no longer Pending to avoid
+                    // creating duplicate pipelines for the same queue item.
+                    let scoped_queue = scoped_name(&worker_namespace, &queue_name);
+                    let still_pending = self.lock_state(|state| {
+                        state
+                            .queue_items
+                            .get(&scoped_queue)
+                            .and_then(|items| items.iter().find(|i| i.id == item_id))
+                            .map(|i| i.status == QueueItemStatus::Pending)
+                            .unwrap_or(false)
+                    });
+                    if !still_pending {
+                        continue;
+                    }
+
                     // Emit queue:taken event via Effect::Emit
                     result_events.extend(
                         self.executor
@@ -124,6 +157,7 @@ where
 
                     // Dispatch pipeline immediately for persisted queues
                     result_events.extend(self.dispatch_queue_item(worker_name, item).await?);
+                    dispatched_count += 1;
                 }
             }
         }
@@ -137,6 +171,14 @@ where
         worker_name: &str,
         item: &serde_json::Value,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Release the pending-take slot reserved by handle_worker_poll_complete
+        {
+            let mut workers = self.worker_states.lock();
+            if let Some(state) = workers.get_mut(worker_name) {
+                state.pending_takes = state.pending_takes.saturating_sub(1);
+            }
+        }
+
         let mut result_events = Vec::new();
 
         // Refresh runbook in case it changed while the take command was running
@@ -157,11 +199,14 @@ where
         error: &str,
     ) -> Result<Vec<Event>, RuntimeError> {
         let namespace = {
-            let workers = self.worker_states.lock();
-            workers
-                .get(worker_name)
-                .map(|s| s.namespace.clone())
-                .unwrap_or_default()
+            let mut workers = self.worker_states.lock();
+            if let Some(state) = workers.get_mut(worker_name) {
+                // Release the pending-take slot reserved by handle_worker_poll_complete
+                state.pending_takes = state.pending_takes.saturating_sub(1);
+                state.namespace.clone()
+            } else {
+                String::new()
+            }
         };
 
         let scoped = scoped_name(&namespace, worker_name);

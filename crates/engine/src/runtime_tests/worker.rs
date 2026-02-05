@@ -957,3 +957,220 @@ async fn queue_item_failed_on_pipeline_cancel() {
         status
     );
 }
+
+// -- Duplicate dispatch prevention tests --
+
+/// Stale WorkerPollComplete events whose items were already dispatched should
+/// not create duplicate pipelines. This guards against overlapping polls that
+/// carry the same items when multiple QueuePushed events trigger rapid re-polls.
+#[tokio::test]
+async fn stale_poll_does_not_create_duplicate_pipelines() {
+    let ctx = setup_with_runbook(CONCURRENT_WORKER_RUNBOOK).await;
+    push_persisted_items(&ctx, "bugs", 2);
+
+    // Start worker and dispatch both items (concurrency=2, 2 items)
+    let events = start_worker_and_poll(&ctx, CONCURRENT_WORKER_RUNBOOK, "fixer", 2).await;
+    assert_eq!(count_dispatched(&events), 2);
+
+    // Complete both pipelines so active_pipelines goes to 0
+    let dispatched = dispatched_pipeline_ids(&events);
+    for pid in &dispatched {
+        ctx.runtime
+            .handle_event(Event::PipelineAdvanced {
+                id: pid.clone(),
+                step: "done".to_string(),
+            })
+            .await
+            .unwrap();
+    }
+
+    // Verify items are Completed in state
+    assert_eq!(
+        queue_item_status(&ctx, "bugs", "item-1"),
+        Some(oj_storage::QueueItemStatus::Completed),
+    );
+    assert_eq!(
+        queue_item_status(&ctx, "bugs", "item-2"),
+        Some(oj_storage::QueueItemStatus::Completed),
+    );
+
+    // active_pipelines should be 0
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert_eq!(state.active_pipelines.len(), 0);
+    }
+
+    // Simulate a stale WorkerPollComplete with the same items
+    // (as if a second poll was generated before the first one was processed)
+    let stale_items: Vec<serde_json::Value> = vec![
+        serde_json::json!({"id": "item-1", "title": "bug 1"}),
+        serde_json::json!({"id": "item-2", "title": "bug 2"}),
+    ];
+
+    let stale_events = ctx
+        .runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: stale_items,
+        })
+        .await
+        .unwrap();
+
+    // No new dispatches should happen: items are Completed, not Pending
+    assert_eq!(
+        count_dispatched(&stale_events),
+        0,
+        "stale poll should not create duplicate pipelines for non-Pending items"
+    );
+}
+
+/// When items are Active (dispatched but not yet completed), a stale poll
+/// should skip them instead of creating duplicate pipelines.
+#[tokio::test]
+async fn stale_poll_skips_active_items() {
+    let ctx = setup_with_runbook(CONCURRENT_WORKER_RUNBOOK).await;
+    push_persisted_items(&ctx, "bugs", 3);
+
+    // Dispatch first 2 items (concurrency=2)
+    let events = start_worker_and_poll(&ctx, CONCURRENT_WORKER_RUNBOOK, "fixer", 2).await;
+    assert_eq!(count_dispatched(&events), 2);
+
+    // Complete one pipeline to free a slot
+    let dispatched = dispatched_pipeline_ids(&events);
+    let completion_events = ctx
+        .runtime
+        .handle_event(Event::PipelineAdvanced {
+            id: dispatched[0].clone(),
+            step: "done".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Process re-poll from completion (should dispatch item-3)
+    let mut repoll_events = Vec::new();
+    for event in &completion_events {
+        if matches!(event, Event::WorkerPollComplete { .. }) {
+            let result = ctx.runtime.handle_event(event.clone()).await.unwrap();
+            repoll_events.extend(result);
+        }
+    }
+    assert_eq!(
+        count_dispatched(&repoll_events),
+        1,
+        "re-poll should dispatch item-3"
+    );
+
+    // Now simulate a stale poll with all 3 original items.
+    // item-1 is Completed, item-2 and item-3 are Active. No slots available.
+    let stale_items: Vec<serde_json::Value> = (1..=3)
+        .map(|i| serde_json::json!({"id": format!("item-{}", i), "title": format!("bug {}", i)}))
+        .collect();
+
+    let stale_events = ctx
+        .runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: stale_items,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        count_dispatched(&stale_events),
+        0,
+        "stale poll should not dispatch: items are Active/Completed, and slots are full"
+    );
+}
+
+// -- pending_takes tracking tests --
+
+/// pending_takes should count toward the concurrency limit, preventing
+/// over-dispatch when external queue take commands are in-flight.
+#[tokio::test]
+async fn pending_takes_counted_toward_concurrency() {
+    let ctx = setup_with_runbook(WORKER_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, WORKER_RUNBOOK);
+
+    // Start the worker (external queue, concurrency=1)
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash,
+            queue_name: "bugs".to_string(),
+            concurrency: 1,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // Simulate an in-flight take command by setting pending_takes
+    {
+        let mut workers = ctx.runtime.worker_states.lock();
+        let state = workers.get_mut("fixer").unwrap();
+        state.pending_takes = 1;
+    }
+
+    // Fire a poll with items — should not dispatch because the pending take
+    // uses the only concurrency slot
+    let events = ctx
+        .runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: vec![serde_json::json!({"id": "item-1", "title": "bug 1"})],
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        count_dispatched(&events),
+        0,
+        "pending_takes should count toward concurrency limit"
+    );
+}
+
+/// Worker stop should clear pending_takes so stale counts don't carry over.
+#[tokio::test]
+async fn worker_stop_clears_pending_takes() {
+    let ctx = setup_with_runbook(WORKER_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, WORKER_RUNBOOK);
+
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash,
+            queue_name: "bugs".to_string(),
+            concurrency: 1,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // Simulate in-flight take commands
+    {
+        let mut workers = ctx.runtime.worker_states.lock();
+        let state = workers.get_mut("fixer").unwrap();
+        state.pending_takes = 2;
+    }
+
+    // Stop the worker
+    ctx.runtime
+        .handle_event(Event::WorkerStopped {
+            worker_name: "fixer".to_string(),
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // pending_takes should be cleared
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert_eq!(
+            state.pending_takes, 0,
+            "worker stop should clear pending_takes"
+        );
+    }
+}

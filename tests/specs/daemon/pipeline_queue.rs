@@ -10,12 +10,12 @@ use crate::prelude::*;
 /// `work` runs a command provided via the queue item's `cmd` var.
 /// `done` always succeeds (echo done).
 const QUEUE_PIPELINE_RUNBOOK: &str = r#"
-[queue.jobs]
+[queue.tasks]
 type = "persisted"
 vars = ["cmd"]
 
 [worker.runner]
-source = { queue = "jobs" }
+source = { queue = "tasks" }
 handler = { pipeline = "process" }
 concurrency = 1
 
@@ -29,12 +29,12 @@ run = "${var.cmd}"
 
 /// Same as QUEUE_PIPELINE_RUNBOOK but concurrency = 3.
 const QUEUE_PIPELINE_CONCURRENT_RUNBOOK: &str = r#"
-[queue.jobs]
+[queue.tasks]
 type = "persisted"
 vars = ["cmd"]
 
 [worker.runner]
-source = { queue = "jobs" }
+source = { queue = "tasks" }
 handler = { pipeline = "process" }
 concurrency = 3
 
@@ -80,7 +80,7 @@ fn cancel_pipeline_transitions_queue_item_from_active() {
 
     // Push item with a blocking command so the pipeline stays on "work" step
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "sleep 30"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "sleep 30"}"#])
         .passes();
 
     // Wait for the pipeline to reach "running" on the "work" step
@@ -91,7 +91,11 @@ fn cancel_pipeline_transitions_queue_item_from_active() {
     assert!(running, "pipeline should be running the work step");
 
     // Verify queue item is active
-    let active = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+    let active = temp
+        .oj()
+        .args(&["queue", "show", "tasks"])
+        .passes()
+        .stdout();
     assert!(active.contains("active"), "queue item should be active");
 
     // Get pipeline ID and cancel it
@@ -102,7 +106,11 @@ fn cancel_pipeline_transitions_queue_item_from_active() {
 
     // Wait for queue item to reach a terminal status (dead or failed)
     let transitioned = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("dead") || out.contains("failed")
     });
 
@@ -130,12 +138,16 @@ fn failed_pipeline_marks_queue_item_dead() {
 
     // Push item with a command that will fail (exit 1)
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "exit 1"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "exit 1"}"#])
         .passes();
 
     // Wait for queue item to reach dead status (no retry config → immediate dead)
     let dead = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("dead")
     });
 
@@ -160,12 +172,16 @@ fn completed_pipeline_marks_queue_item_completed() {
 
     // Push item with a command that succeeds
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo hello"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo hello"}"#])
         .passes();
 
     // Wait for queue item to reach completed status
     let completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("completed")
     });
 
@@ -180,11 +196,15 @@ fn completed_pipeline_marks_queue_item_completed() {
     // Verify concurrency slot is freed by pushing another item
     // (worker concurrency = 1, so a second item can only run if the slot was freed)
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo second"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo second"}"#])
         .passes();
 
     let second_completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         // Both items should be completed
         out.matches("completed").count() >= 2
     });
@@ -214,13 +234,13 @@ fn one_pipeline_failure_does_not_affect_others() {
     // Push 3 items: one fast-fail, two that succeed.
     // Each item needs unique data to avoid deduplication.
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "exit 1"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "exit 1"}"#])
         .passes();
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo ok-1"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo ok-1"}"#])
         .passes();
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo ok-2"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo ok-2"}"#])
         .passes();
 
     // Wait for all 3 items to reach expected terminal status:
@@ -229,7 +249,11 @@ fn one_pipeline_failure_does_not_affect_others() {
     // from a separate query seeing a different snapshot.
     let mut items_output = String::new();
     let all_terminal = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        items_output = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        items_output = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         let completed = items_output.matches("completed").count();
         let dead_or_failed =
             items_output.matches("dead").count() + items_output.matches("failed").count();
@@ -271,7 +295,7 @@ fn queue_item_released_after_crash_with_terminal_pipeline() {
 
     // Push item with a fast command so the pipeline completes quickly
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo hello"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo hello"}"#])
         .passes();
 
     // Wait for the pipeline to reach a terminal state
@@ -303,7 +327,11 @@ fn queue_item_released_after_crash_with_terminal_pipeline() {
 
     // Queue item should be completed (either from original WAL or reconciliation)
     let item_completed = wait_for(SPEC_WAIT_MAX_MS * 5, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("completed")
     });
 
@@ -311,7 +339,10 @@ fn queue_item_released_after_crash_with_terminal_pipeline() {
         eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
         eprintln!(
             "=== QUEUE ITEMS ===\n{}\n=== END ITEMS ===",
-            temp.oj().args(&["queue", "show", "jobs"]).passes().stdout()
+            temp.oj()
+                .args(&["queue", "show", "tasks"])
+                .passes()
+                .stdout()
         );
         eprintln!(
             "=== PIPELINES ===\n{}\n=== END PIPELINES ===",
@@ -345,12 +376,12 @@ mode = "live"
 fn circuit_breaker_runbook(scenario_path: &std::path::Path) -> String {
     format!(
         r#"
-[queue.jobs]
+[queue.tasks]
 type = "persisted"
 vars = ["cmd"]
 
 [worker.runner]
-source = {{ queue = "jobs" }}
+source = {{ queue = "tasks" }}
 handler = {{ pipeline = "process" }}
 concurrency = 1
 
@@ -387,7 +418,7 @@ fn circuit_breaker_escalates_after_max_attempts() {
 
     // Push an item — the agent will exit, recover, exit, recover, then escalate
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "noop"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "noop"}"#])
         .passes();
 
     // Wait for pipeline to reach "waiting" (escalated) status
@@ -405,7 +436,11 @@ fn circuit_breaker_escalates_after_max_attempts() {
     );
 
     // Queue item should still be active (pipeline hasn't terminated, it's waiting)
-    let items = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+    let items = temp
+        .oj()
+        .args(&["queue", "show", "tasks"])
+        .passes()
+        .stdout();
     assert!(
         items.contains("active"),
         "queue item should remain active while pipeline is waiting for intervention, got: {}",

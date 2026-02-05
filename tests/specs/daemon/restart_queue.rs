@@ -10,12 +10,12 @@ use crate::prelude::*;
 /// `work` runs a command provided via the queue item's `cmd` var.
 /// `done` always succeeds (echo done).
 const QUEUE_PIPELINE_RUNBOOK: &str = r#"
-[queue.jobs]
+[queue.tasks]
 type = "persisted"
 vars = ["cmd"]
 
 [worker.runner]
-source = { queue = "jobs" }
+source = { queue = "tasks" }
 handler = { pipeline = "process" }
 concurrency = 1
 
@@ -29,7 +29,7 @@ run = "${var.cmd}"
 
 /// Queue-only runbook for testing WAL persistence without worker interference.
 const QUEUE_ONLY_RUNBOOK: &str = r#"
-[queue.jobs]
+[queue.tasks]
 type = "persisted"
 vars = ["cmd"]
 "#;
@@ -63,12 +63,12 @@ auto_approve = true
 fn crash_recovery_queue_runbook(scenario_path: &std::path::Path) -> String {
     format!(
         r#"
-[queue.jobs]
+[queue.tasks]
 type = "persisted"
 vars = ["name"]
 
 [worker.runner]
-source = {{ queue = "jobs" }}
+source = {{ queue = "tasks" }}
 handler = {{ pipeline = "process" }}
 concurrency = 1
 
@@ -103,12 +103,16 @@ fn completed_queue_items_persist_across_restart() {
 
     // Push item that completes quickly
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo hello"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo hello"}"#])
         .passes();
 
     // Wait for completion
     let completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("completed")
     });
 
@@ -126,7 +130,11 @@ fn completed_queue_items_persist_across_restart() {
 
     // Verify completed status persisted after WAL replay
     let still_completed = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("completed")
     });
     assert!(
@@ -150,12 +158,16 @@ fn dead_queue_items_persist_across_restart() {
 
     // Push item that fails (no retry config → immediate dead)
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "exit 1"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "exit 1"}"#])
         .passes();
 
     // Wait for dead status
     let dead = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("dead")
     });
 
@@ -173,7 +185,11 @@ fn dead_queue_items_persist_across_restart() {
 
     // Verify dead status persisted after WAL replay
     let still_dead = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("dead")
     });
     assert!(still_dead, "dead status should persist across restart");
@@ -193,15 +209,19 @@ fn pending_queue_items_persist_across_restart() {
 
     // Push two items (no worker defined, so they stay pending)
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo hello"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo hello"}"#])
         .passes();
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo world"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo world"}"#])
         .passes();
 
     // Wait for both items to appear as pending (WAL commit is async)
     let both_pending = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.matches("pending").count() == 2
     });
     assert!(both_pending, "both items should be pending");
@@ -211,7 +231,11 @@ fn pending_queue_items_persist_across_restart() {
     temp.oj().args(&["daemon", "start"]).passes();
 
     // Verify items survived restart with correct status and data
-    let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+    let out = temp
+        .oj()
+        .args(&["queue", "show", "tasks"])
+        .passes()
+        .stdout();
     assert_eq!(
         out.matches("pending").count(),
         2,
@@ -245,11 +269,15 @@ fn worker_resumes_and_processes_new_items_after_restart() {
 
     // Complete one item to verify worker is functional
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo first"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo first"}"#])
         .passes();
 
     let first_done = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("completed")
     });
 
@@ -264,11 +292,15 @@ fn worker_resumes_and_processes_new_items_after_restart() {
 
     // Push new item after restart — recovered worker should process it
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"cmd": "echo second"}"#])
+        .args(&["queue", "push", "tasks", r#"{"cmd": "echo second"}"#])
         .passes();
 
     let second_done = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.matches("completed").count() >= 2
     });
 
@@ -307,12 +339,16 @@ fn active_queue_item_completes_after_daemon_crash() {
 
     // Push item — the agent will start running a slow task
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"name": "crash-test"}"#])
+        .args(&["queue", "push", "tasks", r#"{"name": "crash-test"}"#])
         .passes();
 
     // Wait for the queue item to become active and the pipeline to reach running
     let active = wait_for(SPEC_WAIT_MAX_MS, || {
-        let items = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let items = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         let pipelines = temp.oj().args(&["pipeline", "list"]).passes().stdout();
         items.contains("active") && pipelines.contains("running")
     });
@@ -346,7 +382,11 @@ fn active_queue_item_completes_after_daemon_crash() {
     // Wait for the pipeline to complete via recovery (on_dead = "done")
     // and the queue item to reach completed status
     let item_completed = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         out.contains("completed")
     });
 
@@ -354,7 +394,10 @@ fn active_queue_item_completes_after_daemon_crash() {
         eprintln!("=== DAEMON LOG ===\n{}\n=== END LOG ===", temp.daemon_log());
         eprintln!(
             "=== QUEUE ITEMS ===\n{}\n=== END ITEMS ===",
-            temp.oj().args(&["queue", "show", "jobs"]).passes().stdout()
+            temp.oj()
+                .args(&["queue", "show", "tasks"])
+                .passes()
+                .stdout()
         );
         eprintln!(
             "=== PIPELINES ===\n{}\n=== END PIPELINES ===",

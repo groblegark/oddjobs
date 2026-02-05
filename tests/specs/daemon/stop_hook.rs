@@ -155,12 +155,12 @@ on_dead = {{ action = "recover", attempts = 3 }}
 fn runbook_queue_agent_cancel(scenario_path: &std::path::Path) -> String {
     format!(
         r#"
-[queue.jobs]
+[queue.tasks]
 type = "persisted"
 vars = ["name"]
 
 [worker.runner]
-source = {{ queue = "jobs" }}
+source = {{ queue = "tasks" }}
 handler = {{ pipeline = "work" }}
 concurrency = 1
 
@@ -522,7 +522,7 @@ fn cancel_agent_pipeline_frees_queue_slot() {
 
     // Push item with a name var
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"name": "test-item"}"#])
+        .args(&["queue", "push", "tasks", r#"{"name": "test-item"}"#])
         .passes();
 
     // Wait for pipeline to reach agent step
@@ -537,7 +537,11 @@ fn cancel_agent_pipeline_frees_queue_slot() {
     );
 
     // Verify queue item is active
-    let active = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+    let active = temp
+        .oj()
+        .args(&["queue", "show", "tasks"])
+        .passes()
+        .stdout();
     assert!(active.contains("active"), "queue item should be active");
 
     // Cancel the pipeline
@@ -548,7 +552,11 @@ fn cancel_agent_pipeline_frees_queue_slot() {
 
     // Queue item should leave active status
     let transitioned = wait_for(SPEC_WAIT_MAX_MS, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         !out.contains("active")
     });
 
@@ -562,11 +570,15 @@ fn cancel_agent_pipeline_frees_queue_slot() {
 
     // Verify the slot is freed by pushing another item and watching it activate
     temp.oj()
-        .args(&["queue", "push", "jobs", r#"{"name": "second-item"}"#])
+        .args(&["queue", "push", "tasks", r#"{"name": "second-item"}"#])
         .passes();
 
     let second_runs = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
+        let out = temp
+            .oj()
+            .args(&["queue", "show", "tasks"])
+            .passes()
+            .stdout();
         // The second item should become active (or complete), proving the slot was freed
         out.matches("active").count() >= 1 || out.matches("completed").count() >= 1
     });

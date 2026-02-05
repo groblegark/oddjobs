@@ -873,7 +873,7 @@ fn list_queues_shows_all_namespaces() {
             vec![make_queue_item("i1", QueueItemStatus::Pending)],
         );
         s.queue_items.insert(
-            "project-b/jobs".to_string(),
+            "project-b/builds".to_string(),
             vec![
                 make_queue_item("i2", QueueItemStatus::Pending),
                 make_queue_item("i3", QueueItemStatus::Active),
@@ -881,7 +881,7 @@ fn list_queues_shows_all_namespaces() {
         );
         s.workers.insert(
             "project-b/worker1".to_string(),
-            make_worker("worker1", "project-b", "jobs", 1),
+            make_worker("worker1", "project-b", "builds", 1),
         );
     }
 
@@ -904,7 +904,7 @@ fn list_queues_shows_all_namespaces() {
             assert_eq!(qa.namespace, "project-a");
             assert_eq!(qa.item_count, 1);
 
-            let qb = queues.iter().find(|q| q.name == "jobs").unwrap();
+            let qb = queues.iter().find(|q| q.name == "builds").unwrap();
             assert_eq!(qb.namespace, "project-b");
             assert_eq!(qb.item_count, 2);
             assert_eq!(qb.workers, vec!["worker1".to_string()]);

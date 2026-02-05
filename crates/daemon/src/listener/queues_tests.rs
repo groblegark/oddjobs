@@ -35,13 +35,13 @@ fn project_with_queue_and_worker() -> tempfile::TempDir {
     std::fs::write(
         runbook_dir.join("test.hcl"),
         r#"
-queue "jobs" {
+queue "tasks" {
   type = "persisted"
   vars = ["task"]
 }
 
 worker "processor" {
-  source  = { queue = "jobs" }
+  source  = { queue = "tasks" }
   handler = { pipeline = "handle" }
 }
 
@@ -64,7 +64,7 @@ fn project_with_queue_only() -> tempfile::TempDir {
     std::fs::write(
         runbook_dir.join("test.hcl"),
         r#"
-queue "jobs" {
+queue "tasks" {
   type = "persisted"
   vars = ["task"]
 }
@@ -99,10 +99,10 @@ fn push_auto_starts_stopped_worker() {
     let state = Arc::new(Mutex::new(MaterializedState::default()));
 
     let data = serde_json::json!({ "task": "test-value" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     assert!(
-        matches!(result, Response::QueuePushed { ref queue_name, .. } if queue_name == "jobs"),
+        matches!(result, Response::QueuePushed { ref queue_name, .. } if queue_name == "tasks"),
         "expected QueuePushed, got {:?}",
         result
     );
@@ -112,7 +112,7 @@ fn push_auto_starts_stopped_worker() {
     assert_eq!(events.len(), 3, "expected 3 events, got: {:?}", events);
 
     assert!(
-        matches!(&events[0], Event::QueuePushed { queue_name, .. } if queue_name == "jobs"),
+        matches!(&events[0], Event::QueuePushed { queue_name, .. } if queue_name == "tasks"),
         "first event should be QueuePushed, got: {:?}",
         events[0]
     );
@@ -125,7 +125,7 @@ fn push_auto_starts_stopped_worker() {
         matches!(
             &events[2],
             Event::WorkerStarted { worker_name, queue_name, .. }
-            if worker_name == "processor" && queue_name == "jobs"
+            if worker_name == "processor" && queue_name == "tasks"
         ),
         "third event should be WorkerStarted for processor, got: {:?}",
         events[2]
@@ -148,7 +148,7 @@ fn push_wakes_running_worker() {
             runbook_hash: "fake-hash".to_string(),
             status: "running".to_string(),
             active_pipeline_ids: vec![],
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             concurrency: 1,
             namespace: String::new(),
         },
@@ -156,7 +156,7 @@ fn push_wakes_running_worker() {
     let state = Arc::new(Mutex::new(initial_state));
 
     let data = serde_json::json!({ "task": "test-value" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     assert!(matches!(result, Response::QueuePushed { .. }));
 
@@ -183,7 +183,7 @@ fn push_with_no_workers_succeeds() {
     let state = Arc::new(Mutex::new(MaterializedState::default()));
 
     let data = serde_json::json!({ "task": "test-value" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     assert!(matches!(result, Response::QueuePushed { .. }));
 
@@ -202,7 +202,7 @@ fn drop_removes_item_from_queue() {
     // Pre-populate state with a pushed item
     let mut initial_state = MaterializedState::default();
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "item-abc123".to_string(),
         data: [("task".to_string(), "test".to_string())]
             .into_iter()
@@ -215,7 +215,7 @@ fn drop_removes_item_from_queue() {
     let result = handle_queue_drop(
         project.path(),
         "",
-        "jobs",
+        "tasks",
         "item-abc123",
         &event_bus,
         &state,
@@ -226,7 +226,7 @@ fn drop_removes_item_from_queue() {
         matches!(
             result,
             Response::QueueDropped { ref queue_name, ref item_id }
-            if queue_name == "jobs" && item_id == "item-abc123"
+            if queue_name == "tasks" && item_id == "item-abc123"
         ),
         "expected QueueDropped, got {:?}",
         result
@@ -240,7 +240,7 @@ fn drop_removes_item_from_queue() {
             queue_name,
             item_id,
             ..
-        } if queue_name == "jobs" && item_id == "item-abc123"
+        } if queue_name == "tasks" && item_id == "item-abc123"
     ));
 }
 
@@ -278,7 +278,7 @@ fn drop_nonexistent_item_returns_error() {
     let result = handle_queue_drop(
         project.path(),
         "",
-        "jobs",
+        "tasks",
         "item-missing",
         &event_bus,
         &state,
@@ -437,7 +437,7 @@ fn drop_with_prefix_resolves_unique_match() {
 
     let mut initial_state = MaterializedState::default();
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "abc12345-0000-0000-0000-000000000000".to_string(),
         data: [("task".to_string(), "test".to_string())]
             .into_iter()
@@ -448,7 +448,7 @@ fn drop_with_prefix_resolves_unique_match() {
     let state = Arc::new(Mutex::new(initial_state));
 
     let result =
-        handle_queue_drop(project.path(), "", "jobs", "abc12", &event_bus, &state).unwrap();
+        handle_queue_drop(project.path(), "", "tasks", "abc12", &event_bus, &state).unwrap();
 
     assert!(
         matches!(
@@ -478,7 +478,7 @@ fn drop_ambiguous_prefix_returns_error() {
     let mut initial_state = MaterializedState::default();
     for suffix in ["aaa", "bbb"] {
         initial_state.apply_event(&Event::QueuePushed {
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             item_id: format!("abc-{}", suffix),
             data: [("task".to_string(), "test".to_string())]
                 .into_iter()
@@ -489,7 +489,7 @@ fn drop_ambiguous_prefix_returns_error() {
     }
     let state = Arc::new(Mutex::new(initial_state));
 
-    let result = handle_queue_drop(project.path(), "", "jobs", "abc", &event_bus, &state).unwrap();
+    let result = handle_queue_drop(project.path(), "", "tasks", "abc", &event_bus, &state).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("ambiguous")),
@@ -508,13 +508,13 @@ fn retry_with_prefix_resolves_unique_match() {
     push_and_mark_dead(
         &state,
         "",
-        "jobs",
+        "tasks",
         "def98765-0000-0000-0000-000000000000",
         &[("task", "retry-me")],
     );
 
     let result =
-        handle_queue_retry(project.path(), "", "jobs", "def98", &event_bus, &state).unwrap();
+        handle_queue_retry(project.path(), "", "tasks", "def98", &event_bus, &state).unwrap();
 
     assert!(
         matches!(
@@ -539,12 +539,18 @@ fn retry_with_exact_id_still_works() {
     let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
 
-    push_and_mark_dead(&state, "", "jobs", "exact-id-1234", &[("task", "retry-me")]);
+    push_and_mark_dead(
+        &state,
+        "",
+        "tasks",
+        "exact-id-1234",
+        &[("task", "retry-me")],
+    );
 
     let result = handle_queue_retry(
         project.path(),
         "",
-        "jobs",
+        "tasks",
         "exact-id-1234",
         &event_bus,
         &state,
@@ -573,13 +579,14 @@ fn retry_ambiguous_prefix_returns_error() {
         push_and_mark_dead(
             &state,
             "",
-            "jobs",
+            "tasks",
             &format!("abc-{}", suffix),
             &[("task", "test")],
         );
     }
 
-    let result = handle_queue_retry(project.path(), "", "jobs", "abc", &event_bus, &state).unwrap();
+    let result =
+        handle_queue_retry(project.path(), "", "tasks", "abc", &event_bus, &state).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("ambiguous")),
@@ -598,7 +605,7 @@ fn retry_no_match_returns_not_found() {
     let result = handle_queue_retry(
         project.path(),
         "",
-        "jobs",
+        "tasks",
         "nonexistent",
         &event_bus,
         &state,
@@ -622,7 +629,7 @@ fn drain_removes_all_pending_items() {
     let mut initial_state = MaterializedState::default();
     for i in 1..=3 {
         initial_state.apply_event(&Event::QueuePushed {
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             item_id: format!("item-{}", i),
             data: [("task".to_string(), format!("task-{}", i))]
                 .into_iter()
@@ -633,14 +640,14 @@ fn drain_removes_all_pending_items() {
     }
     let state = Arc::new(Mutex::new(initial_state));
 
-    let result = handle_queue_drain(project.path(), "", "jobs", &event_bus, &state).unwrap();
+    let result = handle_queue_drain(project.path(), "", "tasks", &event_bus, &state).unwrap();
 
     match result {
         Response::QueueDrained {
             ref queue_name,
             ref items,
         } => {
-            assert_eq!(queue_name, "jobs");
+            assert_eq!(queue_name, "tasks");
             assert_eq!(items.len(), 3);
             let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
             assert!(ids.contains(&"item-1"));
@@ -654,7 +661,7 @@ fn drain_removes_all_pending_items() {
     assert_eq!(events.len(), 3, "expected 3 QueueDropped events");
     for event in &events {
         assert!(
-            matches!(event, Event::QueueDropped { queue_name, .. } if queue_name == "jobs"),
+            matches!(event, Event::QueueDropped { queue_name, .. } if queue_name == "tasks"),
             "expected QueueDropped, got {:?}",
             event
         );
@@ -670,7 +677,7 @@ fn drain_skips_non_pending_items() {
     let mut initial_state = MaterializedState::default();
     // One pending item
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "pending-1".to_string(),
         data: [("task".to_string(), "pending".to_string())]
             .into_iter()
@@ -680,7 +687,7 @@ fn drain_skips_non_pending_items() {
     });
     // One active item
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "active-1".to_string(),
         data: [("task".to_string(), "active".to_string())]
             .into_iter()
@@ -689,14 +696,14 @@ fn drain_skips_non_pending_items() {
         namespace: String::new(),
     });
     initial_state.apply_event(&Event::QueueTaken {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "active-1".to_string(),
         worker_name: "w1".to_string(),
         namespace: String::new(),
     });
     // One dead item
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "dead-1".to_string(),
         data: [("task".to_string(), "dead".to_string())]
             .into_iter()
@@ -705,13 +712,13 @@ fn drain_skips_non_pending_items() {
         namespace: String::new(),
     });
     initial_state.apply_event(&Event::QueueItemDead {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "dead-1".to_string(),
         namespace: String::new(),
     });
     let state = Arc::new(Mutex::new(initial_state));
 
-    let result = handle_queue_drain(project.path(), "", "jobs", &event_bus, &state).unwrap();
+    let result = handle_queue_drain(project.path(), "", "tasks", &event_bus, &state).unwrap();
 
     match result {
         Response::QueueDrained { ref items, .. } => {
@@ -736,13 +743,13 @@ fn drain_empty_queue_returns_empty_list() {
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
 
-    let result = handle_queue_drain(project.path(), "", "jobs", &event_bus, &state).unwrap();
+    let result = handle_queue_drain(project.path(), "", "tasks", &event_bus, &state).unwrap();
 
     assert!(
         matches!(
             result,
             Response::QueueDrained { ref queue_name, ref items }
-            if queue_name == "jobs" && items.is_empty()
+            if queue_name == "tasks" && items.is_empty()
         ),
         "expected empty QueueDrained, got {:?}",
         result
@@ -764,7 +771,7 @@ fn push_deduplicates_pending_item_with_same_data() {
     // Pre-populate state with a pending item
     let mut initial_state = MaterializedState::default();
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "existing-item-1".to_string(),
         data: [("task".to_string(), "build-feature-x".to_string())]
             .into_iter()
@@ -776,14 +783,14 @@ fn push_deduplicates_pending_item_with_same_data() {
 
     // Push the same data again
     let data = serde_json::json!({ "task": "build-feature-x" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     // Should return the existing item ID, not create a new one
     assert!(
         matches!(
             result,
             Response::QueuePushed { ref queue_name, ref item_id }
-            if queue_name == "jobs" && item_id == "existing-item-1"
+            if queue_name == "tasks" && item_id == "existing-item-1"
         ),
         "expected QueuePushed with existing item ID, got {:?}",
         result
@@ -809,7 +816,7 @@ fn push_deduplicates_active_item_with_same_data() {
     // Pre-populate state with an active item
     let mut initial_state = MaterializedState::default();
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "active-item-1".to_string(),
         data: [("task".to_string(), "build-feature-y".to_string())]
             .into_iter()
@@ -818,7 +825,7 @@ fn push_deduplicates_active_item_with_same_data() {
         namespace: String::new(),
     });
     initial_state.apply_event(&Event::QueueTaken {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "active-item-1".to_string(),
         worker_name: "w1".to_string(),
         namespace: String::new(),
@@ -827,14 +834,14 @@ fn push_deduplicates_active_item_with_same_data() {
 
     // Push the same data again
     let data = serde_json::json!({ "task": "build-feature-y" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     // Should return the existing active item ID
     assert!(
         matches!(
             result,
             Response::QueuePushed { ref queue_name, ref item_id }
-            if queue_name == "jobs" && item_id == "active-item-1"
+            if queue_name == "tasks" && item_id == "active-item-1"
         ),
         "expected QueuePushed with existing active item ID, got {:?}",
         result
@@ -858,7 +865,7 @@ fn push_allows_duplicate_data_when_previous_is_completed() {
     // Pre-populate state with a completed item
     let mut initial_state = MaterializedState::default();
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "completed-item-1".to_string(),
         data: [("task".to_string(), "build-feature-z".to_string())]
             .into_iter()
@@ -867,7 +874,7 @@ fn push_allows_duplicate_data_when_previous_is_completed() {
         namespace: String::new(),
     });
     initial_state.apply_event(&Event::QueueCompleted {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "completed-item-1".to_string(),
         namespace: String::new(),
     });
@@ -875,7 +882,7 @@ fn push_allows_duplicate_data_when_previous_is_completed() {
 
     // Push the same data again — should succeed since the previous item is completed
     let data = serde_json::json!({ "task": "build-feature-z" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     // Should create a new item (different ID from completed one)
     match result {
@@ -883,7 +890,7 @@ fn push_allows_duplicate_data_when_previous_is_completed() {
             ref queue_name,
             ref item_id,
         } => {
-            assert_eq!(queue_name, "jobs");
+            assert_eq!(queue_name, "tasks");
             assert_ne!(item_id, "completed-item-1", "should be a new item ID");
         }
         other => panic!("expected QueuePushed, got {:?}", other),
@@ -907,7 +914,7 @@ fn push_allows_duplicate_data_when_previous_is_dead() {
     // Pre-populate state with a dead item
     let mut initial_state = MaterializedState::default();
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "dead-item-1".to_string(),
         data: [("task".to_string(), "build-feature-w".to_string())]
             .into_iter()
@@ -916,7 +923,7 @@ fn push_allows_duplicate_data_when_previous_is_dead() {
         namespace: String::new(),
     });
     initial_state.apply_event(&Event::QueueItemDead {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "dead-item-1".to_string(),
         namespace: String::new(),
     });
@@ -924,14 +931,14 @@ fn push_allows_duplicate_data_when_previous_is_dead() {
 
     // Push the same data again — should succeed since the previous item is dead
     let data = serde_json::json!({ "task": "build-feature-w" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     match result {
         Response::QueuePushed {
             ref queue_name,
             ref item_id,
         } => {
-            assert_eq!(queue_name, "jobs");
+            assert_eq!(queue_name, "tasks");
             assert_ne!(item_id, "dead-item-1", "should be a new item ID");
         }
         other => panic!("expected QueuePushed, got {:?}", other),
@@ -955,7 +962,7 @@ fn push_different_data_is_not_deduplicated() {
     // Pre-populate state with a pending item
     let mut initial_state = MaterializedState::default();
     initial_state.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "existing-item-1".to_string(),
         data: [("task".to_string(), "build-feature-x".to_string())]
             .into_iter()
@@ -967,14 +974,14 @@ fn push_different_data_is_not_deduplicated() {
 
     // Push different data — should create a new item
     let data = serde_json::json!({ "task": "build-feature-y" });
-    let result = handle_queue_push(project.path(), "", "jobs", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
 
     match result {
         Response::QueuePushed {
             ref queue_name,
             ref item_id,
         } => {
-            assert_eq!(queue_name, "jobs");
+            assert_eq!(queue_name, "tasks");
             assert_ne!(item_id, "existing-item-1", "should be a new item ID");
         }
         other => panic!("expected QueuePushed, got {:?}", other),
@@ -1024,7 +1031,7 @@ fn push_with_wrong_project_root_falls_back_to_namespace() {
             runbook_hash: "fake-hash".to_string(),
             status: "running".to_string(),
             active_pipeline_ids: vec![],
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             concurrency: 1,
             namespace: "my-project".to_string(),
         },
@@ -1036,7 +1043,7 @@ fn push_with_wrong_project_root_falls_back_to_namespace() {
     let result = handle_queue_push(
         std::path::Path::new("/wrong/path"),
         "my-project",
-        "jobs",
+        "tasks",
         data,
         &event_bus,
         &state,
@@ -1044,7 +1051,7 @@ fn push_with_wrong_project_root_falls_back_to_namespace() {
     .unwrap();
 
     assert!(
-        matches!(result, Response::QueuePushed { ref queue_name, .. } if queue_name == "jobs"),
+        matches!(result, Response::QueuePushed { ref queue_name, .. } if queue_name == "tasks"),
         "expected QueuePushed from namespace fallback, got {:?}",
         result
     );
@@ -1075,7 +1082,7 @@ fn drop_with_wrong_project_root_falls_back_to_namespace() {
     );
     // Also add a queue item so the drop has something to find
     initial.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "item-abc123".to_string(),
         data: [("task".to_string(), "test".to_string())]
             .into_iter()
@@ -1088,7 +1095,7 @@ fn drop_with_wrong_project_root_falls_back_to_namespace() {
     let result = handle_queue_drop(
         std::path::Path::new("/wrong/path"),
         "my-project",
-        "jobs",
+        "tasks",
         "item-abc123",
         &event_bus,
         &state,
@@ -1099,7 +1106,7 @@ fn drop_with_wrong_project_root_falls_back_to_namespace() {
         matches!(
             result,
             Response::QueueDropped { ref queue_name, ref item_id }
-            if queue_name == "jobs" && item_id == "item-abc123"
+            if queue_name == "tasks" && item_id == "item-abc123"
         ),
         "expected QueueDropped from namespace fallback, got {:?}",
         result
@@ -1122,7 +1129,7 @@ fn retry_with_wrong_project_root_falls_back_to_namespace() {
             runbook_hash: "fake-hash".to_string(),
             status: "stopped".to_string(),
             active_pipeline_ids: vec![],
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             concurrency: 1,
             namespace: "my-project".to_string(),
         },
@@ -1131,13 +1138,13 @@ fn retry_with_wrong_project_root_falls_back_to_namespace() {
     push_and_mark_dead(
         &Arc::new(Mutex::new(MaterializedState::default())),
         "my-project",
-        "jobs",
+        "tasks",
         "item-dead-1",
         &[("task", "retry-me")],
     );
     // Apply directly to initial state
     initial.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "item-dead-1".to_string(),
         data: [("task".to_string(), "retry-me".to_string())]
             .into_iter()
@@ -1146,7 +1153,7 @@ fn retry_with_wrong_project_root_falls_back_to_namespace() {
         namespace: "my-project".to_string(),
     });
     initial.apply_event(&Event::QueueItemDead {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "item-dead-1".to_string(),
         namespace: "my-project".to_string(),
     });
@@ -1155,7 +1162,7 @@ fn retry_with_wrong_project_root_falls_back_to_namespace() {
     let result = handle_queue_retry(
         std::path::Path::new("/wrong/path"),
         "my-project",
-        "jobs",
+        "tasks",
         "item-dead-1",
         &event_bus,
         &state,
@@ -1166,7 +1173,7 @@ fn retry_with_wrong_project_root_falls_back_to_namespace() {
         matches!(
             result,
             Response::QueueRetried { ref queue_name, ref item_id }
-            if queue_name == "jobs" && item_id == "item-dead-1"
+            if queue_name == "tasks" && item_id == "item-dead-1"
         ),
         "expected QueueRetried from namespace fallback, got {:?}",
         result
@@ -1198,7 +1205,7 @@ fn drain_with_wrong_project_root_falls_back_to_namespace() {
     );
     // Add pending queue items
     initial.apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "pending-1".to_string(),
         data: [("task".to_string(), "test".to_string())]
             .into_iter()
@@ -1211,7 +1218,7 @@ fn drain_with_wrong_project_root_falls_back_to_namespace() {
     let result = handle_queue_drain(
         std::path::Path::new("/wrong/path"),
         "my-project",
-        "jobs",
+        "tasks",
         &event_bus,
         &state,
     )
@@ -1221,7 +1228,7 @@ fn drain_with_wrong_project_root_falls_back_to_namespace() {
         matches!(
             result,
             Response::QueueDrained { ref queue_name, ref items }
-            if queue_name == "jobs" && items.len() == 1
+            if queue_name == "tasks" && items.len() == 1
         ),
         "expected QueueDrained from namespace fallback, got {:?}",
         result
@@ -1340,14 +1347,22 @@ fn prune_completed_items_older_than_12h() {
     push_and_mark_completed(
         &state,
         "",
-        "jobs",
+        "tasks",
         "old-item-1",
         &[("task", "a")],
         old_epoch_ms(),
     );
 
-    let result =
-        handle_queue_prune(project.path(), "", "jobs", false, false, &event_bus, &state).unwrap();
+    let result = handle_queue_prune(
+        project.path(),
+        "",
+        "tasks",
+        false,
+        false,
+        &event_bus,
+        &state,
+    )
+    .unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -1380,14 +1395,22 @@ fn prune_skips_recent_completed_items() {
     push_and_mark_completed(
         &state,
         "",
-        "jobs",
+        "tasks",
         "recent-item-1",
         &[("task", "b")],
         recent_epoch_ms(),
     );
 
-    let result =
-        handle_queue_prune(project.path(), "", "jobs", false, false, &event_bus, &state).unwrap();
+    let result = handle_queue_prune(
+        project.path(),
+        "",
+        "tasks",
+        false,
+        false,
+        &event_bus,
+        &state,
+    )
+    .unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -1414,14 +1437,14 @@ fn prune_all_flag_prunes_recent_items() {
     push_and_mark_completed(
         &state,
         "",
-        "jobs",
+        "tasks",
         "recent-item-1",
         &[("task", "c")],
         recent_epoch_ms(),
     );
 
     let result =
-        handle_queue_prune(project.path(), "", "jobs", true, false, &event_bus, &state).unwrap();
+        handle_queue_prune(project.path(), "", "tasks", true, false, &event_bus, &state).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -1449,14 +1472,22 @@ fn prune_dead_items() {
     push_and_mark_dead_at(
         &state,
         "",
-        "jobs",
+        "tasks",
         "dead-item-1",
         &[("task", "d")],
         old_epoch_ms(),
     );
 
-    let result =
-        handle_queue_prune(project.path(), "", "jobs", false, false, &event_bus, &state).unwrap();
+    let result = handle_queue_prune(
+        project.path(),
+        "",
+        "tasks",
+        false,
+        false,
+        &event_bus,
+        &state,
+    )
+    .unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -1488,7 +1519,7 @@ fn prune_skips_active_pending_failed_items() {
 
     // Pending item
     state.lock().apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "pending-1".to_string(),
         data: [("task".to_string(), "p".to_string())]
             .into_iter()
@@ -1499,7 +1530,7 @@ fn prune_skips_active_pending_failed_items() {
 
     // Active item
     state.lock().apply_event(&Event::QueuePushed {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "active-1".to_string(),
         data: [("task".to_string(), "a".to_string())]
             .into_iter()
@@ -1508,7 +1539,7 @@ fn prune_skips_active_pending_failed_items() {
         namespace: String::new(),
     });
     state.lock().apply_event(&Event::QueueTaken {
-        queue_name: "jobs".to_string(),
+        queue_name: "tasks".to_string(),
         item_id: "active-1".to_string(),
         worker_name: "w1".to_string(),
         namespace: String::new(),
@@ -1518,14 +1549,14 @@ fn prune_skips_active_pending_failed_items() {
     push_and_mark_failed(
         &state,
         "",
-        "jobs",
+        "tasks",
         "failed-1",
         &[("task", "f")],
         old_epoch_ms(),
     );
 
     let result =
-        handle_queue_prune(project.path(), "", "jobs", true, false, &event_bus, &state).unwrap();
+        handle_queue_prune(project.path(), "", "tasks", true, false, &event_bus, &state).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -1552,14 +1583,14 @@ fn prune_dry_run_does_not_emit_events() {
     push_and_mark_completed(
         &state,
         "",
-        "jobs",
+        "tasks",
         "old-item-1",
         &[("task", "a")],
         old_epoch_ms(),
     );
 
     let result =
-        handle_queue_prune(project.path(), "", "jobs", false, true, &event_bus, &state).unwrap();
+        handle_queue_prune(project.path(), "", "tasks", false, true, &event_bus, &state).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -1589,7 +1620,7 @@ fn prune_empty_queue_returns_empty() {
     let state = Arc::new(Mutex::new(MaterializedState::default()));
 
     let result =
-        handle_queue_prune(project.path(), "", "jobs", true, false, &event_bus, &state).unwrap();
+        handle_queue_prune(project.path(), "", "tasks", true, false, &event_bus, &state).unwrap();
 
     match result {
         Response::QueuesPruned {

@@ -54,13 +54,13 @@ fn start_suggests_similar_worker_name() {
     std::fs::write(
         runbook_dir.join("test.hcl"),
         r#"
-queue "jobs" {
+queue "tasks" {
   type = "persisted"
   vars = ["task"]
 }
 
 worker "processor" {
-  source  = { queue = "jobs" }
+  source  = { queue = "tasks" }
   handler = { pipeline = "handle" }
 }
 
@@ -111,7 +111,7 @@ fn stop_suggests_similar_worker_from_state() {
             runbook_hash: "fake-hash".to_string(),
             status: "running".to_string(),
             active_pipeline_ids: vec![],
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             concurrency: 1,
             namespace: String::new(),
         },
@@ -189,7 +189,7 @@ fn restart_stops_existing_then_starts() {
             runbook_hash: "fake-hash".to_string(),
             status: "running".to_string(),
             active_pipeline_ids: vec![],
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             concurrency: 1,
             namespace: String::new(),
         },
@@ -226,13 +226,13 @@ fn restart_with_valid_runbook_returns_started() {
     std::fs::write(
         runbook_dir.join("test.hcl"),
         r#"
-queue "jobs" {
+queue "tasks" {
   type = "persisted"
   vars = ["task"]
 }
 
 worker "processor" {
-  source  = { queue = "jobs" }
+  source  = { queue = "tasks" }
   handler = { pipeline = "handle" }
 }
 
@@ -255,7 +255,7 @@ pipeline "handle" {
             runbook_hash: "old-hash".to_string(),
             status: "running".to_string(),
             active_pipeline_ids: vec![],
-            queue_name: "jobs".to_string(),
+            queue_name: "tasks".to_string(),
             concurrency: 1,
             namespace: String::new(),
         },

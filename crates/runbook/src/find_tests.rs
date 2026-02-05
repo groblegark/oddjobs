@@ -136,14 +136,14 @@ command "test" {
 "#;
 
 const WORKER_RUNBOOK: &str = r#"
-queue "jobs" {
+queue "tasks" {
   type = "external"
   list = "echo []"
   take = "echo ok"
 }
 
 worker "builder" {
-  source  = { queue = "jobs" }
+  source  = { queue = "tasks" }
   handler = { pipeline = "build" }
 }
 
@@ -326,7 +326,7 @@ fn collect_all_queues_multiple_files() {
 
     let queues = collect_all_queues(tmp.path()).unwrap();
     let names: Vec<&str> = queues.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(names, vec!["jobs", "tasks"]);
+    assert_eq!(names, vec!["tasks", "tasks"]);
 }
 
 #[test]

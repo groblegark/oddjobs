@@ -590,5 +590,759 @@ fn agent_notify_includes_step_variable() {
 }
 
 // =============================================================================
+// MonitorState Conversion Tests
+// =============================================================================
+
+#[test]
+fn monitor_state_from_working() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::Working);
+    assert!(matches!(state, MonitorState::Working));
+}
+
+#[test]
+fn monitor_state_from_waiting_for_input() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::WaitingForInput);
+    assert!(matches!(state, MonitorState::WaitingForInput));
+}
+
+#[test]
+fn monitor_state_from_failed_unauthorized() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::Failed(
+        oj_core::AgentError::Unauthorized,
+    ));
+    match state {
+        MonitorState::Failed {
+            message,
+            error_type,
+        } => {
+            assert!(message.contains("nauthorized"));
+            assert_eq!(error_type, Some(oj_runbook::ErrorType::Unauthorized));
+        }
+        _ => panic!("expected Failed"),
+    }
+}
+
+#[test]
+fn monitor_state_from_failed_out_of_credits() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::Failed(
+        oj_core::AgentError::OutOfCredits,
+    ));
+    match state {
+        MonitorState::Failed { error_type, .. } => {
+            assert_eq!(error_type, Some(oj_runbook::ErrorType::OutOfCredits));
+        }
+        _ => panic!("expected Failed"),
+    }
+}
+
+#[test]
+fn monitor_state_from_failed_no_internet() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::Failed(
+        oj_core::AgentError::NoInternet,
+    ));
+    match state {
+        MonitorState::Failed { error_type, .. } => {
+            assert_eq!(error_type, Some(oj_runbook::ErrorType::NoInternet));
+        }
+        _ => panic!("expected Failed"),
+    }
+}
+
+#[test]
+fn monitor_state_from_failed_rate_limited() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::Failed(
+        oj_core::AgentError::RateLimited,
+    ));
+    match state {
+        MonitorState::Failed { error_type, .. } => {
+            assert_eq!(error_type, Some(oj_runbook::ErrorType::RateLimited));
+        }
+        _ => panic!("expected Failed"),
+    }
+}
+
+#[test]
+fn monitor_state_from_failed_other() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::Failed(
+        oj_core::AgentError::Other("custom error".to_string()),
+    ));
+    match state {
+        MonitorState::Failed {
+            message,
+            error_type,
+        } => {
+            assert!(message.contains("custom error"));
+            assert_eq!(error_type, None);
+        }
+        _ => panic!("expected Failed"),
+    }
+}
+
+#[test]
+fn monitor_state_from_exited() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::Exited { exit_code: Some(0) });
+    assert!(matches!(state, MonitorState::Exited));
+}
+
+#[test]
+fn monitor_state_from_session_gone() {
+    let state = MonitorState::from_agent_state(&oj_core::AgentState::SessionGone);
+    assert!(matches!(state, MonitorState::Gone));
+}
+
+// =============================================================================
+// Agent Failure to Error Type Mapping
+// =============================================================================
+
+#[test]
+fn agent_failure_unauthorized_maps_to_error_type() {
+    assert_eq!(
+        agent_failure_to_error_type(&oj_core::AgentError::Unauthorized),
+        Some(oj_runbook::ErrorType::Unauthorized)
+    );
+}
+
+#[test]
+fn agent_failure_out_of_credits_maps_to_error_type() {
+    assert_eq!(
+        agent_failure_to_error_type(&oj_core::AgentError::OutOfCredits),
+        Some(oj_runbook::ErrorType::OutOfCredits)
+    );
+}
+
+#[test]
+fn agent_failure_no_internet_maps_to_error_type() {
+    assert_eq!(
+        agent_failure_to_error_type(&oj_core::AgentError::NoInternet),
+        Some(oj_runbook::ErrorType::NoInternet)
+    );
+}
+
+#[test]
+fn agent_failure_rate_limited_maps_to_error_type() {
+    assert_eq!(
+        agent_failure_to_error_type(&oj_core::AgentError::RateLimited),
+        Some(oj_runbook::ErrorType::RateLimited)
+    );
+}
+
+#[test]
+fn agent_failure_other_maps_to_none() {
+    assert_eq!(
+        agent_failure_to_error_type(&oj_core::AgentError::Other("anything".to_string())),
+        None
+    );
+}
+
+// =============================================================================
+// Escalation Trigger Mapping Tests
+// =============================================================================
+
+#[test]
+fn escalate_idle_trigger_emits_idle_source() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result =
+        build_action_effects(&job, &agent, &config, "idle", &HashMap::new(), None).unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Idle));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+#[test]
+fn escalate_exit_trigger_emits_error_source() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result =
+        build_action_effects(&job, &agent, &config, "exit", &HashMap::new(), None).unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Error));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+#[test]
+fn escalate_error_trigger_emits_error_source() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result =
+        build_action_effects(&job, &agent, &config, "error", &HashMap::new(), None).unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Error));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+#[test]
+fn escalate_prompt_trigger_emits_approval_source() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result =
+        build_action_effects(&job, &agent, &config, "prompt", &HashMap::new(), None).unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Approval));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+#[test]
+fn escalate_prompt_question_trigger_emits_question_source() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result = build_action_effects(
+        &job,
+        &agent,
+        &config,
+        "prompt:question",
+        &HashMap::new(),
+        None,
+    )
+    .unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Question));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+#[test]
+fn escalate_idle_exhausted_trigger_emits_idle_source() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result = build_action_effects(
+        &job,
+        &agent,
+        &config,
+        "idle_exhausted",
+        &HashMap::new(),
+        None,
+    )
+    .unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Idle));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+#[test]
+fn escalate_error_exhausted_trigger_emits_error_source() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result = build_action_effects(
+        &job,
+        &agent,
+        &config,
+        "error_exhausted",
+        &HashMap::new(),
+        None,
+    )
+    .unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Error));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+#[test]
+fn escalate_unknown_trigger_falls_back_to_idle() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result = build_action_effects(
+        &job,
+        &agent,
+        &config,
+        "some_unknown_trigger",
+        &HashMap::new(),
+        None,
+    )
+    .unwrap();
+    if let ActionEffects::Escalate { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Idle));
+    } else {
+        panic!("expected Escalate");
+    }
+}
+
+// =============================================================================
+// Nudge Message Content Tests
+// =============================================================================
+
+#[test]
+fn nudge_uses_default_message() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Nudge);
+
+    let result =
+        build_action_effects(&job, &agent, &config, "idle", &HashMap::new(), None).unwrap();
+    if let ActionEffects::Nudge { effects } = result {
+        match &effects[0] {
+            Effect::SendToSession { input, .. } => {
+                assert_eq!(input, "Please continue with the task.\n");
+            }
+            _ => panic!("expected SendToSession"),
+        }
+    } else {
+        panic!("expected Nudge");
+    }
+}
+
+#[test]
+fn nudge_uses_custom_message() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::with_message(AgentAction::Nudge, "Keep going!");
+
+    let result =
+        build_action_effects(&job, &agent, &config, "idle", &HashMap::new(), None).unwrap();
+    if let ActionEffects::Nudge { effects } = result {
+        match &effects[0] {
+            Effect::SendToSession { input, .. } => {
+                assert_eq!(input, "Keep going!\n");
+            }
+            _ => panic!("expected SendToSession"),
+        }
+    } else {
+        panic!("expected Nudge");
+    }
+}
+
+// =============================================================================
+// Fail Action Tests
+// =============================================================================
+
+#[test]
+fn fail_uses_trigger_as_error_message() {
+    let job = test_job();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Fail);
+
+    let result =
+        build_action_effects(&job, &agent, &config, "on_error", &HashMap::new(), None).unwrap();
+    if let ActionEffects::FailJob { error } = result {
+        assert_eq!(error, "on_error");
+    } else {
+        panic!("expected FailJob");
+    }
+}
+
+// =============================================================================
+// Standalone Agent Run Action Building Tests
+// =============================================================================
+
+fn test_agent_run() -> oj_core::AgentRun {
+    oj_core::AgentRun {
+        id: "run-1".to_string(),
+        agent_name: "worker".to_string(),
+        command_name: "agent_cmd".to_string(),
+        namespace: String::new(),
+        cwd: std::path::PathBuf::from("/tmp/test"),
+        runbook_hash: "testhash".to_string(),
+        status: oj_core::AgentRunStatus::Running,
+        agent_id: Some("agent-uuid-1".to_string()),
+        session_id: Some("sess-1".to_string()),
+        error: None,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        action_tracker: Default::default(),
+        vars: HashMap::new(),
+        idle_grace_log_size: None,
+        last_nudge_at: None,
+    }
+}
+
+#[test]
+fn agent_run_nudge_builds_send_effect() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Nudge);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None);
+    assert!(matches!(result, Ok(ActionEffects::Nudge { .. })));
+}
+
+#[test]
+fn agent_run_nudge_without_session_fails() {
+    let mut ar = test_agent_run();
+    ar.session_id = None;
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Nudge);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn agent_run_nudge_custom_message() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::with_message(AgentAction::Nudge, "Custom nudge");
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::Nudge { effects } = result {
+        match &effects[0] {
+            Effect::SendToSession { input, .. } => {
+                assert_eq!(input, "Custom nudge\n");
+            }
+            _ => panic!("expected SendToSession"),
+        }
+    } else {
+        panic!("expected Nudge");
+    }
+}
+
+#[test]
+fn agent_run_done_returns_complete() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Done);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None);
+    assert!(matches!(result, Ok(ActionEffects::CompleteAgentRun)));
+}
+
+#[test]
+fn agent_run_fail_returns_fail() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Fail);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "error", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::FailAgentRun { error } = result {
+        assert_eq!(error, "error");
+    } else {
+        panic!("expected FailAgentRun");
+    }
+}
+
+#[test]
+fn agent_run_resume_returns_resume_effects() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Resume);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::Resume {
+        kill_session,
+        agent_name,
+        resume_session_id,
+        ..
+    } = result
+    {
+        assert_eq!(kill_session.as_deref(), Some("sess-1"));
+        assert_eq!(agent_name, "worker");
+        // Without message, resume_session_id comes from agent_run.agent_id
+        assert_eq!(resume_session_id, Some("agent-uuid-1".to_string()));
+    } else {
+        panic!("expected Resume");
+    }
+}
+
+#[test]
+fn agent_run_resume_with_replace_message() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::with_message(AgentAction::Resume, "New prompt.");
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::Resume {
+        input,
+        resume_session_id,
+        ..
+    } = result
+    {
+        assert_eq!(input.get("prompt"), Some(&"New prompt.".to_string()));
+        assert!(
+            resume_session_id.is_none(),
+            "replace mode should not use --resume"
+        );
+    } else {
+        panic!("expected Resume");
+    }
+}
+
+#[test]
+fn agent_run_resume_with_append_message() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::with_append(AgentAction::Resume, "Try again.");
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::Resume {
+        input,
+        resume_session_id,
+        ..
+    } = result
+    {
+        assert_eq!(input.get("resume_message"), Some(&"Try again.".to_string()));
+        assert_eq!(resume_session_id, Some("agent-uuid-1".to_string()));
+    } else {
+        panic!("expected Resume");
+    }
+}
+
+#[test]
+fn agent_run_escalate_returns_escalate_effects() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None);
+    assert!(matches!(result, Ok(ActionEffects::EscalateAgentRun { .. })));
+}
+
+#[test]
+fn agent_run_escalate_emits_decision_and_status_change() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::EscalateAgentRun { effects } = result {
+        // Should emit DecisionCreated
+        let has_decision = effects.iter().any(|e| {
+            matches!(
+                e,
+                oj_core::Effect::Emit {
+                    event: oj_core::Event::DecisionCreated { .. }
+                }
+            )
+        });
+        assert!(has_decision, "should emit DecisionCreated");
+
+        // Should emit AgentRunStatusChanged to Escalated
+        let has_status_change = effects.iter().any(|e| {
+            matches!(
+                e,
+                oj_core::Effect::Emit {
+                    event: oj_core::Event::AgentRunStatusChanged {
+                        status: oj_core::AgentRunStatus::Escalated,
+                        ..
+                    }
+                }
+            )
+        });
+        assert!(has_status_change, "should emit AgentRunStatusChanged");
+
+        // Should have a Notify effect
+        let has_notify = effects
+            .iter()
+            .any(|e| matches!(e, oj_core::Effect::Notify { .. }));
+        assert!(has_notify, "should have desktop notification");
+
+        // Should cancel exit-deferred timer
+        let has_cancel = effects
+            .iter()
+            .any(|e| matches!(e, oj_core::Effect::CancelTimer { .. }));
+        assert!(has_cancel, "should cancel exit-deferred timer");
+    } else {
+        panic!("expected EscalateAgentRun");
+    }
+}
+
+#[test]
+fn agent_run_escalate_trigger_mapping() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Escalate);
+
+    // Test "exit" trigger maps to Error source
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::EscalateAgentRun { effects } = result {
+        let source = effects.iter().find_map(|e| match e {
+            oj_core::Effect::Emit {
+                event: oj_core::Event::DecisionCreated { source, .. },
+            } => Some(source.clone()),
+            _ => None,
+        });
+        assert_eq!(source, Some(oj_core::DecisionSource::Error));
+    }
+}
+
+#[test]
+fn agent_run_gate_returns_gate_effects() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::WithOptions {
+        action: AgentAction::Gate,
+        message: None,
+        append: false,
+        run: Some("make test".to_string()),
+        attempts: oj_runbook::Attempts::default(),
+        cooldown: None,
+    };
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None)
+            .unwrap();
+    if let ActionEffects::Gate { command } = result {
+        assert_eq!(command, "make test");
+    } else {
+        panic!("expected Gate");
+    }
+}
+
+#[test]
+fn agent_run_gate_without_run_errors() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let config = ActionConfig::simple(AgentAction::Gate);
+
+    let result =
+        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None);
+    assert!(result.is_err());
+}
+
+// =============================================================================
+// Standalone Agent Run Notification Tests
+// =============================================================================
+
+#[test]
+fn agent_run_notify_renders_template() {
+    let ar = test_agent_run();
+    let mut agent = test_agent_def();
+    agent.notify.on_start = Some("Agent ${agent} running ${name}".to_string());
+
+    let effect = build_agent_run_notify_effect(&ar, &agent, agent.notify.on_start.as_ref());
+    assert!(effect.is_some());
+    match effect.unwrap() {
+        Effect::Notify { title, message } => {
+            assert_eq!(title, "worker");
+            assert_eq!(message, "Agent worker running agent_cmd");
+        }
+        _ => panic!("expected Notify effect"),
+    }
+}
+
+#[test]
+fn agent_run_notify_includes_error() {
+    let mut ar = test_agent_run();
+    ar.error = Some("something failed".to_string());
+    let mut agent = test_agent_def();
+    agent.notify.on_fail = Some("Error: ${error}".to_string());
+
+    let effect = build_agent_run_notify_effect(&ar, &agent, agent.notify.on_fail.as_ref());
+    match effect.unwrap() {
+        Effect::Notify { message, .. } => {
+            assert_eq!(message, "Error: something failed");
+        }
+        _ => panic!("expected Notify effect"),
+    }
+}
+
+#[test]
+fn agent_run_notify_includes_vars() {
+    let mut ar = test_agent_run();
+    ar.vars.insert("env".to_string(), "staging".to_string());
+    let mut agent = test_agent_def();
+    agent.notify.on_done = Some("Done in ${var.env}".to_string());
+
+    let effect = build_agent_run_notify_effect(&ar, &agent, agent.notify.on_done.as_ref());
+    match effect.unwrap() {
+        Effect::Notify { message, .. } => {
+            assert_eq!(message, "Done in staging");
+        }
+        _ => panic!("expected Notify effect"),
+    }
+}
+
+#[test]
+fn agent_run_notify_none_when_no_template() {
+    let ar = test_agent_run();
+    let agent = test_agent_def();
+    let effect = build_agent_run_notify_effect(&ar, &agent, None);
+    assert!(effect.is_none());
+}
+
+// =============================================================================
 // Cooldown Timer ID Tests
 // =============================================================================

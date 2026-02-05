@@ -838,3 +838,66 @@ fn parse_gate_error(error: &str) -> (i32, String) {
     // Fallback: unknown exit code, full string as stderr
     (1, error.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_gate_error;
+
+    #[test]
+    fn parse_gate_error_with_exit_code_no_stderr() {
+        let (code, stderr) = parse_gate_error("gate `make test` failed (exit 1)");
+        assert_eq!(code, 1);
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn parse_gate_error_with_exit_code_and_stderr() {
+        let (code, stderr) =
+            parse_gate_error("gate `make test` failed (exit 2): compilation error");
+        assert_eq!(code, 2);
+        assert_eq!(stderr, "compilation error");
+    }
+
+    #[test]
+    fn parse_gate_error_execution_error() {
+        let (code, stderr) = parse_gate_error("gate `make test` execution error: not found");
+        // No "(exit N)" pattern, falls back
+        assert_eq!(code, 1);
+        assert_eq!(stderr, "gate `make test` execution error: not found");
+    }
+
+    #[test]
+    fn parse_gate_error_exit_code_zero() {
+        let (code, stderr) = parse_gate_error("gate `true` failed (exit 0)");
+        assert_eq!(code, 0);
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn parse_gate_error_high_exit_code() {
+        let (code, stderr) = parse_gate_error("gate `cmd` failed (exit 127)");
+        assert_eq!(code, 127);
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn parse_gate_error_multiline_stderr() {
+        let (code, stderr) = parse_gate_error("gate `cmd` failed (exit 1): line1\nline2\nline3");
+        assert_eq!(code, 1);
+        assert_eq!(stderr, "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn parse_gate_error_no_pattern_match() {
+        let (code, stderr) = parse_gate_error("some random error message");
+        assert_eq!(code, 1);
+        assert_eq!(stderr, "some random error message");
+    }
+
+    #[test]
+    fn parse_gate_error_negative_exit_code() {
+        // The parser uses i32::parse, so negative codes are parsed correctly
+        let (code, _stderr) = parse_gate_error("gate `cmd` failed (exit -1)");
+        assert_eq!(code, -1);
+    }
+}

@@ -17,28 +17,30 @@ command "epic" {
   SHELL
 }
 
-# Queue an existing issue for planning.
+# Queue existing issues for planning.
 #
 # Examples:
 #   oj run plan oj-abc123
+#   oj run plan oj-abc123 oj-def456
 command "plan" {
-  args = "<issue>"
+  args = "<issues>..."
   run  = <<-SHELL
-    wok label ${args.issue} plan:needed
-    wok reopen ${args.issue}
+    wok label ${args.issues} plan:needed
+    wok reopen ${args.issues}
     oj worker start plan
   SHELL
 }
 
-# Queue a planned issue for implementation.
+# Queue planned issues for implementation.
 #
 # Examples:
 #   oj run build oj-abc123
+#   oj run build oj-abc123 oj-def456
 command "build" {
-  args = "<issue>"
+  args = "<issues>..."
   run  = <<-SHELL
-    wok label ${args.issue} build:needed
-    wok reopen ${args.issue}
+    wok label ${args.issues} build:needed
+    wok reopen ${args.issues}
     oj worker start epic
   SHELL
 }

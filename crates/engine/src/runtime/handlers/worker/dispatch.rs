@@ -225,33 +225,6 @@ where
         Ok(result_events)
     }
 
-    /// Handle a failed take command: log the error.
-    pub(crate) async fn handle_worker_take_failed(
-        &self,
-        worker_name: &str,
-        item_id: &str,
-        error: &str,
-    ) -> Result<Vec<Event>, RuntimeError> {
-        let namespace = {
-            let mut workers = self.worker_states.lock();
-            if let Some(state) = workers.get_mut(worker_name) {
-                // Release the pending-take slot reserved by handle_worker_poll_complete
-                state.pending_takes = state.pending_takes.saturating_sub(1);
-                state.namespace.clone()
-            } else {
-                String::new()
-            }
-        };
-
-        let scoped = scoped_name(&namespace, worker_name);
-        self.worker_logger.append(
-            &scoped,
-            &format!("error: take command failed for item {}: {}", item_id, error),
-        );
-
-        Ok(vec![])
-    }
-
     /// Create and dispatch a pipeline for a single queue item.
     ///
     /// Shared by persisted-queue dispatch (inline in [`handle_worker_poll_complete`])

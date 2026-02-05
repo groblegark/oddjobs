@@ -273,6 +273,23 @@ pub enum Request {
         status: Option<String>,
     },
 
+    /// Retry multiple dead or failed queue items (bulk operation)
+    QueueRetryBulk {
+        project_root: PathBuf,
+        #[serde(default)]
+        namespace: String,
+        queue_name: String,
+        /// Specific item IDs to retry (ignored if all_dead is true)
+        #[serde(default)]
+        item_ids: Vec<String>,
+        /// Retry all dead items in the queue
+        #[serde(default)]
+        all_dead: bool,
+        /// Filter by status (e.g., "dead", "failed")
+        #[serde(default)]
+        status_filter: Option<String>,
+    },
+
     /// Drain all pending items from a persisted queue
     QueueDrain {
         project_root: PathBuf,

@@ -374,6 +374,10 @@ where
                 }
             }
 
+            Event::JobDeleted { id } => {
+                result_events.extend(self.handle_job_deleted(id).await?);
+            }
+
             // No-op: signals and state mutations handled elsewhere
             Event::Shutdown
             | Event::Custom
@@ -383,7 +387,6 @@ where
             | Event::StepWaiting { .. }
             | Event::StepCompleted { .. }
             | Event::StepFailed { .. }
-            | Event::JobDeleted { .. }
             | Event::SessionCreated { .. }
             | Event::SessionDeleted { .. }
             | Event::WorkspaceCreated { .. }

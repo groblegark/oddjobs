@@ -142,3 +142,52 @@ fn scheduler_fired_timers_removes_only_expired() {
     assert_eq!(events.len(), 1);
     assert!(matches!(events[0], Event::TimerStart { ref id } if id == "c"));
 }
+
+#[test]
+fn scheduler_cancel_timers_with_prefix() {
+    let clock = FakeClock::new();
+    let mut scheduler = Scheduler::new();
+
+    // Set up timers with different prefixes
+    scheduler.set_timer(
+        "job:abc123".to_string(),
+        Duration::from_secs(10),
+        clock.now(),
+    );
+    scheduler.set_timer(
+        "job:abc123:step1".to_string(),
+        Duration::from_secs(15),
+        clock.now(),
+    );
+    scheduler.set_timer(
+        "job:def456".to_string(),
+        Duration::from_secs(20),
+        clock.now(),
+    );
+    scheduler.set_timer(
+        "other:xyz".to_string(),
+        Duration::from_secs(25),
+        clock.now(),
+    );
+
+    // Cancel all timers starting with "job:abc123"
+    scheduler.cancel_timers_with_prefix("job:abc123");
+
+    // Advance past all deadlines
+    clock.advance(Duration::from_secs(30));
+    let events = scheduler.fired_timers(clock.now());
+
+    // Only "job:def456" and "other:xyz" should fire
+    assert_eq!(events.len(), 2);
+    let ids: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::TimerStart { id } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(ids.contains(&"job:def456"));
+    assert!(ids.contains(&"other:xyz"));
+    assert!(!ids.contains(&"job:abc123"));
+    assert!(!ids.contains(&"job:abc123:step1"));
+}

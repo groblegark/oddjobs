@@ -17,6 +17,16 @@ use crate::protocol::{AgentEntry, CronEntry, JobEntry, Response, WorkerEntry, Wo
 
 use super::ConnectionError;
 
+/// Emit an event via the event bus.
+///
+/// Maps send errors to `ConnectionError::WalError`.
+fn emit(event_bus: &EventBus, event: Event) -> Result<(), ConnectionError> {
+    event_bus
+        .send(event)
+        .map(|_| ())
+        .map_err(|_| ConnectionError::WalError)
+}
+
 /// Shared flags for prune operations.
 pub(super) struct PruneFlags<'a> {
     pub all: bool,
@@ -82,13 +92,13 @@ pub(super) fn handle_session_send(
 
     match session_id {
         Some(sid) => {
-            let event = Event::SessionInput {
-                id: SessionId::new(sid),
-                input,
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::SessionInput {
+                    id: SessionId::new(sid),
+                    input,
+                },
+            )?;
             Ok(Response::Ok)
         }
         None => Ok(Response::Error {
@@ -124,12 +134,12 @@ pub(super) async fn handle_session_kill(
                 .await;
 
             // Emit SessionDeleted to clean up state
-            let event = Event::SessionDeleted {
-                id: SessionId::new(sid),
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::SessionDeleted {
+                    id: SessionId::new(sid),
+                },
+            )?;
             Ok(Response::Ok)
         }
         None => Ok(Response::Error {
@@ -174,14 +184,14 @@ pub(super) fn handle_job_resume(
             }
         }
 
-        let event = Event::JobResume {
-            id: JobId::new(job_id),
-            message,
-            vars,
-        };
-        event_bus
-            .send(event)
-            .map_err(|_| ConnectionError::WalError)?;
+        emit(
+            event_bus,
+            Event::JobResume {
+                id: JobId::new(job_id),
+                message,
+                vars,
+            },
+        )?;
         return Ok(Response::Ok);
     }
 
@@ -237,8 +247,9 @@ pub(super) fn handle_job_resume(
     let job_id = JobId::new(&orphan_id);
     let cwd = orphan.cwd.or(orphan.workspace_root).unwrap_or_default();
 
-    event_bus
-        .send(Event::JobCreated {
+    emit(
+        event_bus,
+        Event::JobCreated {
             id: job_id.clone(),
             kind: orphan.kind,
             name: orphan.name,
@@ -249,23 +260,25 @@ pub(super) fn handle_job_resume(
             created_at_epoch_ms: 0,
             namespace: orphan.project,
             cron_name: None,
-        })
-        .map_err(|_| ConnectionError::WalError)?;
+        },
+    )?;
 
-    event_bus
-        .send(Event::JobAdvanced {
+    emit(
+        event_bus,
+        Event::JobAdvanced {
             id: job_id.clone(),
             step: "failed".to_string(),
-        })
-        .map_err(|_| ConnectionError::WalError)?;
+        },
+    )?;
 
-    event_bus
-        .send(Event::JobResume {
+    emit(
+        event_bus,
+        Event::JobResume {
             id: job_id,
             message,
             vars,
-        })
-        .map_err(|_| ConnectionError::WalError)?;
+        },
+    )?;
 
     // Remove from orphan registry
     {
@@ -296,12 +309,12 @@ pub(super) fn handle_job_cancel(
 
         match is_valid {
             Some(true) => {
-                let event = Event::JobCancel {
-                    id: JobId::new(id.clone()),
-                };
-                event_bus
-                    .send(event)
-                    .map_err(|_| ConnectionError::WalError)?;
+                emit(
+                    event_bus,
+                    Event::JobCancel {
+                        id: JobId::new(id.clone()),
+                    },
+                )?;
                 cancelled.push(id);
             }
             Some(false) => {
@@ -385,12 +398,12 @@ pub(super) async fn handle_workspace_drop(
 
     // Emit delete events for each workspace
     for (id, _path, _branch) in workspaces_to_drop {
-        let event = Event::WorkspaceDrop {
-            id: WorkspaceId::new(id),
-        };
-        event_bus
-            .send(event)
-            .map_err(|_| ConnectionError::WalError)?;
+        emit(
+            event_bus,
+            Event::WorkspaceDrop {
+                id: WorkspaceId::new(id),
+            },
+        )?;
     }
 
     Ok(Response::WorkspacesDropped { dropped })
@@ -477,13 +490,13 @@ pub(super) async fn handle_agent_send(
     };
 
     if let Some(aid) = resolved_agent_id {
-        let event = Event::AgentInput {
-            agent_id: AgentId::new(aid),
-            input: message,
-        };
-        event_bus
-            .send(event)
-            .map_err(|_| ConnectionError::WalError)?;
+        emit(
+            event_bus,
+            Event::AgentInput {
+                agent_id: AgentId::new(aid),
+                input: message,
+            },
+        )?;
         return Ok(Response::Ok);
     }
 
@@ -497,13 +510,13 @@ pub(super) async fn handle_agent_send(
         .unwrap_or(false);
 
     if session_alive {
-        let event = Event::AgentInput {
-            agent_id: AgentId::new(&agent_id),
-            input: message,
-        };
-        event_bus
-            .send(event)
-            .map_err(|_| ConnectionError::WalError)?;
+        emit(
+            event_bus,
+            Event::AgentInput {
+                agent_id: AgentId::new(&agent_id),
+                input: message,
+            },
+        )?;
         return Ok(Response::Ok);
     }
 
@@ -589,12 +602,12 @@ pub(super) fn handle_job_prune(
 
     if !flags.dry_run {
         for entry in &to_prune {
-            let event = Event::JobDeleted {
-                id: JobId::new(entry.id.clone()),
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::JobDeleted {
+                    id: JobId::new(entry.id.clone()),
+                },
+            )?;
             cleanup_job_files(logs_path, &entry.id);
         }
     }
@@ -717,23 +730,23 @@ pub(super) fn handle_agent_prune(
     if !flags.dry_run {
         // Delete the terminal jobs from state so agents no longer appear in `agent list`
         for job_id in &job_ids_to_delete {
-            let event = Event::JobDeleted {
-                id: JobId::new(job_id.clone()),
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::JobDeleted {
+                    id: JobId::new(job_id.clone()),
+                },
+            )?;
             cleanup_job_files(logs_path, job_id);
         }
 
         // Delete standalone agent runs from state
         for agent_run_id in &agent_run_ids_to_delete {
-            let event = Event::AgentRunDeleted {
-                id: AgentRunId::new(agent_run_id),
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::AgentRunDeleted {
+                    id: AgentRunId::new(agent_run_id),
+                },
+            )?;
         }
 
         for entry in &to_prune {
@@ -922,12 +935,12 @@ async fn workspace_prune_inner(
             }
 
             // Emit WorkspaceDeleted to remove from daemon state
-            let event = Event::WorkspaceDeleted {
-                id: WorkspaceId::new(&ws.id),
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::WorkspaceDeleted {
+                    id: WorkspaceId::new(&ws.id),
+                },
+            )?;
         }
     }
 
@@ -972,13 +985,13 @@ pub(super) fn handle_worker_prune(
 
     if !flags.dry_run {
         for entry in &to_prune {
-            let event = Event::WorkerDeleted {
-                worker_name: entry.name.clone(),
-                namespace: entry.namespace.clone(),
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::WorkerDeleted {
+                    worker_name: entry.name.clone(),
+                    namespace: entry.namespace.clone(),
+                },
+            )?;
         }
     }
 
@@ -1017,13 +1030,13 @@ pub(super) fn handle_cron_prune(
 
     if !flags.dry_run {
         for entry in &to_prune {
-            let event = Event::CronDeleted {
-                cron_name: entry.name.clone(),
-                namespace: entry.namespace.clone(),
-            };
-            event_bus
-                .send(event)
-                .map_err(|_| ConnectionError::WalError)?;
+            emit(
+                event_bus,
+                Event::CronDeleted {
+                    cron_name: entry.name.clone(),
+                    namespace: entry.namespace.clone(),
+                },
+            )?;
         }
     }
 
@@ -1139,14 +1152,14 @@ pub(super) async fn handle_agent_resume(
     let mut resumed = Vec::new();
 
     for (job_id, aid, _) in targets {
-        let event = Event::JobResume {
-            id: JobId::new(&job_id),
-            message: None,
-            vars: std::collections::HashMap::new(),
-        };
-        event_bus
-            .send(event)
-            .map_err(|_| ConnectionError::WalError)?;
+        emit(
+            event_bus,
+            Event::JobResume {
+                id: JobId::new(&job_id),
+                message: None,
+                vars: std::collections::HashMap::new(),
+            },
+        )?;
         resumed.push(aid);
     }
 

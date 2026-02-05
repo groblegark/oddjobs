@@ -11,6 +11,17 @@ use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{scoped_name, Clock, Effect, Event, IdGen, PipelineId, UuidIdGen};
 use oj_runbook::QueueType;
 use std::collections::HashMap;
+use std::path::Path;
+
+struct DispatchItemParams<'a> {
+    worker_name: &'a str,
+    item_id: &'a str,
+    item: &'a serde_json::Value,
+    pipeline_kind: &'a str,
+    runbook_hash: &'a str,
+    cwd: &'a Path,
+    namespace: &'a str,
+}
 
 impl<S, A, N, C> Runtime<S, A, N, C>
 where
@@ -107,29 +118,17 @@ where
                         &vars,
                     );
 
-                    // Execute take command
-                    let take_result = self
-                        .executor
+                    // Execute take command (spawned in background; pipeline creation
+                    // continues in handle_worker_take_complete when the event arrives)
+                    self.executor
                         .execute(Effect::TakeQueueItem {
                             worker_name: worker_name.to_string(),
                             take_command,
                             cwd: cwd.clone(),
+                            item_id,
+                            item: item.clone(),
                         })
-                        .await;
-
-                    if let Err(e) = take_result {
-                        tracing::warn!(
-                            worker = worker_name,
-                            error = %e,
-                            "take command failed, skipping item"
-                        );
-                        let scoped = scoped_name(&worker_namespace, worker_name);
-                        self.worker_logger.append(
-                            &scoped,
-                            &format!("error: take command failed for item {}", item_id),
-                        );
-                        continue;
-                    }
+                        .await?;
                 }
                 QueueType::Persisted => {
                     // Emit queue:taken event via Effect::Emit
@@ -145,95 +144,188 @@ where
                             }])
                             .await?,
                     );
+
+                    result_events.extend(
+                        self.dispatch_item_pipeline(DispatchItemParams {
+                            worker_name,
+                            item_id: &item_id,
+                            item,
+                            pipeline_kind: &pipeline_kind,
+                            runbook_hash: &runbook_hash,
+                            cwd: &cwd,
+                            namespace: &worker_namespace,
+                        })
+                        .await?,
+                    );
                 }
             }
+        }
 
-            // Create pipeline for this item
-            let pipeline_id = PipelineId::new(UuidIdGen.next());
+        Ok(result_events)
+    }
 
-            // Look up pipeline definition to build input
-            let runbook = self.cached_runbook(&runbook_hash)?;
-            let pipeline_def = runbook
-                .get_pipeline(&pipeline_kind)
-                .ok_or_else(|| RuntimeError::PipelineDefNotFound(pipeline_kind.clone()))?;
-
-            // Build input from item fields
-            let mut input = HashMap::new();
-            input.insert("invoke.dir".to_string(), cwd.display().to_string());
-            if let Some(obj) = item.as_object() {
-                for (key, value) in obj {
-                    let v = if let Some(s) = value.as_str() {
-                        s.to_string()
-                    } else {
-                        value.to_string()
-                    };
-                    input.insert(format!("item.{}", key), v.clone());
-                    input.insert(key.clone(), v.clone());
-                    // Map fields into the namespace of the pipeline's first declared var
-                    // e.g. if vars = ["bug"], map "bug.title", "bug.id", etc.
-                    if let Some(first_input) = pipeline_def.vars.first() {
-                        input.insert(format!("{}.{}", first_input, key), v);
-                    }
-                }
-            }
-
-            // Build pipeline name
-            let name = format!("{}-{}", pipeline_kind, item_id);
-
-            // Runbook refreshed at top of handle_worker_poll_complete, no need to emit RunbookLoaded
-            result_events.extend(
-                self.create_and_start_pipeline(CreatePipelineParams {
-                    pipeline_id: pipeline_id.clone(),
-                    pipeline_name: name,
-                    pipeline_kind: pipeline_kind.clone(),
-                    vars: input,
-                    runbook_hash: runbook_hash.clone(),
-                    runbook_json: None,
-                    runbook,
-                    namespace: worker_namespace.clone(),
-                    cron_name: None,
-                })
-                .await?,
+    /// Handle a completed take command for an external queue item.
+    ///
+    /// On success (exit_code == 0), creates a pipeline for the item.
+    /// On failure, logs the error and skips the item.
+    pub(crate) async fn handle_worker_take_complete(
+        &self,
+        worker_name: &str,
+        item_id: &str,
+        item: &serde_json::Value,
+        exit_code: i32,
+        stderr: Option<&str>,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        if exit_code != 0 {
+            let err_msg = stderr.unwrap_or("unknown error");
+            tracing::warn!(
+                worker = worker_name,
+                item = item_id,
+                exit_code,
+                stderr = err_msg,
+                "take command failed, skipping item"
             );
-
-            // Track pipeline in worker state and item-pipeline mapping
-            {
-                let mut workers = self.worker_states.lock();
-                if let Some(state) = workers.get_mut(worker_name) {
-                    state.active_pipelines.insert(pipeline_id.clone());
-                    if state.queue_type == QueueType::Persisted {
-                        state
-                            .item_pipeline_map
-                            .insert(pipeline_id.clone(), item_id.clone());
-                    }
-                }
-            }
-
-            // Emit WorkerItemDispatched
-            let dispatch_event = Event::WorkerItemDispatched {
-                worker_name: worker_name.to_string(),
-                item_id: item_id.clone(),
-                pipeline_id: pipeline_id.clone(),
-                namespace: worker_namespace.clone(),
+            let namespace = {
+                let workers = self.worker_states.lock();
+                workers
+                    .get(worker_name)
+                    .map(|s| s.namespace.clone())
+                    .unwrap_or_default()
             };
-            result_events.extend(
-                self.executor
-                    .execute_all(vec![Effect::Emit {
-                        event: dispatch_event,
-                    }])
-                    .await?,
-            );
-
-            let scoped = scoped_name(&worker_namespace, worker_name);
+            let scoped = scoped_name(&namespace, worker_name);
             self.worker_logger.append(
                 &scoped,
-                &format!(
-                    "dispatched item {} → pipeline {}",
-                    item_id,
-                    pipeline_id.as_str()
-                ),
+                &format!("error: take command failed for item {}", item_id),
             );
+            return Ok(vec![]);
         }
+
+        let (pipeline_kind, runbook_hash, cwd, worker_namespace) = {
+            let workers = self.worker_states.lock();
+            match workers.get(worker_name) {
+                Some(s) if s.status != super::WorkerStatus::Stopped => (
+                    s.pipeline_kind.clone(),
+                    s.runbook_hash.clone(),
+                    s.project_root.clone(),
+                    s.namespace.clone(),
+                ),
+                _ => return Ok(vec![]),
+            }
+        };
+
+        self.dispatch_item_pipeline(DispatchItemParams {
+            worker_name,
+            item_id,
+            item,
+            pipeline_kind: &pipeline_kind,
+            runbook_hash: &runbook_hash,
+            cwd: &cwd,
+            namespace: &worker_namespace,
+        })
+        .await
+    }
+
+    /// Create a pipeline for a dispatched queue item and track it in worker state.
+    async fn dispatch_item_pipeline(
+        &self,
+        params: DispatchItemParams<'_>,
+    ) -> Result<Vec<Event>, RuntimeError> {
+        let DispatchItemParams {
+            worker_name,
+            item_id,
+            item,
+            pipeline_kind,
+            runbook_hash,
+            cwd,
+            namespace,
+        } = params;
+
+        let mut result_events = Vec::new();
+
+        // Create pipeline for this item
+        let pipeline_id = PipelineId::new(UuidIdGen.next());
+
+        // Look up pipeline definition to build input
+        let runbook = self.cached_runbook(runbook_hash)?;
+        let pipeline_def = runbook
+            .get_pipeline(pipeline_kind)
+            .ok_or_else(|| RuntimeError::PipelineDefNotFound(pipeline_kind.to_string()))?;
+
+        // Build input from item fields
+        let mut input = HashMap::new();
+        input.insert("invoke.dir".to_string(), cwd.display().to_string());
+        if let Some(obj) = item.as_object() {
+            for (key, value) in obj {
+                let v = if let Some(s) = value.as_str() {
+                    s.to_string()
+                } else {
+                    value.to_string()
+                };
+                input.insert(format!("item.{}", key), v.clone());
+                input.insert(key.clone(), v.clone());
+                // Map fields into the namespace of the pipeline's first declared var
+                // e.g. if vars = ["bug"], map "bug.title", "bug.id", etc.
+                if let Some(first_input) = pipeline_def.vars.first() {
+                    input.insert(format!("{}.{}", first_input, key), v);
+                }
+            }
+        }
+
+        // Build pipeline name
+        let name = format!("{}-{}", pipeline_kind, item_id);
+
+        result_events.extend(
+            self.create_and_start_pipeline(CreatePipelineParams {
+                pipeline_id: pipeline_id.clone(),
+                pipeline_name: name,
+                pipeline_kind: pipeline_kind.to_string(),
+                vars: input,
+                runbook_hash: runbook_hash.to_string(),
+                runbook_json: None,
+                runbook,
+                namespace: namespace.to_string(),
+                cron_name: None,
+            })
+            .await?,
+        );
+
+        // Track pipeline in worker state and item-pipeline mapping
+        {
+            let mut workers = self.worker_states.lock();
+            if let Some(state) = workers.get_mut(worker_name) {
+                state.active_pipelines.insert(pipeline_id.clone());
+                if state.queue_type == QueueType::Persisted {
+                    state
+                        .item_pipeline_map
+                        .insert(pipeline_id.clone(), item_id.to_string());
+                }
+            }
+        }
+
+        // Emit WorkerItemDispatched
+        let dispatch_event = Event::WorkerItemDispatched {
+            worker_name: worker_name.to_string(),
+            item_id: item_id.to_string(),
+            pipeline_id: pipeline_id.clone(),
+            namespace: namespace.to_string(),
+        };
+        result_events.extend(
+            self.executor
+                .execute_all(vec![Effect::Emit {
+                    event: dispatch_event,
+                }])
+                .await?,
+        );
+
+        let scoped = scoped_name(namespace, worker_name);
+        self.worker_logger.append(
+            &scoped,
+            &format!(
+                "dispatched item {} → pipeline {}",
+                item_id,
+                pipeline_id.as_str()
+            ),
+        );
 
         Ok(result_events)
     }

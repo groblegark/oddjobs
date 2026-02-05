@@ -237,6 +237,25 @@ where
                 result_events.extend(self.handle_worker_poll_complete(worker_name, items).await?);
             }
 
+            Event::WorkerTakeComplete {
+                worker_name,
+                item_id,
+                item,
+                exit_code,
+                stderr,
+            } => {
+                result_events.extend(
+                    self.handle_worker_take_complete(
+                        worker_name,
+                        item_id,
+                        item,
+                        *exit_code,
+                        stderr.as_deref(),
+                    )
+                    .await?,
+                );
+            }
+
             Event::WorkerStopped { worker_name, .. } => {
                 result_events.extend(self.handle_worker_stopped(worker_name).await?);
             }

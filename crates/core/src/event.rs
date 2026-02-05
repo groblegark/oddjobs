@@ -398,6 +398,16 @@ pub enum Event {
         items: Vec<serde_json::Value>,
     },
 
+    #[serde(rename = "worker:take_complete")]
+    WorkerTakeComplete {
+        worker_name: String,
+        item_id: String,
+        item: serde_json::Value,
+        exit_code: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stderr: Option<String>,
+    },
+
     #[serde(rename = "worker:item_dispatched")]
     WorkerItemDispatched {
         worker_name: String,
@@ -628,6 +638,7 @@ impl Event {
             Event::WorkerStarted { .. } => "worker:started",
             Event::WorkerWake { .. } => "worker:wake",
             Event::WorkerPollComplete { .. } => "worker:poll_complete",
+            Event::WorkerTakeComplete { .. } => "worker:take_complete",
             Event::WorkerItemDispatched { .. } => "worker:item_dispatched",
             Event::WorkerStopped { .. } => "worker:stopped",
             Event::WorkerDeleted { .. } => "worker:deleted",
@@ -799,6 +810,12 @@ impl Event {
             Event::WorkerPollComplete {
                 worker_name, items, ..
             } => format!("{t} worker={worker_name} items={}", items.len()),
+            Event::WorkerTakeComplete {
+                worker_name,
+                item_id,
+                exit_code,
+                ..
+            } => format!("{t} worker={worker_name} item={item_id} exit={exit_code}"),
             Event::WorkerItemDispatched {
                 worker_name,
                 item_id,

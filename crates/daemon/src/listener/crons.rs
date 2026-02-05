@@ -27,9 +27,14 @@ pub(super) fn handle_cron_start(
     project_root: &Path,
     namespace: &str,
     cron_name: &str,
+    all: bool,
     event_bus: &EventBus,
     state: &Arc<Mutex<MaterializedState>>,
 ) -> Result<Response, ConnectionError> {
+    if all {
+        return handle_cron_start_all(project_root, namespace, event_bus, state);
+    }
+
     // Load runbook to validate cron exists.
     let (runbook, effective_root) = match super::load_runbook_with_fallback(
         project_root,
@@ -129,44 +134,37 @@ pub(super) fn handle_cron_start(
     })
 }
 
-/// Handle a CronStartAll request — start all crons defined in runbooks.
-pub(super) fn handle_cron_start_all(
+/// Handle starting all crons defined in runbooks.
+fn handle_cron_start_all(
     project_root: &Path,
     namespace: &str,
     event_bus: &EventBus,
     state: &Arc<Mutex<MaterializedState>>,
 ) -> Result<Response, ConnectionError> {
     let runbook_dir = project_root.join(".oj/runbooks");
-    let all_crons = match oj_runbook::collect_all_crons(&runbook_dir) {
-        Ok(crons) => crons,
-        Err(e) => {
-            return Ok(Response::Error {
-                message: format!("failed to scan runbooks: {}", e),
-            })
-        }
-    };
+    let crons = oj_runbook::collect_all_crons(&runbook_dir).unwrap_or_default();
 
     let mut started = Vec::new();
-    let mut errors = Vec::new();
+    let mut skipped = Vec::new();
 
-    for (cron_name, _) in all_crons {
-        match handle_cron_start(project_root, namespace, &cron_name, event_bus, state) {
+    for (cron_name, _) in crons {
+        match handle_cron_start(project_root, namespace, &cron_name, false, event_bus, state) {
             Ok(Response::CronStarted { cron_name }) => {
                 started.push(cron_name);
             }
             Ok(Response::Error { message }) => {
-                errors.push((cron_name, message));
+                skipped.push((cron_name, message));
             }
             Ok(_) => {
-                errors.push((cron_name, "unexpected response".to_string()));
+                skipped.push((cron_name, "unexpected response".to_string()));
             }
             Err(e) => {
-                errors.push((cron_name, e.to_string()));
+                skipped.push((cron_name, e.to_string()));
             }
         }
     }
 
-    Ok(Response::CronsStarted { started, errors })
+    Ok(Response::CronsStarted { started, skipped })
 }
 
 /// Handle a CronStop request.
@@ -371,7 +369,7 @@ pub(super) fn handle_cron_restart(
     }
 
     // Start with fresh runbook
-    handle_cron_start(project_root, namespace, cron_name, event_bus, state)
+    handle_cron_start(project_root, namespace, cron_name, false, event_bus, state)
 }
 
 #[cfg(test)]

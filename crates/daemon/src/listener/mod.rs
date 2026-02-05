@@ -321,14 +321,15 @@ async fn handle_request(
             project_root,
             namespace,
             worker_name,
-        } => {
-            workers::handle_worker_start(&project_root, &namespace, &worker_name, event_bus, state)
-        }
-
-        Request::WorkerStartAll {
-            project_root,
-            namespace,
-        } => workers::handle_worker_start_all(&project_root, &namespace, event_bus, state),
+            all,
+        } => workers::handle_worker_start(
+            &project_root,
+            &namespace,
+            &worker_name,
+            all,
+            event_bus,
+            state,
+        ),
 
         Request::WorkerWake {
             worker_name,
@@ -374,12 +375,8 @@ async fn handle_request(
             project_root,
             namespace,
             cron_name,
-        } => crons::handle_cron_start(&project_root, &namespace, &cron_name, event_bus, state),
-
-        Request::CronStartAll {
-            project_root,
-            namespace,
-        } => crons::handle_cron_start_all(&project_root, &namespace, event_bus, state),
+            all,
+        } => crons::handle_cron_start(&project_root, &namespace, &cron_name, all, event_bus, state),
 
         Request::CronStop {
             cron_name,

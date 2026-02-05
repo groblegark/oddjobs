@@ -154,14 +154,11 @@ pub enum Request {
         project_root: PathBuf,
         #[serde(default)]
         namespace: String,
+        /// Worker name (empty string when `all` is true)
         worker_name: String,
-    },
-
-    /// Start all workers defined in runbooks
-    WorkerStartAll {
-        project_root: PathBuf,
+        /// Start all workers defined in runbooks
         #[serde(default)]
-        namespace: String,
+        all: bool,
     },
 
     /// Wake a running worker to poll immediately
@@ -193,14 +190,11 @@ pub enum Request {
         project_root: PathBuf,
         #[serde(default)]
         namespace: String,
+        /// Cron name (empty string when `all` is true)
         cron_name: String,
-    },
-
-    /// Start all crons defined in runbooks
-    CronStartAll {
-        project_root: PathBuf,
+        /// Start all crons defined in runbooks
         #[serde(default)]
-        namespace: String,
+        all: bool,
     },
 
     /// Stop a cron timer
@@ -595,19 +589,23 @@ pub enum Response {
     /// Worker started successfully
     WorkerStarted { worker_name: String },
 
-    /// Multiple workers started successfully
+    /// Multiple workers started (--all mode)
     WorkersStarted {
+        /// Workers that were started
         started: Vec<String>,
-        errors: Vec<(String, String)>,
+        /// Workers that were skipped with reasons
+        skipped: Vec<(String, String)>,
     },
 
     /// Cron started successfully
     CronStarted { cron_name: String },
 
-    /// Multiple crons started successfully
+    /// Multiple crons started (--all mode)
     CronsStarted {
+        /// Crons that were started
         started: Vec<String>,
-        errors: Vec<(String, String)>,
+        /// Crons that were skipped with reasons
+        skipped: Vec<(String, String)>,
     },
 
     /// List of crons

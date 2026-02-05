@@ -444,7 +444,7 @@ fn on_dead_escalate_sets_waiting_status() {
 // =============================================================================
 
 #[test]
-#[ignore = "BLOCKED BY: claudeless -p does not write errors to JSONL (less-810230d6)"]
+#[ignore = "BLOCKED BY: claudeless max_matches resets per-process; recover spawns new process causing infinite rate_limit loop (less-810230d6)"]
 fn on_error_recover_retries_after_rate_limit() {
     let temp = Project::empty();
     temp.git_init();
@@ -468,7 +468,6 @@ fn on_error_recover_retries_after_rate_limit() {
 }
 
 #[test]
-#[ignore = "BLOCKED BY: claudeless -p does not write errors to JSONL (less-810230d6)"]
 fn on_error_escalate_on_network_failure() {
     let temp = Project::empty();
     temp.git_init();

@@ -99,7 +99,6 @@ fn runbook_with_agent_config_loads() {
 
 /// Verify that on_idle = "done" works in interactive mode (no -p) with full config.
 #[test]
-#[ignore = "BLOCKED BY: claudeless TUI does not write session JSONL (less-181e7117)"]
 fn runbook_with_agent_config_idle_completes() {
     let temp = Project::empty();
     temp.git_init();

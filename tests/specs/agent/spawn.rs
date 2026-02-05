@@ -116,7 +116,6 @@ fn agent_spawn_creates_session_and_completes() {
 /// - Agent stays alive and idles after responding
 /// - on_idle = "done" advances the pipeline
 #[test]
-#[ignore = "BLOCKED BY: claudeless TUI does not write session JSONL (less-181e7117)"]
 fn agent_spawn_interactive_idle_completes() {
     let temp = Project::empty();
     temp.git_init();
@@ -292,7 +291,6 @@ fn agent_spawn_graceful_when_no_trust_prompt() {
 ///
 /// The adapter should detect this and send "2" to accept.
 #[test]
-#[ignore = "BLOCKED BY: claudeless does not show bypass permissions TUI prompt"]
 fn agent_spawn_auto_accepts_bypass_permissions_prompt() {
     let temp = Project::empty();
     temp.git_init();

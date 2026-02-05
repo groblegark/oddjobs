@@ -12,7 +12,7 @@ use crate::prelude::*;
 /// Multi-step pipeline triggered by cron. Steps: prep → work → done.
 const MULTI_STEP_CRON_RUNBOOK: &str = r#"
 [cron.builder]
-interval = "2s"
+interval = "500ms"
 run = { pipeline = "build" }
 
 [pipeline.build]
@@ -35,7 +35,7 @@ run = "echo finished"
 /// Cron with a pipeline that always fails on its first step.
 const FAILING_CRON_RUNBOOK: &str = r#"
 [cron.breaker]
-interval = "2s"
+interval = "500ms"
 run = { pipeline = "fail" }
 
 [pipeline.fail]
@@ -48,7 +48,7 @@ run = "exit 1"
 /// Cron with a fast single-step pipeline.
 const FAST_CRON_RUNBOOK: &str = r#"
 [cron.ticker]
-interval = "2s"
+interval = "500ms"
 run = { pipeline = "tick" }
 
 [pipeline.tick]

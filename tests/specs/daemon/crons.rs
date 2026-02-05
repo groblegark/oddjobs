@@ -5,10 +5,10 @@
 
 use crate::prelude::*;
 
-/// Runbook with a cron that fires every 2 seconds and runs a simple shell pipeline.
+/// Runbook with a cron that fires every 500ms and runs a simple shell pipeline.
 const FAST_CRON_RUNBOOK: &str = r#"
 [cron.ticker]
-interval = "2s"
+interval = "500ms"
 run = { pipeline = "tick" }
 
 [pipeline.tick]

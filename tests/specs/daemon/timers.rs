@@ -10,7 +10,7 @@ use crate::prelude::*;
 
 /// Scenario that produces output frequently via a bash loop.
 ///
-/// The agent runs a shell command that outputs every 500ms for 3 seconds,
+/// The agent runs a shell command that outputs every 200ms for ~1.2 seconds,
 /// generating frequent file watcher events. This simulates "event activity"
 /// that would have blocked timer checks in the old implementation.
 const FREQUENT_OUTPUT_SCENARIO: &str = r#"
@@ -25,7 +25,7 @@ text = "Running continuous output..."
 
 [[responses.response.tool_calls]]
 tool = "Bash"
-input = { command = "for i in 1 2 3 4 5 6; do echo 'tick'; sleep 0.5; done && echo 'done'" }
+input = { command = "for i in 1 2 3 4 5 6; do echo 'tick'; sleep 0.2; done && echo 'done'" }
 
 [tool_execution]
 mode = "live"
@@ -86,11 +86,11 @@ fn timer_check_fires_during_event_activity() {
     temp.oj().args(&["daemon", "start"]).passes();
     temp.oj().args(&["run", "test", "timer-test"]).passes();
 
-    // The agent runs for ~3 seconds, producing output every 500ms.
+    // The agent runs for ~1.2 seconds, producing output every 200ms.
     // During this time:
     // - File watcher emits events on each output line
-    // - Daemon processes events frequently (faster than 1s intervals)
-    // - Timer check must still fire every 1 second (fix from 747143d)
+    // - Daemon processes events frequently (faster than timer check interval)
+    // - Timer check must still fire regularly (fix from 747143d)
     // - When agent exits, watcher detects via liveness check and fires on_dead
     //
     // If the old sleep-based timer check were still in place, the timer

@@ -48,7 +48,7 @@ text = "Running a slow task..."
 
 [[responses.response.tool_calls]]
 tool = "Bash"
-input = { command = "sleep 2" }
+input = { command = "sleep 1" }
 
 [tool_execution]
 mode = "live"

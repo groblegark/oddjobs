@@ -5,6 +5,7 @@
 
 use crate::error::RuntimeError;
 use crate::executor::ExecuteError;
+use oj_adapters::agent::find_session_log;
 use oj_core::{AgentId, AgentRunId, Effect, Job, JobId, OwnerId, ShortId, TimerId};
 use oj_runbook::{AgentDef, StopAction};
 use std::collections::HashMap;
@@ -73,11 +74,32 @@ pub fn build_spawn_effects(
         OwnerId::Job(id) => format!("job:{}", id),
         OwnerId::AgentRun(id) => format!("agent_run:{}", id),
     };
+
+    // Validate resume_session_id: only use if the EXACT session file exists.
+    // If the previous agent died before writing to JSONL, resuming will fail.
+    // Note: find_session_log has a fallback to return the most recent file,
+    // so we must verify the returned path matches the expected session ID.
+    let resume_session_id = resume_session_id.filter(|id| {
+        let expected_filename = format!("{}.jsonl", id);
+        let exists = find_session_log(workspace_path, id)
+            .map(|p| p.file_name().map(|f| f.to_string_lossy() == expected_filename).unwrap_or(false))
+            .unwrap_or(false);
+        if !exists {
+            tracing::warn!(
+                session_id = %id,
+                workspace = %workspace_path.display(),
+                "resume session file not found, starting fresh"
+            );
+        }
+        exists
+    });
+
     tracing::debug!(
         owner = %owner_str,
         agent_name,
         workspace_path = %workspace_path.display(),
         project_root = %project_root.display(),
+        resume_session_id,
         "building spawn effects"
     );
 
@@ -90,8 +112,11 @@ pub fn build_spawn_effects(
 
     // Add system variables (not namespaced - these are always available)
     // These overwrite any bare input keys with the same name.
-    // Generate a unique UUID for agent_id (used as --session-id for claude/claudeless)
-    let agent_id = Uuid::new_v4().to_string();
+    // When resuming, reuse the resume session ID as agent_id (Claude continues with same session).
+    // Otherwise generate a new UUID for agent_id (used as --session-id for claude/claudeless).
+    let agent_id = resume_session_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     prompt_vars.insert("agent_id".to_string(), agent_id.clone());
     // Insert owner-specific ID: job_id for jobs, agent_run_id for standalone runs
     match &ctx.owner {
@@ -192,22 +217,21 @@ pub fn build_spawn_effects(
     // Trim trailing whitespace (including newlines from heredocs) so appended args stay on same line
     let base_command = agent_def.build_command(&vars).trim_end().to_string();
     let command = if let Some(resume_id) = resume_session_id {
-        // Resume mode: use --resume instead of passing prompt
+        // Resume mode: use --resume to continue existing session.
+        // Don't pass --session-id; Claude uses the resume ID as the session.
         let resume_msg = input.get("resume_message").cloned().unwrap_or_default();
         if resume_msg.is_empty() {
             format!(
-                "{} --resume {} --session-id {} --settings {}",
+                "{} --resume {} --settings {}",
                 base_command,
                 resume_id,
-                agent_id,
                 settings_path.display()
             )
         } else {
             format!(
-                "{} --resume {} --session-id {} --settings {} \"{}\"",
+                "{} --resume {} --settings {} \"{}\"",
                 base_command,
                 resume_id,
-                agent_id,
                 settings_path.display(),
                 oj_runbook::escape_for_shell(&resume_msg)
             )

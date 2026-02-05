@@ -6,6 +6,7 @@
 use super::super::Runtime;
 use crate::error::RuntimeError;
 use crate::monitor::{self, MonitorState};
+use oj_adapters::agent::find_session_log;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
     AgentId, AgentRun, AgentRunId, AgentRunStatus, AgentState, Clock, Effect, Event, Job, JobId,
@@ -385,21 +386,31 @@ where
     }
 
     /// Handle resume for agent step: nudge if alive, recover if dead
+    ///
+    /// - If agent is alive and `kill` is false: nudge (send message to running agent)
+    /// - If agent is alive and `kill` is true: kill session, then spawn with --resume
+    /// - If agent is dead: spawn with --resume to continue conversation
     pub(crate) async fn handle_agent_resume(
         &self,
         job: &oj_core::Job,
         step: &str,
-        _agent_name: &str,
+        agent_name: &str,
         message: &str,
         input: &HashMap<String, String>,
+        kill: bool,
     ) -> Result<Vec<Event>, RuntimeError> {
-        // Get agent_id from step history (it's a UUID stored when the agent was spawned)
-        let agent_id = job
+        // Collect all agent_ids from step history for this step (most recent first).
+        // A step may have been retried multiple times, each with its own agent_id.
+        let all_agent_ids: Vec<String> = job
             .step_history
             .iter()
-            .rfind(|r| r.name == step)
-            .and_then(|r| r.agent_id.clone())
-            .map(AgentId::new);
+            .rev()
+            .filter(|r| r.name == step)
+            .filter_map(|r| r.agent_id.clone())
+            .collect();
+
+        // The most recent agent_id is used to check if agent is alive
+        let agent_id = all_agent_ids.first().map(|id| AgentId::new(id));
 
         // Check if agent is alive (None means no agent_id, treat as dead)
         let agent_state = match &agent_id {
@@ -407,72 +418,82 @@ where
             None => None,
         };
 
-        // Match on (agent_state, agent_id) to satisfy clippy - agent_state is only Some when agent_id is Some
-        match (agent_state, &agent_id) {
-            (Some(AgentState::Working), Some(id))
-            | (Some(AgentState::WaitingForInput), Some(id)) => {
-                // Agent alive: nudge via SendToAgent (uses ClaudeAdapter::send with escape sequences)
-                self.executor
-                    .execute(Effect::SendToAgent {
-                        agent_id: id.clone(),
-                        input: message.to_string(),
-                    })
-                    .await?;
+        let is_alive = matches!(
+            agent_state,
+            Some(AgentState::Working) | Some(AgentState::WaitingForInput)
+        );
 
-                // Update status to Running
-                let job_id = JobId::new(&job.id);
-                self.executor
-                    .execute(Effect::Emit {
-                        event: Event::StepStarted {
-                            job_id: job_id.clone(),
-                            step: step.to_string(),
-                            agent_id: None,
-                            agent_name: None,
-                        },
-                    })
-                    .await?;
+        // If agent is alive and not killing, nudge it
+        if is_alive && !kill {
+            let id = agent_id.as_ref().unwrap(); // Safe: is_alive implies agent_id is Some
+            self.executor
+                .execute(Effect::SendToAgent {
+                    agent_id: id.clone(),
+                    input: message.to_string(),
+                })
+                .await?;
 
-                // Restart liveness monitoring
-                self.executor
-                    .execute(Effect::SetTimer {
-                        id: TimerId::liveness(&job_id),
-                        duration: crate::spawn::LIVENESS_INTERVAL,
-                    })
-                    .await?;
+            // Update status to Running
+            let job_id = JobId::new(&job.id);
+            self.executor
+                .execute(Effect::Emit {
+                    event: Event::StepStarted {
+                        job_id: job_id.clone(),
+                        step: step.to_string(),
+                        agent_id: None,
+                        agent_name: None,
+                    },
+                })
+                .await?;
 
-                tracing::info!(job_id = %job.id, "nudged agent");
-                Ok(vec![])
-            }
-            _ => {
-                // Agent dead: recover
-                // Build modified input with message in prompt
-                let mut new_inputs = input.clone();
-                let existing_prompt = new_inputs.get("prompt").cloned().unwrap_or_default();
-                new_inputs.insert(
-                    "prompt".to_string(),
-                    format!("{}\n\n{}", existing_prompt, message),
-                );
+            // Restart liveness monitoring
+            self.executor
+                .execute(Effect::SetTimer {
+                    id: TimerId::liveness(&job_id),
+                    duration: crate::spawn::LIVENESS_INTERVAL,
+                })
+                .await?;
 
-                // Kill old session if it exists
-                if let Some(session_id) = &job.session_id {
-                    let _ = self
-                        .executor
-                        .execute(Effect::KillSession {
-                            session_id: SessionId::new(session_id),
-                        })
-                        .await;
-                }
-
-                // Re-spawn agent in same workspace
-                let execution_dir = self.execution_dir(job);
-                let job_id = JobId::new(&job.id);
-                let result = self
-                    .start_step(&job_id, step, &new_inputs, &execution_dir)
-                    .await?;
-
-                tracing::info!(job_id = %job.id, "resumed agent");
-                Ok(result)
-            }
+            tracing::info!(job_id = %job.id, "nudged agent");
+            return Ok(vec![]);
         }
+
+        // Agent dead OR --kill requested: recover using Claude's --resume to continue conversation
+        let mut new_inputs = input.clone();
+        new_inputs.insert("resume_message".to_string(), message.to_string());
+
+        // Kill old tmux session if it exists (cleanup - Claude conversation persists in JSONL)
+        if let Some(session_id) = &job.session_id {
+            let _ = self
+                .executor
+                .execute(Effect::KillSession {
+                    session_id: SessionId::new(session_id),
+                })
+                .await;
+        }
+
+        // Find a previous agent_id that has a valid session file to resume from.
+        // Walk backwards through all agent_ids for this step (most recent first).
+        // This recovers context even after failed resume attempts that died before writing JSONL.
+        let workspace_path = self.execution_dir(job);
+        let resume_id = all_agent_ids
+            .iter()
+            .find(|id| find_session_log(&workspace_path, id).is_some());
+
+        if resume_id.is_none() && !all_agent_ids.is_empty() {
+            tracing::warn!(
+                job_id = %job.id,
+                tried = ?all_agent_ids,
+                "no valid session file found for any previous agent, starting fresh"
+            );
+        }
+
+        let job_id = JobId::new(&job.id);
+        let result = self
+            .spawn_agent_with_resume(&job_id, agent_name, &new_inputs, resume_id.map(|s| s.as_str()))
+            .await?;
+
+        tracing::info!(job_id = %job.id, kill, ?resume_id, "resumed agent with --resume");
+        Ok(result)
     }
 }

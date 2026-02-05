@@ -8,6 +8,7 @@ use crate::decision_builder::{EscalationDecisionBuilder, EscalationTrigger};
 use crate::error::RuntimeError;
 use crate::monitor::{self, ActionEffects, MonitorState};
 use oj_adapters::agent::find_session_log;
+use oj_adapters::subprocess::{run_with_timeout, GATE_TIMEOUT};
 use oj_adapters::AgentReconnectConfig;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
@@ -454,13 +455,10 @@ where
             "running gate command"
         );
 
-        match tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(execution_dir)
-            .output()
-            .await
-        {
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg(command).current_dir(execution_dir);
+
+        match run_with_timeout(cmd, GATE_TIMEOUT, "gate command").await {
             Ok(output) if output.status.success() => {
                 tracing::info!(
                     job_id = %job.id,

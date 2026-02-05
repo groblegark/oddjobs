@@ -74,6 +74,7 @@ fn effect_serialization_roundtrip() {
             worker_name: "fixer".to_string(),
             take_command: "echo taken".to_string(),
             cwd: PathBuf::from("/work"),
+            item_id: "item-1".to_string(),
             item: serde_json::json!({"id": "item-1", "title": "test"}),
         },
         Effect::Notify {
@@ -193,6 +194,7 @@ fn traced_effect_names() {
                 worker_name: "w".to_string(),
                 take_command: "cmd".to_string(),
                 cwd: PathBuf::from("/"),
+                item_id: "i".to_string(),
                 item: serde_json::json!({}),
             },
             "take_queue_item",
@@ -360,6 +362,7 @@ fn traced_effect_fields() {
         worker_name: "fixer".to_string(),
         take_command: "echo taken".to_string(),
         cwd: PathBuf::from("/work"),
+        item_id: "item-1".to_string(),
         item: serde_json::json!({"id": "item-1"}),
     };
     let fields = effect.fields();
@@ -367,7 +370,8 @@ fn traced_effect_fields() {
         fields,
         vec![
             ("worker_name", "fixer".to_string()),
-            ("cwd", "/work".to_string())
+            ("cwd", "/work".to_string()),
+            ("item_id", "item-1".to_string()),
         ]
     );
 

@@ -558,6 +558,7 @@ where
                 worker_name,
                 take_command,
                 cwd,
+                item_id,
                 item,
             } => {
                 let event_tx = self.event_tx.clone();
@@ -578,35 +579,30 @@ where
                         .output()
                         .await;
 
-                    let event = match result {
-                        Ok(output) if output.status.success() => {
-                            if !output.stdout.is_empty() {
+                    let (exit_code, stderr) = match result {
+                        Ok(output) => {
+                            if output.status.success() && !output.stdout.is_empty() {
                                 tracing::info!(
                                     %worker_name,
                                     stdout = %String::from_utf8_lossy(&output.stdout),
                                     "take command stdout"
                                 );
                             }
-                            Event::WorkerTakeComplete { worker_name, item }
-                        }
-                        Ok(output) => {
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-                            tracing::warn!(
-                                %worker_name,
-                                exit_code = output.status.code().unwrap_or(-1),
-                                stderr = %stderr,
-                                "take command failed"
-                            );
-                            let item_id = item
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            Event::WorkerTakeFailed {
-                                worker_name,
-                                item_id,
-                                error: format!("take command failed: {}", stderr.trim()),
-                            }
+                            let stderr_str = if output.stderr.is_empty() {
+                                None
+                            } else {
+                                let s = String::from_utf8_lossy(&output.stderr).into_owned();
+                                if !output.status.success() {
+                                    tracing::warn!(
+                                        %worker_name,
+                                        exit_code = output.status.code().unwrap_or(-1),
+                                        stderr = %s,
+                                        "take command failed"
+                                    );
+                                }
+                                Some(s)
+                            };
+                            (output.status.code().unwrap_or(-1), stderr_str)
                         }
                         Err(e) => {
                             tracing::error!(
@@ -614,21 +610,20 @@ where
                                 error = %e,
                                 "take command execution failed"
                             );
-                            let item_id = item
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            Event::WorkerTakeFailed {
-                                worker_name,
-                                item_id,
-                                error: format!("take command execution failed: {}", e),
-                            }
+                            (-1, None)
                         }
                     };
 
+                    let event = Event::WorkerTakeComplete {
+                        worker_name,
+                        item_id,
+                        item,
+                        exit_code,
+                        stderr,
+                    };
+
                     if let Err(e) = event_tx.send(event).await {
-                        tracing::error!("failed to send worker take event: {}", e);
+                        tracing::error!("failed to send WorkerTakeComplete: {}", e);
                     }
                 });
 

@@ -565,19 +565,24 @@ fn event_queue_item_dead_roundtrip() {
 }
 
 // =============================================================================
-// WorkerTakeComplete / WorkerTakeFailed Event Tests
+// WorkerTakeComplete Event Tests
 // =============================================================================
 
 #[test]
 fn event_worker_take_complete_roundtrip() {
     let event = Event::WorkerTakeComplete {
         worker_name: "fixer".to_string(),
+        item_id: "item-1".to_string(),
         item: serde_json::json!({"id": "item-1", "title": "Fix bug"}),
+        exit_code: 0,
+        stderr: None,
     };
     let json: serde_json::Value = serde_json::to_value(&event).unwrap();
     assert_eq!(json["type"], "worker:take_complete");
     assert_eq!(json["worker_name"], "fixer");
+    assert_eq!(json["item_id"], "item-1");
     assert_eq!(json["item"]["id"], "item-1");
+    assert_eq!(json["exit_code"], 0);
 
     let json_str = serde_json::to_string(&event).unwrap();
     let parsed: Event = serde_json::from_str(&json_str).unwrap();
@@ -585,16 +590,18 @@ fn event_worker_take_complete_roundtrip() {
 }
 
 #[test]
-fn event_worker_take_failed_roundtrip() {
-    let event = Event::WorkerTakeFailed {
+fn event_worker_take_complete_failure_roundtrip() {
+    let event = Event::WorkerTakeComplete {
         worker_name: "fixer".to_string(),
         item_id: "item-1".to_string(),
-        error: "take command failed: exit code 1".to_string(),
+        item: serde_json::json!({"id": "item-1"}),
+        exit_code: 1,
+        stderr: Some("take command failed".to_string()),
     };
     let json: serde_json::Value = serde_json::to_value(&event).unwrap();
-    assert_eq!(json["type"], "worker:take_failed");
-    assert_eq!(json["worker_name"], "fixer");
-    assert_eq!(json["item_id"], "item-1");
+    assert_eq!(json["type"], "worker:take_complete");
+    assert_eq!(json["exit_code"], 1);
+    assert_eq!(json["stderr"], "take command failed");
 
     let json_str = serde_json::to_string(&event).unwrap();
     let parsed: Event = serde_json::from_str(&json_str).unwrap();
@@ -606,19 +613,13 @@ fn event_worker_take_name() {
     assert_eq!(
         Event::WorkerTakeComplete {
             worker_name: "w".to_string(),
+            item_id: "i".to_string(),
             item: serde_json::json!({}),
+            exit_code: 0,
+            stderr: None,
         }
         .name(),
         "worker:take_complete"
-    );
-    assert_eq!(
-        Event::WorkerTakeFailed {
-            worker_name: "w".to_string(),
-            item_id: "i".to_string(),
-            error: "e".to_string(),
-        }
-        .name(),
-        "worker:take_failed"
     );
 }
 

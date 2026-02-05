@@ -401,14 +401,11 @@ pub enum Event {
     #[serde(rename = "worker:take_complete")]
     WorkerTakeComplete {
         worker_name: String,
-        item: serde_json::Value,
-    },
-
-    #[serde(rename = "worker:take_failed")]
-    WorkerTakeFailed {
-        worker_name: String,
         item_id: String,
-        error: String,
+        item: serde_json::Value,
+        exit_code: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stderr: Option<String>,
     },
 
     #[serde(rename = "worker:item_dispatched")]
@@ -642,7 +639,6 @@ impl Event {
             Event::WorkerWake { .. } => "worker:wake",
             Event::WorkerPollComplete { .. } => "worker:poll_complete",
             Event::WorkerTakeComplete { .. } => "worker:take_complete",
-            Event::WorkerTakeFailed { .. } => "worker:take_failed",
             Event::WorkerItemDispatched { .. } => "worker:item_dispatched",
             Event::WorkerStopped { .. } => "worker:stopped",
             Event::WorkerDeleted { .. } => "worker:deleted",
@@ -815,16 +811,11 @@ impl Event {
                 worker_name, items, ..
             } => format!("{t} worker={worker_name} items={}", items.len()),
             Event::WorkerTakeComplete {
-                worker_name, item, ..
-            } => {
-                let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                format!("{t} worker={worker_name} item={item_id}")
-            }
-            Event::WorkerTakeFailed {
                 worker_name,
                 item_id,
+                exit_code,
                 ..
-            } => format!("{t} worker={worker_name} item={item_id}"),
+            } => format!("{t} worker={worker_name} item={item_id} exit={exit_code}"),
             Event::WorkerItemDispatched {
                 worker_name,
                 item_id,

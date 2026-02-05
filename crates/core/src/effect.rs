@@ -122,8 +122,9 @@ pub enum Effect {
         worker_name: String,
         take_command: String,
         cwd: PathBuf,
-        /// The original queue item JSON, carried through to the result event
-        /// so the handler can create a pipeline on success.
+        /// ID of the item being taken (passed through to the completion event)
+        item_id: String,
+        /// Full item data (passed through to the completion event for pipeline creation)
         item: serde_json::Value,
     },
 
@@ -229,10 +230,14 @@ impl Effect {
                 ("cwd", cwd.display().to_string()),
             ],
             Effect::TakeQueueItem {
-                worker_name, cwd, ..
+                worker_name,
+                cwd,
+                item_id,
+                ..
             } => vec![
                 ("worker_name", worker_name.clone()),
                 ("cwd", cwd.display().to_string()),
+                ("item_id", item_id.clone()),
             ],
             Effect::Notify { title, .. } => vec![("title", title.clone())],
         }

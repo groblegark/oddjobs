@@ -103,6 +103,7 @@ where
                             worker_name: worker_name.to_string(),
                             take_command,
                             cwd: cwd.clone(),
+                            item_id,
                             item: item.clone(),
                         })
                         .await?;
@@ -131,12 +132,45 @@ where
         Ok(result_events)
     }
 
-    /// Handle a successful take command: create and dispatch a pipeline for the item.
+    /// Handle a completed take command for an external queue item.
+    ///
+    /// On success (exit_code == 0), creates a pipeline for the item.
+    /// On failure, logs the error and skips the item.
     pub(crate) async fn handle_worker_take_complete(
         &self,
         worker_name: &str,
+        item_id: &str,
         item: &serde_json::Value,
+        exit_code: i32,
+        stderr: Option<&str>,
     ) -> Result<Vec<Event>, RuntimeError> {
+        if exit_code != 0 {
+            let err_msg = stderr.unwrap_or("unknown error");
+            tracing::warn!(
+                worker = worker_name,
+                item = item_id,
+                exit_code,
+                stderr = err_msg,
+                "take command failed, skipping item"
+            );
+            let namespace = {
+                let workers = self.worker_states.lock();
+                workers
+                    .get(worker_name)
+                    .map(|s| s.namespace.clone())
+                    .unwrap_or_default()
+            };
+            let scoped = scoped_name(&namespace, worker_name);
+            self.worker_logger.append(
+                &scoped,
+                &format!(
+                    "error: take command failed for item {}: {}",
+                    item_id, err_msg
+                ),
+            );
+            return Ok(vec![]);
+        }
+
         let mut result_events = Vec::new();
 
         // Refresh runbook in case it changed while the take command was running
@@ -147,30 +181,6 @@ where
         result_events.extend(self.dispatch_queue_item(worker_name, item).await?);
 
         Ok(result_events)
-    }
-
-    /// Handle a failed take command: log the error.
-    pub(crate) async fn handle_worker_take_failed(
-        &self,
-        worker_name: &str,
-        item_id: &str,
-        error: &str,
-    ) -> Result<Vec<Event>, RuntimeError> {
-        let namespace = {
-            let workers = self.worker_states.lock();
-            workers
-                .get(worker_name)
-                .map(|s| s.namespace.clone())
-                .unwrap_or_default()
-        };
-
-        let scoped = scoped_name(&namespace, worker_name);
-        self.worker_logger.append(
-            &scoped,
-            &format!("error: take command failed for item {}: {}", item_id, error),
-        );
-
-        Ok(vec![])
     }
 
     /// Create and dispatch a pipeline for a single queue item.
@@ -208,6 +218,7 @@ where
         let pipeline_id = PipelineId::new(UuidIdGen.next());
 
         // Look up pipeline definition to build input
+        // Runbook refreshed at top of caller, no need to emit RunbookLoaded
         let runbook = self.cached_runbook(&runbook_hash)?;
         let pipeline_def = runbook
             .get_pipeline(&pipeline_kind)
@@ -236,7 +247,6 @@ where
         // Build pipeline name
         let name = format!("{}-{}", pipeline_kind, item_id);
 
-        // Runbook refreshed at top of caller, no need to emit RunbookLoaded
         result_events.extend(
             self.create_and_start_pipeline(CreatePipelineParams {
                 pipeline_id: pipeline_id.clone(),
@@ -284,7 +294,7 @@ where
         self.worker_logger.append(
             &scoped,
             &format!(
-                "dispatched item {} → pipeline {}",
+                "dispatched item {} \u{2192} pipeline {}",
                 item_id,
                 pipeline_id.as_str()
             ),

@@ -238,19 +238,21 @@ where
             }
 
             Event::WorkerTakeComplete {
-                worker_name, item, ..
-            } => {
-                result_events.extend(self.handle_worker_take_complete(worker_name, item).await?);
-            }
-
-            Event::WorkerTakeFailed {
                 worker_name,
                 item_id,
-                error,
+                item,
+                exit_code,
+                stderr,
             } => {
                 result_events.extend(
-                    self.handle_worker_take_failed(worker_name, item_id, error)
-                        .await?,
+                    self.handle_worker_take_complete(
+                        worker_name,
+                        item_id,
+                        item,
+                        *exit_code,
+                        stderr.as_deref(),
+                    )
+                    .await?,
                 );
             }
 

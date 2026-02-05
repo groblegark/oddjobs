@@ -77,11 +77,6 @@ where
 
         // Store worker state
         let poll_interval = queue_def.poll.clone();
-        let (track_completed, track_failed) = queue_def
-            .report
-            .as_ref()
-            .map(|r| (r.show_completed, r.show_failed))
-            .unwrap_or((false, false));
         let state = WorkerState {
             project_root: project_root.to_path_buf(),
             runbook_hash: runbook_hash.to_string(),
@@ -96,11 +91,6 @@ where
             poll_interval: poll_interval.clone(),
             pending_takes: 0,
             inflight_items: persisted_inflight,
-            item_data: HashMap::new(),
-            completed_count: 0,
-            failed_count: 0,
-            track_completed,
-            track_failed,
         };
 
         {

@@ -75,7 +75,11 @@ job "plan" {
   }
 
   step "reopen" {
-    run = "wok reopen ${var.epic.id} --reason 'Planning failed'"
+    run = <<-SHELL
+      wok unlabel ${var.epic.id} plan:needed
+      wok label ${var.epic.id} plan:failed
+      wok reopen ${var.epic.id} --reason 'Planning failed'
+    SHELL
   }
 
   step "cancel" {
@@ -133,7 +137,11 @@ job "epic" {
   }
 
   step "reopen" {
-    run = "wok reopen ${var.epic.id} --reason 'Epic failed'"
+    run = <<-SHELL
+      wok unlabel ${var.epic.id} build:needed
+      wok label ${var.epic.id} build:failed
+      wok reopen ${var.epic.id} --reason 'Epic failed'
+    SHELL
   }
 
   step "cancel" {

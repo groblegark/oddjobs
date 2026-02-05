@@ -6,6 +6,7 @@
 use super::super::Runtime;
 use crate::error::RuntimeError;
 use crate::monitor::{self, MonitorState};
+use oj_adapters::agent::find_session_log;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
     AgentId, AgentRun, AgentRunId, AgentRunStatus, AgentState, Clock, Effect, Event, Job, JobId,
@@ -398,13 +399,18 @@ where
         input: &HashMap<String, String>,
         kill: bool,
     ) -> Result<Vec<Event>, RuntimeError> {
-        // Get agent_id from step history (it's a UUID stored when the agent was spawned)
-        let agent_id = job
+        // Collect all agent_ids from step history for this step (most recent first).
+        // A step may have been retried multiple times, each with its own agent_id.
+        let all_agent_ids: Vec<String> = job
             .step_history
             .iter()
-            .rfind(|r| r.name == step)
-            .and_then(|r| r.agent_id.clone())
-            .map(AgentId::new);
+            .rev()
+            .filter(|r| r.name == step)
+            .filter_map(|r| r.agent_id.clone())
+            .collect();
+
+        // The most recent agent_id is used to check if agent is alive
+        let agent_id = all_agent_ids.first().map(|id| AgentId::new(id));
 
         // Check if agent is alive (None means no agent_id, treat as dead)
         let agent_state = match &agent_id {
@@ -466,15 +472,28 @@ where
                 .await;
         }
 
-        // Get old agent_id for --resume flag (this was the --session-id when originally spawned)
-        let resume_id = agent_id.as_ref().map(|id| id.as_str());
+        // Find a previous agent_id that has a valid session file to resume from.
+        // Walk backwards through all agent_ids for this step (most recent first).
+        // This recovers context even after failed resume attempts that died before writing JSONL.
+        let workspace_path = self.execution_dir(job);
+        let resume_id = all_agent_ids
+            .iter()
+            .find(|id| find_session_log(&workspace_path, id).is_some());
+
+        if resume_id.is_none() && !all_agent_ids.is_empty() {
+            tracing::warn!(
+                job_id = %job.id,
+                tried = ?all_agent_ids,
+                "no valid session file found for any previous agent, starting fresh"
+            );
+        }
 
         let job_id = JobId::new(&job.id);
         let result = self
-            .spawn_agent_with_resume(&job_id, agent_name, &new_inputs, resume_id)
+            .spawn_agent_with_resume(&job_id, agent_name, &new_inputs, resume_id.map(|s| s.as_str()))
             .await?;
 
-        tracing::info!(job_id = %job.id, kill, "resumed agent with --resume");
+        tracing::info!(job_id = %job.id, kill, ?resume_id, "resumed agent with --resume");
         Ok(result)
     }
 }

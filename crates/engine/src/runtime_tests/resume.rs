@@ -500,3 +500,84 @@ async fn resume_from_terminal_failure_clears_stale_session() {
         job.session_id
     );
 }
+
+#[tokio::test]
+async fn resume_collects_all_agent_ids_from_step_history() {
+    let ctx = setup_resume().await;
+    let job_id = create_test_job(&ctx, "pipe-resume-history-1").await;
+
+    // Advance to agent step (spawns first agent)
+    advance_to_agent_step(&ctx, &job_id).await;
+
+    // Get the first agent_id
+    let first_agent_id = get_agent_id(&ctx, &job_id).unwrap();
+
+    // Simulate the first agent completing and a new attempt starting
+    // by manually adding another step record with a different agent_id
+    let second_agent_id = "second-agent-uuid";
+    ctx.runtime.lock_state_mut(|state| {
+        if let Some(job) = state.jobs.get_mut(&job_id) {
+            // Push a new step record for the same step with a new agent_id
+            // (simulating what happens on retry/resume)
+            job.step_history.push(oj_core::StepRecord {
+                name: "work".to_string(),
+                started_at_ms: 1000,
+                finished_at_ms: None,
+                outcome: oj_core::StepOutcome::Running,
+                agent_id: Some(second_agent_id.to_string()),
+                agent_name: Some("worker".to_string()),
+            });
+        }
+    });
+
+    // Verify step_history now has two entries for "work"
+    let job = ctx.runtime.get_job(&job_id).unwrap();
+    let work_entries: Vec<_> = job
+        .step_history
+        .iter()
+        .filter(|r| r.name == "work")
+        .collect();
+    assert_eq!(
+        work_entries.len(),
+        2,
+        "should have two step history entries for 'work'"
+    );
+
+    // Verify we have both agent IDs
+    let agent_ids: Vec<_> = work_entries
+        .iter()
+        .filter_map(|r| r.agent_id.as_ref())
+        .collect();
+    assert!(
+        agent_ids.contains(&&first_agent_id.as_str().to_string()),
+        "should contain first agent_id"
+    );
+    assert!(
+        agent_ids.contains(&&second_agent_id.to_string()),
+        "should contain second agent_id"
+    );
+
+    // The handle_agent_resume should collect all agent_ids and try each
+    // (most recent first) to find one with a valid session file.
+    // Since no session files exist in test, it will start fresh,
+    // but the important thing is it doesn't error out.
+    let result = ctx
+        .runtime
+        .handle_event(Event::JobResume {
+            id: JobId::new(job_id.clone()),
+            message: Some("Continue".to_string()),
+            vars: HashMap::new(),
+            kill: false,
+        })
+        .await;
+
+    // Should not fail with a message about wrong agent_id
+    if let Err(ref e) = result {
+        let err_str = e.to_string();
+        assert!(
+            !err_str.contains("agent_id"),
+            "should not fail on agent_id lookup, got: {}",
+            err_str
+        );
+    }
+}

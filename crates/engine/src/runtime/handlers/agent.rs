@@ -410,7 +410,7 @@ where
             .collect();
 
         // The most recent agent_id is used to check if agent is alive
-        let agent_id = all_agent_ids.first().map(|id| AgentId::new(id));
+        let agent_id = all_agent_ids.first().map(AgentId::new);
 
         // Check if agent is alive (None means no agent_id, treat as dead)
         let agent_state = match &agent_id {
@@ -418,44 +418,44 @@ where
             None => None,
         };
 
+        // If agent is alive and not killing, nudge it
         let is_alive = matches!(
             agent_state,
             Some(AgentState::Working) | Some(AgentState::WaitingForInput)
         );
+        if !kill && is_alive {
+            if let Some(id) = &agent_id {
+                self.executor
+                    .execute(Effect::SendToAgent {
+                        agent_id: id.clone(),
+                        input: message.to_string(),
+                    })
+                    .await?;
 
-        // If agent is alive and not killing, nudge it
-        if is_alive && !kill {
-            let id = agent_id.as_ref().unwrap(); // Safe: is_alive implies agent_id is Some
-            self.executor
-                .execute(Effect::SendToAgent {
-                    agent_id: id.clone(),
-                    input: message.to_string(),
-                })
-                .await?;
+                // Update status to Running
+                let job_id = JobId::new(&job.id);
+                self.executor
+                    .execute(Effect::Emit {
+                        event: Event::StepStarted {
+                            job_id: job_id.clone(),
+                            step: step.to_string(),
+                            agent_id: None,
+                            agent_name: None,
+                        },
+                    })
+                    .await?;
 
-            // Update status to Running
-            let job_id = JobId::new(&job.id);
-            self.executor
-                .execute(Effect::Emit {
-                    event: Event::StepStarted {
-                        job_id: job_id.clone(),
-                        step: step.to_string(),
-                        agent_id: None,
-                        agent_name: None,
-                    },
-                })
-                .await?;
+                // Restart liveness monitoring
+                self.executor
+                    .execute(Effect::SetTimer {
+                        id: TimerId::liveness(&job_id),
+                        duration: crate::spawn::LIVENESS_INTERVAL,
+                    })
+                    .await?;
 
-            // Restart liveness monitoring
-            self.executor
-                .execute(Effect::SetTimer {
-                    id: TimerId::liveness(&job_id),
-                    duration: crate::spawn::LIVENESS_INTERVAL,
-                })
-                .await?;
-
-            tracing::info!(job_id = %job.id, "nudged agent");
-            return Ok(vec![]);
+                tracing::info!(job_id = %job.id, "nudged agent");
+                return Ok(vec![]);
+            }
         }
 
         // Agent dead OR --kill requested: recover using Claude's --resume to continue conversation
@@ -490,7 +490,12 @@ where
 
         let job_id = JobId::new(&job.id);
         let result = self
-            .spawn_agent_with_resume(&job_id, agent_name, &new_inputs, resume_id.map(|s| s.as_str()))
+            .spawn_agent_with_resume(
+                &job_id,
+                agent_name,
+                &new_inputs,
+                resume_id.map(|s| s.as_str()),
+            )
             .await?;
 
         tracing::info!(job_id = %job.id, kill, ?resume_id, "resumed agent with --resume");

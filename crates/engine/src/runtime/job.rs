@@ -83,9 +83,25 @@ where
                 // Build template variables
                 // Namespace job vars under "var." prefix (matching monitor.rs)
                 // Values are escaped by interpolate_shell() during substitution
+                //
+                // Keys that already have a scope prefix (var.*, invoke.*, workspace.*,
+                // local.*, args.*, item.*) are kept as-is to avoid double-prefixing
+                // when job.vars is passed on subsequent steps.
                 let mut vars: HashMap<String, String> = input
                     .iter()
-                    .map(|(k, v)| (format!("var.{}", k), v.clone()))
+                    .map(|(k, v)| {
+                        let has_prefix = k.starts_with("var.")
+                            || k.starts_with("invoke.")
+                            || k.starts_with("workspace.")
+                            || k.starts_with("local.")
+                            || k.starts_with("args.")
+                            || k.starts_with("item.");
+                        if has_prefix {
+                            (k.clone(), v.clone())
+                        } else {
+                            (format!("var.{}", k), v.clone())
+                        }
+                    })
                     .collect();
                 vars.insert("job_id".to_string(), job_id.to_string());
                 vars.insert("name".to_string(), job.name.clone());
@@ -93,15 +109,6 @@ where
                     "workspace".to_string(),
                     workspace_path.display().to_string(),
                 );
-                // Expose workspace.*, invoke.*, and local.* variables at top level for shell interpolation
-                for (key, val) in input.iter() {
-                    if key.starts_with("workspace.")
-                        || key.starts_with("invoke.")
-                        || key.starts_with("local.")
-                    {
-                        vars.insert(key.clone(), val.clone());
-                    }
-                }
 
                 let command = oj_runbook::interpolate_shell(cmd, &vars);
                 self.logger.append(
@@ -462,11 +469,11 @@ where
         message_template: Option<&String>,
     ) -> Result<Vec<Event>, RuntimeError> {
         if let Some(template) = message_template {
-            // Build vars for interpolation (namespace job vars under "var." like elsewhere)
+            // Build vars for interpolation — keys already have scope prefixes
             let mut vars: HashMap<String, String> = job
                 .vars
                 .iter()
-                .map(|(k, v)| (format!("var.{}", k), v.clone()))
+                .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             vars.insert("job_id".to_string(), job.id.clone());
             vars.insert("name".to_string(), job.name.clone());

@@ -82,7 +82,11 @@ pub fn build_spawn_effects(
     let resume_session_id = resume_session_id.filter(|id| {
         let expected_filename = format!("{}.jsonl", id);
         let exists = find_session_log(workspace_path, id)
-            .map(|p| p.file_name().map(|f| f.to_string_lossy() == expected_filename).unwrap_or(false))
+            .map(|p| {
+                p.file_name()
+                    .map(|f| f.to_string_lossy() == expected_filename)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
         if !exists {
             tracing::warn!(
@@ -104,10 +108,22 @@ pub fn build_spawn_effects(
     );
 
     // Step 1: Build variables for prompt interpolation
-    // Namespace job vars under "var." prefix
+    // Namespace bare keys under "var." prefix; skip keys that already have a scope prefix
     let mut prompt_vars: HashMap<String, String> = input
         .iter()
-        .map(|(k, v)| (format!("var.{}", k), v.clone()))
+        .map(|(k, v)| {
+            let has_prefix = k.starts_with("var.")
+                || k.starts_with("invoke.")
+                || k.starts_with("workspace.")
+                || k.starts_with("local.")
+                || k.starts_with("args.")
+                || k.starts_with("item.");
+            if has_prefix {
+                (k.clone(), v.clone())
+            } else {
+                (format!("var.{}", k), v.clone())
+            }
+        })
         .collect();
 
     // Add system variables (not namespaced - these are always available)

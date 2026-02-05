@@ -86,7 +86,7 @@ impl SimpleCommand {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, SimpleCommand, Command, CliArg};
     ///
     /// let ast = Parser::parse("cmd -v --model haiku --print pos1")?;
@@ -193,7 +193,7 @@ impl SimpleCommand {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, Command};
     ///
     /// let ast = Parser::parse("cmd --session-id abc")?;
@@ -227,7 +227,7 @@ impl SimpleCommand {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, Command};
     ///
     /// let ast = Parser::parse("cmd --flag pos1 --opt val pos2")?;

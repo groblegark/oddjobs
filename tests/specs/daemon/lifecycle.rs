@@ -22,7 +22,7 @@ text = "Running a slow task..."
 
 [[responses.response.tool_calls]]
 tool = "Bash"
-input = { command = "sleep 10" }
+input = { command = "sleep 2" }
 
 [tool_execution]
 mode = "live"
@@ -106,7 +106,7 @@ fn daemon_recovers_pipeline_after_crash() {
 
     // Wait for the pipeline to complete via recovery.
     // The reconcile flow should detect the dead agent and trigger on_dead = "done"
-    let done = wait_for(SPEC_WAIT_MAX_MS * 10, || {
+    let done = wait_for(SPEC_WAIT_MAX_MS * 3, || {
         temp.oj()
             .args(&["pipeline", "list"])
             .passes()

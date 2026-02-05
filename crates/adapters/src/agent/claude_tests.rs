@@ -113,7 +113,7 @@ async fn test_handle_bypass_permissions_prompt_accepts() {
         ],
     );
 
-    let result = handle_bypass_permissions_prompt(&sessions, "test-session")
+    let result = handle_bypass_permissions_prompt(&sessions, "test-session", 1)
         .await
         .unwrap();
 
@@ -140,7 +140,7 @@ async fn test_handle_bypass_permissions_prompt_not_present() {
     // Simulate normal Claude startup (no prompt)
     sessions.set_output("test-session", vec!["Claude Code is ready.".to_string()]);
 
-    let result = handle_bypass_permissions_prompt(&sessions, "test-session")
+    let result = handle_bypass_permissions_prompt(&sessions, "test-session", 1)
         .await
         .unwrap();
 
@@ -172,7 +172,7 @@ async fn test_handle_workspace_trust_prompt_accepts() {
         ],
     );
 
-    let result = handle_workspace_trust_prompt(&sessions, "test-session")
+    let result = handle_workspace_trust_prompt(&sessions, "test-session", 1)
         .await
         .unwrap();
 
@@ -199,7 +199,7 @@ async fn test_handle_workspace_trust_prompt_not_present() {
     // Simulate normal Claude startup (no prompt)
     sessions.set_output("test-session", vec!["Claude Code is ready.".to_string()]);
 
-    let result = handle_workspace_trust_prompt(&sessions, "test-session")
+    let result = handle_workspace_trust_prompt(&sessions, "test-session", 1)
         .await
         .unwrap();
 
@@ -327,7 +327,7 @@ async fn test_handle_login_prompt_detected_select_login() {
         ],
     );
 
-    let result = handle_login_prompt(&sessions, "test-session")
+    let result = handle_login_prompt(&sessions, "test-session", 1)
         .await
         .unwrap();
 
@@ -347,7 +347,7 @@ async fn test_handle_login_prompt_detected_text_style() {
         ],
     );
 
-    let result = handle_login_prompt(&sessions, "test-session")
+    let result = handle_login_prompt(&sessions, "test-session", 1)
         .await
         .unwrap();
 
@@ -361,7 +361,7 @@ async fn test_handle_login_prompt_not_present() {
 
     sessions.set_output("test-session", vec!["Claude Code is ready.".to_string()]);
 
-    let result = handle_login_prompt(&sessions, "test-session")
+    let result = handle_login_prompt(&sessions, "test-session", 1)
         .await
         .unwrap();
 

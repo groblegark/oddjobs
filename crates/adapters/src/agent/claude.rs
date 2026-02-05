@@ -136,11 +136,11 @@ fn prompt_poll_max_attempts() -> usize {
 async fn handle_bypass_permissions_prompt<S: SessionAdapter>(
     sessions: &S,
     session_id: &str,
+    max_attempts: usize,
 ) -> Result<BypassPromptResult, AgentError> {
     // Poll for the prompt with a timeout
     // The prompt should appear within a second or two of spawn
     let check_interval = Duration::from_millis(200);
-    let max_attempts = prompt_poll_max_attempts();
 
     for attempt in 0..max_attempts {
         // Small delay before first check to let the TUI render
@@ -210,11 +210,11 @@ enum WorkspaceTrustResult {
 async fn handle_workspace_trust_prompt<S: SessionAdapter>(
     sessions: &S,
     session_id: &str,
+    max_attempts: usize,
 ) -> Result<WorkspaceTrustResult, AgentError> {
     // Poll for the prompt with a timeout
     // The prompt should appear within a second or two of spawn
     let check_interval = Duration::from_millis(200);
-    let max_attempts = prompt_poll_max_attempts();
 
     for attempt in 0..max_attempts {
         // Small delay before first check to let the TUI render
@@ -275,9 +275,9 @@ enum LoginPromptResult {
 async fn handle_login_prompt<S: SessionAdapter>(
     sessions: &S,
     session_id: &str,
+    max_attempts: usize,
 ) -> Result<LoginPromptResult, AgentError> {
     let check_interval = Duration::from_millis(200);
-    let max_attempts = prompt_poll_max_attempts();
 
     for attempt in 0..max_attempts {
         if attempt > 0 {
@@ -411,7 +411,13 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
 
         // 5b. Handle bypass permissions prompt if present
         if command.contains("--dangerously-skip-permissions") {
-            match handle_bypass_permissions_prompt(&self.sessions, &spawned_id).await? {
+            match handle_bypass_permissions_prompt(
+                &self.sessions,
+                &spawned_id,
+                prompt_poll_max_attempts(),
+            )
+            .await?
+            {
                 BypassPromptResult::Accepted => {
                     tracing::info!(agent_id = %config.agent_id, "bypass permissions prompt accepted");
                 }
@@ -430,7 +436,9 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
         }
 
         // 5c. Handle workspace trust prompt if present
-        match handle_workspace_trust_prompt(&self.sessions, &spawned_id).await? {
+        match handle_workspace_trust_prompt(&self.sessions, &spawned_id, prompt_poll_max_attempts())
+            .await?
+        {
             WorkspaceTrustResult::Accepted => {
                 tracing::info!(agent_id = %config.agent_id, "workspace trust prompt accepted");
             }
@@ -449,7 +457,7 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
 
         // 5d. Check for login/onboarding prompt (agent not authenticated)
         if let LoginPromptResult::Detected =
-            handle_login_prompt(&self.sessions, &spawned_id).await?
+            handle_login_prompt(&self.sessions, &spawned_id, prompt_poll_max_attempts()).await?
         {
             tracing::error!(
                 agent_id = %config.agent_id,

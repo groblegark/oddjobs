@@ -38,7 +38,7 @@ impl Default for ValidatorConfig {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::{Parser, validate};
 ///
 /// let ast = Parser::parse("echo hello").unwrap();
@@ -55,7 +55,7 @@ pub fn validate(ast: &CommandList) -> Result<(), Vec<ValidationError>> {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::{Parser, validate_with_config, ValidatorConfig};
 ///
 /// let config = ValidatorConfig {

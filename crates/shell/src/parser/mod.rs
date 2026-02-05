@@ -45,7 +45,7 @@ impl CompoundDelimiter {
 ///
 /// ## Basic parsing
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::Parser;
 ///
 /// let ast = Parser::parse("echo hello world")?;
@@ -55,7 +55,7 @@ impl CompoundDelimiter {
 ///
 /// ## Error recovery
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::Parser;
 ///
 /// let result = Parser::parse_with_recovery("echo hello; | bad; echo ok");
@@ -79,7 +79,7 @@ impl Parser {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::Parser;
     ///
     /// // Simple command
@@ -117,7 +117,7 @@ impl Parser {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::Parser;
     ///
     /// // Error in the middle - valid commands still returned

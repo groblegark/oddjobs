@@ -48,7 +48,7 @@ text = "Running a slow task..."
 
 [[responses.response.tool_calls]]
 tool = "Bash"
-input = { command = "sleep 10" }
+input = { command = "sleep 2" }
 
 [tool_execution]
 mode = "live"
@@ -345,7 +345,7 @@ fn active_queue_item_completes_after_daemon_crash() {
 
     // Wait for the pipeline to complete via recovery (on_dead = "done")
     // and the queue item to reach completed status
-    let item_completed = wait_for(SPEC_WAIT_MAX_MS * 10, || {
+    let item_completed = wait_for(SPEC_WAIT_MAX_MS * 3, || {
         let out = temp.oj().args(&["queue", "show", "jobs"]).passes().stdout();
         out.contains("completed")
     });

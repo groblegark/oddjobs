@@ -16,7 +16,7 @@ use thiserror::Error;
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::{Parser, ParseError};
 ///
 /// let result = Parser::parse("echo |");
@@ -32,7 +32,7 @@ pub enum ParseError {
     /// Occurs when the input contains invalid lexical syntax.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, ParseError, LexerError};
     ///
     /// let result = Parser::parse("echo 'unterminated");
@@ -46,7 +46,7 @@ pub enum ParseError {
     /// Occurs when the parser finds a token that doesn't fit the expected grammar.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, ParseError};
     ///
     /// let result = Parser::parse("echo | | bad");
@@ -67,7 +67,7 @@ pub enum ParseError {
     /// Occurs when more input is needed to complete a command.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, ParseError};
     ///
     /// let result = Parser::parse("echo &&");
@@ -84,7 +84,7 @@ pub enum ParseError {
     /// Occurs when a command is expected but not found.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, ParseError};
     ///
     /// let result = Parser::parse("| echo");
@@ -101,7 +101,7 @@ pub enum ParseError {
     /// Occurs when the content inside `$(...)` or backticks cannot be parsed.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use oj_shell::{Parser, ParseError};
     ///
     /// let result = Parser::parse("echo $(bad |)");

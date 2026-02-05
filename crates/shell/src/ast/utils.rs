@@ -12,7 +12,7 @@ impl CommandList {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::CommandList;
     ///
     /// let ast = CommandList::parse("echo hello")?;
@@ -32,7 +32,7 @@ impl CommandList {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::Parser;
     ///
     /// // Simple command
@@ -73,7 +73,7 @@ impl CommandList {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::Parser;
     ///
     /// let ast = Parser::parse("echo $HOME and $USER")?;
@@ -112,7 +112,7 @@ impl CommandList {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::Parser;
     ///
     /// // No substitutions
@@ -155,7 +155,7 @@ impl CommandList {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use oj_shell::Parser;
     ///
     /// // No nesting

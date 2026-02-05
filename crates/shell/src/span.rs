@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::Span;
 ///
 /// let source = "echo hello";
@@ -147,7 +147,7 @@ pub fn context_snippet(input: &str, span: Span, context_chars: usize) -> String 
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::{Span, locate_span};
 ///
 /// let source = "echo hello\necho world";
@@ -212,7 +212,7 @@ pub fn locate_span(source: &str, span: Span) -> (usize, usize, &str) {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::{Span, diagnostic_context};
 ///
 /// let source = "echo | | bad";

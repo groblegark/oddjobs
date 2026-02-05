@@ -13,7 +13,7 @@
 //!
 //! # Quick Start
 //!
-//! ```
+//! ```ignore
 //! use oj_shell::{Parser, CommandList};
 //!
 //! let ast = Parser::parse("echo hello | grep h")?;

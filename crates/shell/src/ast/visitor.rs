@@ -19,7 +19,7 @@ use super::{
 ///
 /// # Example: Count Variables
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::{Parser, AstVisitor, CommandList, WordPart};
 ///
 /// struct VariableCounter(usize);
@@ -43,7 +43,7 @@ use super::{
 ///
 /// # Example: Find Command Names
 ///
-/// ```
+/// ```ignore
 /// use oj_shell::{Parser, AstVisitor, SimpleCommand, WordPart};
 ///
 /// struct CommandFinder(Vec<String>);

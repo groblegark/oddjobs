@@ -30,14 +30,14 @@ command "plan" {
   SHELL
 }
 
-# Queue an existing issue for implementation (skip planning).
+# Queue a planned issue for implementation.
 #
 # Examples:
 #   oj run build oj-abc123
 command "build" {
   args = "<issue>"
   run  = <<-SHELL
-    wok label ${args.issue} build:needed plan:ready
+    wok label ${args.issue} build:needed
     wok reopen ${args.issue}
     oj worker start epic
   SHELL
@@ -83,7 +83,7 @@ job "plan" {
   }
 }
 
-# Implementation queue: picks up issues ready to build (build:needed AND plan:ready)
+# Implementation queue: picks up planned issues ready to build
 queue "epics" {
   type = "external"
   list = "wok list -t epic -s todo --unassigned -l build:needed -l plan:ready -p oj -o json"

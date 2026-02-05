@@ -84,6 +84,17 @@ where
 
             match queue_type {
                 QueueType::External => {
+                    // Guard against overlapping polls: skip items that already
+                    // have an in-flight take command or an active pipeline.
+                    {
+                        let workers = self.worker_states.lock();
+                        if let Some(state) = workers.get(worker_name) {
+                            if state.inflight_items.contains(&item_id) {
+                                continue;
+                            }
+                        }
+                    }
+
                     // Interpolate take command with item fields
                     let mut vars = HashMap::new();
                     if let Some(obj) = item.as_object() {
@@ -101,12 +112,14 @@ where
                         &vars,
                     );
 
-                    // Reserve concurrency slot before firing the take command.
-                    // The slot is released in handle_worker_take_complete/failed.
+                    // Reserve concurrency slot and mark item as in-flight
+                    // before firing the take command. The slot and inflight
+                    // entry are released in handle_worker_take_complete.
                     {
                         let mut workers = self.worker_states.lock();
                         if let Some(state) = workers.get_mut(worker_name) {
                             state.pending_takes += 1;
+                            state.inflight_items.insert(item_id.clone());
                         }
                     }
 
@@ -196,11 +209,16 @@ where
                 "take command failed, skipping item"
             );
             let namespace = {
-                let workers = self.worker_states.lock();
-                workers
+                let mut workers = self.worker_states.lock();
+                let ns = workers
                     .get(worker_name)
                     .map(|s| s.namespace.clone())
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                // Remove from inflight set so the item can be retried on next poll
+                if let Some(state) = workers.get_mut(worker_name) {
+                    state.inflight_items.remove(item_id);
+                }
+                ns
             };
             let scoped = scoped_name(&namespace, worker_name);
             self.worker_logger.append(
@@ -309,11 +327,9 @@ where
             let mut workers = self.worker_states.lock();
             if let Some(state) = workers.get_mut(worker_name) {
                 state.active_pipelines.insert(pipeline_id.clone());
-                if state.queue_type == QueueType::Persisted {
-                    state
-                        .item_pipeline_map
-                        .insert(pipeline_id.clone(), item_id.clone());
-                }
+                state
+                    .item_pipeline_map
+                    .insert(pipeline_id.clone(), item_id.clone());
             }
         }
 

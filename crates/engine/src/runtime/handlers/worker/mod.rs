@@ -23,7 +23,7 @@ pub(crate) struct WorkerState {
     pub active_pipelines: HashSet<PipelineId>,
     pub status: WorkerStatus,
     pub queue_type: QueueType,
-    /// Maps pipeline_id -> item_id for persisted queue item completion tracking
+    /// Maps pipeline_id -> item_id for queue item completion tracking
     pub item_pipeline_map: HashMap<PipelineId, String>,
     /// Project namespace
     pub namespace: String,
@@ -32,6 +32,9 @@ pub(crate) struct WorkerState {
     /// Number of in-flight take commands for external queues.
     /// Counted toward concurrency to prevent over-dispatch when polls overlap.
     pub pending_takes: u32,
+    /// Item IDs that are in-flight (pending take or active pipeline) for external queues.
+    /// Prevents duplicate dispatches when overlapping polls return the same items.
+    pub inflight_items: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

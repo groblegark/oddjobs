@@ -1083,6 +1083,217 @@ async fn stale_poll_skips_active_items() {
     );
 }
 
+// -- External queue deduplication tests --
+
+/// Runbook with an external queue and concurrency > 1
+const EXTERNAL_CONCURRENT_RUNBOOK: &str = r#"
+[pipeline.build]
+input  = ["name"]
+
+[[pipeline.build.step]]
+name = "init"
+run = "echo init"
+on_done = "done"
+
+[[pipeline.build.step]]
+name = "done"
+run = "echo done"
+
+[queue.bugs]
+list = "echo '[]'"
+take = "echo taken"
+
+[worker.fixer]
+source = { queue = "bugs" }
+handler = { pipeline = "build" }
+concurrency = 3
+"#;
+
+/// Overlapping polls for external queues should not dispatch the same item twice.
+/// When the first poll dispatches a take command for an item, a second poll
+/// with the same item should skip it because it's already in-flight.
+#[tokio::test]
+async fn external_queue_overlapping_polls_skip_inflight_items() {
+    let ctx = setup_with_runbook(EXTERNAL_CONCURRENT_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, EXTERNAL_CONCURRENT_RUNBOOK);
+
+    // Start the worker (external queue, concurrency=3)
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash,
+            queue_name: "bugs".to_string(),
+            concurrency: 3,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    let items = vec![
+        serde_json::json!({"id": "bug-1", "title": "first bug"}),
+        serde_json::json!({"id": "bug-2", "title": "second bug"}),
+    ];
+
+    // First poll: both items should be dispatched (take commands fired)
+    ctx.runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: items.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Verify inflight_items contains both items
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert_eq!(state.pending_takes, 2, "should have 2 pending takes");
+        assert!(
+            state.inflight_items.contains("bug-1"),
+            "bug-1 should be in-flight"
+        );
+        assert!(
+            state.inflight_items.contains("bug-2"),
+            "bug-2 should be in-flight"
+        );
+    }
+
+    // Second poll with the same items (simulates overlapping poll):
+    // should skip both because they are already in-flight
+    ctx.runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: items.clone(),
+        })
+        .await
+        .unwrap();
+
+    // pending_takes should still be 2 (no new takes dispatched)
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert_eq!(
+            state.pending_takes, 2,
+            "overlapping poll should not dispatch duplicate takes for in-flight items"
+        );
+        assert_eq!(
+            state.inflight_items.len(),
+            2,
+            "inflight set should still have exactly 2 items"
+        );
+    }
+}
+
+/// After a take command fails, the item should be removed from inflight_items
+/// so it can be retried on the next poll.
+#[tokio::test]
+async fn external_queue_take_failure_clears_inflight() {
+    let ctx = setup_with_runbook(EXTERNAL_CONCURRENT_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, EXTERNAL_CONCURRENT_RUNBOOK);
+
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash,
+            queue_name: "bugs".to_string(),
+            concurrency: 3,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // Poll with one item
+    ctx.runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: vec![serde_json::json!({"id": "bug-1", "title": "a bug"})],
+        })
+        .await
+        .unwrap();
+
+    // Verify item is in-flight
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert!(state.inflight_items.contains("bug-1"));
+        assert_eq!(state.pending_takes, 1);
+    }
+
+    // Simulate take command failure
+    ctx.runtime
+        .handle_event(Event::WorkerTakeComplete {
+            worker_name: "fixer".to_string(),
+            item_id: "bug-1".to_string(),
+            item: serde_json::json!({"id": "bug-1", "title": "a bug"}),
+            exit_code: 1,
+            stderr: Some("take failed".to_string()),
+        })
+        .await
+        .unwrap();
+
+    // Item should be removed from inflight so it can be retried
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert!(
+            !state.inflight_items.contains("bug-1"),
+            "failed take should remove item from inflight set"
+        );
+        assert_eq!(
+            state.pending_takes, 0,
+            "pending_takes should be decremented after take failure"
+        );
+    }
+}
+
+/// Worker stop should clear inflight_items so stale state doesn't carry over.
+#[tokio::test]
+async fn worker_stop_clears_inflight_items() {
+    let ctx = setup_with_runbook(EXTERNAL_CONCURRENT_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, EXTERNAL_CONCURRENT_RUNBOOK);
+
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash,
+            queue_name: "bugs".to_string(),
+            concurrency: 3,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // Simulate in-flight items
+    {
+        let mut workers = ctx.runtime.worker_states.lock();
+        let state = workers.get_mut("fixer").unwrap();
+        state.inflight_items.insert("bug-1".to_string());
+        state.inflight_items.insert("bug-2".to_string());
+    }
+
+    // Stop the worker
+    ctx.runtime
+        .handle_event(Event::WorkerStopped {
+            worker_name: "fixer".to_string(),
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // inflight_items should be cleared
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert!(
+            state.inflight_items.is_empty(),
+            "worker stop should clear inflight_items"
+        );
+    }
+}
+
 // -- pending_takes tracking tests --
 
 /// pending_takes should count toward the concurrency limit, preventing

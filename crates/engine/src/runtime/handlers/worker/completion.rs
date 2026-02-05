@@ -32,6 +32,10 @@ where
             for (name, state) in workers.iter_mut() {
                 if state.active_pipelines.remove(pipeline_id) {
                     let item_id = state.item_pipeline_map.remove(pipeline_id);
+                    // Remove from inflight set so the item can be re-queued
+                    if let Some(ref id) = item_id {
+                        state.inflight_items.remove(id);
+                    }
                     found = Some((
                         name.clone(),
                         state.runbook_hash.clone(),

@@ -47,6 +47,8 @@ mod daemon_step_fallback;
 mod daemon_stop_hook;
 #[path = "specs/daemon/timers.rs"]
 mod daemon_timers;
+#[path = "specs/daemon/worker_restart.rs"]
+mod daemon_worker_restart;
 
 // job/
 #[path = "specs/job/execution.rs"]

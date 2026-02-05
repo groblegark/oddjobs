@@ -60,17 +60,17 @@ pipeline "build" {
       git diff --cached --quiet || git commit -m "${local.title}"
       test "$(git rev-list --count HEAD ^origin/${var.base})" -gt 0 || { echo "No changes to submit" >&2; exit 1; }
       git push origin "${workspace.branch}"
-      cd ${invoke.dir} && wok done ${local.issue}
+      wok done ${local.issue}
       oj queue push merges --var branch="${workspace.branch}" --var title="${local.title}"
     SHELL
   }
 
   step "cancel" {
-    run = "cd ${invoke.dir} && wok close ${local.issue} --reason 'Build pipeline cancelled'"
+    run = "wok close ${local.issue} --reason 'Build pipeline cancelled'"
   }
 
   step "reopen" {
-    run = "cd ${invoke.dir} && wok reopen ${local.issue} --reason 'Build pipeline failed'"
+    run = "wok reopen ${local.issue} --reason 'Build pipeline failed'"
   }
 }
 
@@ -83,7 +83,7 @@ agent "plan" {
   on_idle  = { action = "nudge", message = "Keep working. Write the plan to plans/${var.name}.md." }
   on_dead  = { action = "gate", run = "test -f plans/${var.name}.md" }
 
-  prime = ["cd ${invoke.dir} && wok show ${local.issue}"]
+  prime = ["wok show ${local.issue}"]
 
   prompt = <<-PROMPT
     Create an implementation plan for: ${local.issue} - ${var.instructions}
@@ -131,7 +131,7 @@ agent "implement" {
   on_idle  = { action = "nudge", message = "Keep working. Follow the plan in plans/${var.name}.md, implement all phases, run make check, and commit." }
   on_dead  = { action = "gate", run = "make check" }
 
-  prime = ["cd ${invoke.dir} && wok show ${local.issue}"]
+  prime = ["wok show ${local.issue}"]
 
   prompt = <<-PROMPT
     Implement the plan in `plans/${var.name}.md`.

@@ -51,6 +51,8 @@ mod daemon_stop_hook;
 mod daemon_timers;
 #[path = "specs/daemon/wal_recovery.rs"]
 mod daemon_wal_recovery;
+#[path = "specs/daemon/worker_restart.rs"]
+mod daemon_worker_restart;
 
 // job/
 #[path = "specs/job/escalation.rs"]

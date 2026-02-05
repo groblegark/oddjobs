@@ -16,7 +16,7 @@ command "fix" {
 
 queue "bugs" {
   type = "external"
-  list = "wok ready -t bug -p oj -o json | jq .issues"
+  list = "wok ready -t bug -p oj -o json"
   take = "wok start ${item.id}"
 }
 

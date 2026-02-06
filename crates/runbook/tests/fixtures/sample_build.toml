@@ -1,0 +1,42 @@
+[command.build]
+args = "<name> <prompt>"
+run = { job = "build" }
+[command.build.defaults]
+branch = "main"
+
+[job.build]
+vars  = ["name", "prompt"]
+
+[[job.build.step]]
+name = "init"
+run = "git worktree add worktrees/${name} -b feature/${name}"
+on_done = "plan"
+
+[[job.build.step]]
+name = "plan"
+run = { agent = "planner" }
+on_done = "execute"
+
+[[job.build.step]]
+name = "execute"
+run = { agent = "executor" }
+on_done = "done"
+on_fail = "failed"
+
+[[job.build.step]]
+name = "done"
+run = "echo done"
+
+[[job.build.step]]
+name = "failed"
+run = "echo failed"
+
+[agent.planner]
+run = "claude -p"
+prompt = "Plan: ${var.prompt}"
+[agent.planner.env]
+OJ_STEP = "plan"
+
+[agent.executor]
+run = "claude \"${prompt}\""
+cwd = "worktrees/${name}"

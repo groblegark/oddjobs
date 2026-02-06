@@ -207,8 +207,16 @@ fn escalate_emits_decision_created() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&job, &agent, &config, "gate_failed", &HashMap::new(), None, None).unwrap();
+    let result = build_action_effects(
+        &job,
+        &agent,
+        &config,
+        "gate_failed",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let decision_created = effects.iter().find(|e| {
             matches!(
@@ -992,8 +1000,16 @@ fn fail_uses_trigger_as_error_message() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Fail);
 
-    let result =
-        build_action_effects(&job, &agent, &config, "on_error", &HashMap::new(), None, None).unwrap();
+    let result = build_action_effects(
+        &job,
+        &agent,
+        &config,
+        "on_error",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::FailJob { error } = result {
         assert_eq!(error, "on_error");
     } else {
@@ -1032,8 +1048,15 @@ fn agent_run_nudge_builds_send_effect() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Nudge);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None, None);
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "idle",
+        &HashMap::new(),
+        None,
+        None,
+    );
     assert!(matches!(result, Ok(ActionEffects::Nudge { .. })));
 }
 
@@ -1044,8 +1067,15 @@ fn agent_run_nudge_without_session_fails() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Nudge);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None, None);
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "idle",
+        &HashMap::new(),
+        None,
+        None,
+    );
     assert!(result.is_err());
 }
 
@@ -1055,9 +1085,16 @@ fn agent_run_nudge_custom_message() {
     let agent = test_agent_def();
     let config = ActionConfig::with_message(AgentAction::Nudge, "Custom nudge");
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "idle",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::Nudge { effects } = result {
         match &effects[0] {
             Effect::SendToSession { input, .. } => {
@@ -1076,8 +1113,15 @@ fn agent_run_done_returns_complete() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Done);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None, None);
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "idle",
+        &HashMap::new(),
+        None,
+        None,
+    );
     assert!(matches!(result, Ok(ActionEffects::CompleteAgentRun)));
 }
 
@@ -1087,9 +1131,16 @@ fn agent_run_fail_returns_fail() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Fail);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "error", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "error",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::FailAgentRun { error } = result {
         assert_eq!(error, "error");
     } else {
@@ -1103,9 +1154,16 @@ fn agent_run_resume_returns_resume_effects() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Resume);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "exit",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::Resume {
         kill_session,
         agent_name,
@@ -1128,9 +1186,16 @@ fn agent_run_resume_with_replace_message() {
     let agent = test_agent_def();
     let config = ActionConfig::with_message(AgentAction::Resume, "New prompt.");
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "exit",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::Resume {
         input,
         resume_session_id,
@@ -1153,9 +1218,16 @@ fn agent_run_resume_with_append_message() {
     let agent = test_agent_def();
     let config = ActionConfig::with_append(AgentAction::Resume, "Try again.");
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "exit",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::Resume {
         input,
         resume_session_id,
@@ -1175,8 +1247,15 @@ fn agent_run_escalate_returns_escalate_effects() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None, None);
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "idle",
+        &HashMap::new(),
+        None,
+        None,
+    );
     assert!(matches!(result, Ok(ActionEffects::EscalateAgentRun { .. })));
 }
 
@@ -1186,9 +1265,16 @@ fn agent_run_escalate_emits_decision_and_status_change() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "idle", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "idle",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::EscalateAgentRun { effects } = result {
         // Should emit DecisionCreated
         let has_decision = effects.iter().any(|e| {
@@ -1238,9 +1324,16 @@ fn agent_run_escalate_trigger_mapping() {
     let config = ActionConfig::simple(AgentAction::Escalate);
 
     // Test "exit" trigger maps to Error source
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "exit",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::EscalateAgentRun { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -1265,9 +1358,16 @@ fn agent_run_gate_returns_gate_effects() {
         cooldown: None,
     };
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None, None)
-            .unwrap();
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "exit",
+        &HashMap::new(),
+        None,
+        None,
+    )
+    .unwrap();
     if let ActionEffects::Gate { command } = result {
         assert_eq!(command, "make test");
     } else {
@@ -1281,8 +1381,15 @@ fn agent_run_gate_without_run_errors() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Gate);
 
-    let result =
-        build_action_effects_for_agent_run(&ar, &agent, &config, "exit", &HashMap::new(), None, None);
+    let result = build_action_effects_for_agent_run(
+        &ar,
+        &agent,
+        &config,
+        "exit",
+        &HashMap::new(),
+        None,
+        None,
+    );
     assert!(result.is_err());
 }
 

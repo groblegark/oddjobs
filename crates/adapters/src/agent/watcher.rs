@@ -448,6 +448,48 @@ fn detect_error(json: &serde_json::Value) -> Option<AgentError> {
     })
 }
 
+/// Extract the last assistant text message from a Claude JSONL session log.
+///
+/// Reads the tail of the file, iterates in reverse to find the last `"type": "assistant"`
+/// line, and concatenates all `{"type":"text","text":"..."}` content blocks.
+/// Returns `None` if no assistant message is found.
+pub fn extract_last_assistant_text(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+
+    // Search last ~50 lines in reverse for the last assistant message
+    for line in lines.iter().rev().take(50) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let json: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+            continue;
+        }
+        let content = json
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())?;
+
+        let text: String = content
+            .iter()
+            .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("text"))
+            .filter_map(|item| item.get("text").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
+}
+
 /// Find the session log path for a project.
 ///
 /// Uses `CLAUDE_CONFIG_DIR` env var if set, otherwise defaults to `~/.claude`.

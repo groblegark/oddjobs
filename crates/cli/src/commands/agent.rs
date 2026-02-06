@@ -156,6 +156,8 @@ struct PreToolUseInput {
     tool_name: Option<String>,
     #[serde(default)]
     tool_input: Option<serde_json::Value>,
+    #[serde(default)]
+    transcript_path: Option<String>,
 }
 
 /// Input from Claude Code Stop hook (subset of fields we care about)
@@ -700,6 +702,7 @@ async fn handle_pretooluse_hook(agent_id: &str, client: &DaemonClient) -> Result
     let input: PreToolUseInput = serde_json::from_str(&input_json).unwrap_or(PreToolUseInput {
         tool_name: None,
         tool_input: None,
+        transcript_path: None,
     });
 
     let Some(prompt_type) = prompt_type_for_tool(input.tool_name.as_deref()) else {
@@ -716,10 +719,18 @@ async fn handle_pretooluse_hook(agent_id: &str, client: &DaemonClient) -> Result
         None
     };
 
+    // Extract last assistant message from transcript for decision context
+    let assistant_context = input
+        .transcript_path
+        .as_deref()
+        .map(std::path::Path::new)
+        .and_then(extract_last_assistant_text);
+
     let event = Event::AgentPrompt {
         agent_id: AgentId::new(agent_id),
         prompt_type,
         question_data,
+        assistant_context,
     };
     client.emit_event(event).await?;
 
@@ -747,6 +758,7 @@ async fn handle_notify_hook(agent_id: &str, client: &DaemonClient) -> Result<()>
                 agent_id: AgentId::new(agent_id),
                 prompt_type: PromptType::Permission,
                 question_data: None,
+                assistant_context: None,
             };
             client.emit_event(event).await?;
         }
@@ -834,6 +846,46 @@ fn read_on_stop_config(agent_id: &str) -> String {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("on_stop")?.as_str().map(String::from))
         .unwrap_or_else(|| "signal".to_string())
+}
+
+/// Extract the last assistant text message from a Claude JSONL session log.
+///
+/// Reads the tail of the file, iterates in reverse to find the last `"type": "assistant"`
+/// line, and concatenates all `{"type":"text","text":"..."}` content blocks.
+fn extract_last_assistant_text(path: &std::path::Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let reader = io::BufReader::new(file);
+    let lines: Vec<String> = io::BufRead::lines(reader).filter_map(|l| l.ok()).collect();
+
+    for line in lines.iter().rev().take(50) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let json: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if json.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+            continue;
+        }
+        let content = json
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())?;
+
+        let text: String = content
+            .iter()
+            .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("text"))
+            .filter_map(|item| item.get("text").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
 }
 
 fn block_exit(reason: &str) -> ! {

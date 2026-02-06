@@ -101,10 +101,16 @@ where
                 agent_id,
                 prompt_type,
                 question_data,
+                assistant_context,
             } => {
                 result_events.extend(
-                    self.handle_agent_prompt_hook(agent_id, prompt_type, question_data.as_ref())
-                        .await?,
+                    self.handle_agent_prompt_hook(
+                        agent_id,
+                        prompt_type,
+                        question_data.as_ref(),
+                        assistant_context.as_deref(),
+                    )
+                    .await?,
                 );
             }
 

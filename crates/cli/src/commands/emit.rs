@@ -159,6 +159,7 @@ pub async fn handle(
                 agent_id: AgentId::new(agent_id),
                 prompt_type: parse_prompt_type(&prompt_type),
                 question_data: None,
+                assistant_context: None,
             };
             client.emit_event(event).await?;
             Ok(())

@@ -14,11 +14,18 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub enum EscalationTrigger {
     /// Agent was idle for too long (on_idle)
-    Idle,
+    Idle { assistant_context: Option<String> },
     /// Agent process died unexpectedly (on_dead)
-    Dead { exit_code: Option<i32> },
+    Dead {
+        exit_code: Option<i32>,
+        assistant_context: Option<String>,
+    },
     /// Agent encountered an API/runtime error (on_error)
-    Error { error_type: String, message: String },
+    Error {
+        error_type: String,
+        message: String,
+        assistant_context: Option<String>,
+    },
     /// Gate command failed (gate action)
     GateFailed {
         command: String,
@@ -26,15 +33,21 @@ pub enum EscalationTrigger {
         stderr: String,
     },
     /// Agent showed a permission prompt we couldn't handle (on_prompt)
-    Prompt { prompt_type: String },
+    Prompt {
+        prompt_type: String,
+        assistant_context: Option<String>,
+    },
     /// Agent called AskUserQuestion — carries the parsed question data
-    Question { question_data: Option<QuestionData> },
+    Question {
+        question_data: Option<QuestionData>,
+        assistant_context: Option<String>,
+    },
 }
 
 impl EscalationTrigger {
     pub fn to_source(&self) -> DecisionSource {
         match self {
-            EscalationTrigger::Idle => DecisionSource::Idle,
+            EscalationTrigger::Idle { .. } => DecisionSource::Idle,
             EscalationTrigger::Dead { .. } => DecisionSource::Error,
             EscalationTrigger::Error { .. } => DecisionSource::Error,
             EscalationTrigger::GateFailed { .. } => DecisionSource::Gate,
@@ -135,15 +148,21 @@ impl EscalationDecisionBuilder {
     fn build_context(&self) -> String {
         let mut parts = Vec::new();
 
-        // Trigger-specific header
-        match &self.trigger {
-            EscalationTrigger::Idle => {
+        // Trigger-specific header and extract assistant_context
+        let assistant_context = match &self.trigger {
+            EscalationTrigger::Idle {
+                assistant_context, ..
+            } => {
                 parts.push(format!(
                     "Agent in job \"{}\" is idle and waiting for input.",
                     self.display_name
                 ));
+                assistant_context.as_deref()
             }
-            EscalationTrigger::Dead { exit_code } => {
+            EscalationTrigger::Dead {
+                exit_code,
+                assistant_context,
+            } => {
                 let code_str = exit_code
                     .map(|c| format!(" (exit code {})", c))
                     .unwrap_or_default();
@@ -151,15 +170,18 @@ impl EscalationDecisionBuilder {
                     "Agent in job \"{}\" exited unexpectedly{}.",
                     self.display_name, code_str
                 ));
+                assistant_context.as_deref()
             }
             EscalationTrigger::Error {
                 error_type,
                 message,
+                assistant_context,
             } => {
                 parts.push(format!(
                     "Agent in job \"{}\" encountered an error: {} - {}",
                     self.display_name, error_type, message
                 ));
+                assistant_context.as_deref()
             }
             EscalationTrigger::GateFailed {
                 command,
@@ -175,14 +197,22 @@ impl EscalationDecisionBuilder {
                 if !stderr.is_empty() {
                     parts.push(format!("stderr:\n{}", stderr));
                 }
+                None
             }
-            EscalationTrigger::Prompt { prompt_type } => {
+            EscalationTrigger::Prompt {
+                prompt_type,
+                assistant_context,
+            } => {
                 parts.push(format!(
                     "Agent in job \"{}\" is showing a {} prompt.",
                     self.display_name, prompt_type
                 ));
+                assistant_context.as_deref()
             }
-            EscalationTrigger::Question { ref question_data } => {
+            EscalationTrigger::Question {
+                ref question_data,
+                assistant_context,
+            } => {
                 if let Some(qd) = question_data {
                     if let Some(entry) = qd.questions.first() {
                         let header = entry.header.as_deref().unwrap_or("Question");
@@ -209,6 +239,22 @@ impl EscalationDecisionBuilder {
                         self.display_name
                     ));
                 }
+                assistant_context.as_deref()
+            }
+        };
+
+        // Assistant context from session transcript
+        if let Some(ctx) = assistant_context {
+            if !ctx.is_empty() {
+                // Truncate to ~2000 chars
+                let truncated = if ctx.len() > 2000 { &ctx[..2000] } else { ctx };
+                let label = match &self.trigger {
+                    EscalationTrigger::Question { .. } | EscalationTrigger::Prompt { .. } => {
+                        "Agent Context"
+                    }
+                    _ => "Last Agent Message",
+                };
+                parts.push(format!("\n--- {} ---\n{}", label, truncated));
             }
         }
 
@@ -224,7 +270,7 @@ impl EscalationDecisionBuilder {
 
     fn build_options(&self) -> Vec<DecisionOption> {
         match &self.trigger {
-            EscalationTrigger::Idle => vec![
+            EscalationTrigger::Idle { .. } => vec![
                 DecisionOption {
                     label: "Nudge".to_string(),
                     description: Some("Send a message prompting the agent to continue".to_string()),
@@ -299,7 +345,9 @@ impl EscalationDecisionBuilder {
                     recommended: false,
                 },
             ],
-            EscalationTrigger::Question { ref question_data } => {
+            EscalationTrigger::Question {
+                ref question_data, ..
+            } => {
                 let mut options = Vec::new();
 
                 if let Some(qd) = question_data {

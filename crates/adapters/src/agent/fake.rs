@@ -262,6 +262,10 @@ impl AgentAdapter for FakeAgentAdapter {
             .get(agent_id)
             .and_then(|a| a.session_log_size)
     }
+
+    async fn last_assistant_message(&self, _agent_id: &AgentId) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(test)]

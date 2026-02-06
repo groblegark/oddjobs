@@ -141,6 +141,7 @@ async fn prompt_hook_noop_when_step_already_waiting() {
             agent_id: agent_id.clone(),
             prompt_type: oj_core::PromptType::Permission,
             question_data: None,
+            assistant_context: None,
         })
         .await
         .unwrap();
@@ -275,6 +276,7 @@ async fn standalone_prompt_noop_when_agent_escalated() {
             agent_id: agent_id.clone(),
             prompt_type: oj_core::PromptType::Permission,
             question_data: None,
+            assistant_context: None,
         })
         .await
         .unwrap();

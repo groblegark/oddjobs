@@ -107,6 +107,18 @@ where
             "cooldown expired, executing action"
         );
 
+        // Fetch assistant context for the cooldown retry
+        let agent_id = job
+            .step_history
+            .iter()
+            .rfind(|r| r.name == job.step)
+            .and_then(|r| r.agent_id.as_ref())
+            .map(oj_core::AgentId::new);
+        let assistant_context = match agent_id {
+            Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+            None => None,
+        };
+
         self.execute_action_with_attempts(
             &job,
             &agent_def,
@@ -114,6 +126,7 @@ where
             trigger,
             chain_pos,
             None,
+            assistant_context.as_deref(),
         )
         .await
     }
@@ -617,6 +630,13 @@ where
             "standalone agent cooldown expired, executing action"
         );
 
+        // Fetch assistant context for the cooldown retry
+        let agent_id = agent_run.agent_id.as_ref().map(oj_core::AgentId::new);
+        let assistant_context = match agent_id {
+            Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+            None => None,
+        };
+
         self.execute_standalone_action_with_attempts(
             &agent_run,
             &agent_def,
@@ -624,6 +644,7 @@ where
             trigger,
             chain_pos,
             None,
+            assistant_context.as_deref(),
         )
         .await
     }

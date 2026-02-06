@@ -279,6 +279,22 @@ where
         agent_def: &AgentDef,
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Fetch assistant context: from MonitorState for prompts, from executor for other states
+        let assistant_context: Option<String> = match &state {
+            MonitorState::Prompting {
+                assistant_context, ..
+            } => assistant_context.clone(),
+            MonitorState::Working => None,
+            _ => {
+                // For idle, exited, gone, failed: fetch from agent adapter
+                let agent_id = agent_run.agent_id.as_ref().map(AgentId::new);
+                match agent_id {
+                    Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+                    None => None,
+                }
+            }
+        };
+
         let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
                 // Cancel idle grace timer — agent is working
@@ -340,6 +356,7 @@ where
             MonitorState::Prompting {
                 ref prompt_type,
                 ref question_data,
+                ..
             } => {
                 tracing::info!(
                     agent_run_id = %agent_run.id,
@@ -370,6 +387,7 @@ where
                         message,
                         0,
                         None,
+                        assistant_context.as_deref(),
                     )
                     .await;
             }
@@ -392,6 +410,7 @@ where
             trigger,
             0,
             qd.as_ref(),
+            assistant_context.as_deref(),
         )
         .await
     }
@@ -405,6 +424,7 @@ where
         trigger: &str,
         chain_pos: usize,
         question_data: Option<&QuestionData>,
+        assistant_context: Option<&str>,
     ) -> Result<Vec<Event>, RuntimeError> {
         let attempts = action_config.attempts();
         let agent_run_id = AgentRunId::new(&agent_run.id);
@@ -448,6 +468,7 @@ where
                         &format!("{}_exhausted", trigger),
                         &agent_run.vars,
                         question_data,
+                        assistant_context,
                     )?,
                 )
                 .await;
@@ -494,6 +515,7 @@ where
                 trigger,
                 &agent_run.vars,
                 question_data,
+                assistant_context,
             )?,
         )
         .await
@@ -669,6 +691,7 @@ where
                             "gate_failed",
                             &agent_run.vars,
                             None,
+                            None, // No assistant context for gate failures
                         )?;
                         match escalate_effects {
                             ActionEffects::EscalateAgentRun { effects } => {

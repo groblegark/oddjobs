@@ -708,6 +708,11 @@ where
     pub async fn get_session_log_size(&self, agent_id: &oj_core::AgentId) -> Option<u64> {
         self.agents.session_log_size(agent_id).await
     }
+
+    /// Extract the last assistant text message from the agent's session log.
+    pub async fn get_last_assistant_message(&self, agent_id: &oj_core::AgentId) -> Option<String> {
+        self.agents.last_assistant_message(agent_id).await
+    }
 }
 
 #[cfg(test)]

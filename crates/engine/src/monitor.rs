@@ -62,6 +62,7 @@ pub enum MonitorState {
     Prompting {
         prompt_type: PromptType,
         question_data: Option<QuestionData>,
+        assistant_context: Option<String>,
     },
     /// Agent encountered an error
     Failed {
@@ -135,6 +136,7 @@ pub fn build_action_effects(
     trigger: &str,
     input: &HashMap<String, String>,
     question_data: Option<&QuestionData>,
+    assistant_context: Option<&str>,
 ) -> Result<ActionEffects, RuntimeError> {
     let action = action_config.action();
     let message = action_config.message();
@@ -208,39 +210,55 @@ pub fn build_action_effects(
                 "escalating to human — creating decision"
             );
 
+            let ac = assistant_context.map(|s| s.to_string());
             // Determine escalation trigger type from the trigger string
             let escalation_trigger = match trigger {
-                "idle" | "on_idle" => EscalationTrigger::Idle,
-                "dead" | "on_dead" | "exit" | "exited" => {
-                    EscalationTrigger::Dead { exit_code: None }
-                }
+                "idle" | "on_idle" => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                },
+                "dead" | "on_dead" | "exit" | "exited" => EscalationTrigger::Dead {
+                    exit_code: None,
+                    assistant_context: ac,
+                },
                 "error" | "on_error" => EscalationTrigger::Error {
                     error_type: "unknown".to_string(),
                     message: message.unwrap_or("").to_string(),
+                    assistant_context: ac,
                 },
                 "prompt:question" => EscalationTrigger::Question {
                     question_data: question_data.cloned(),
+                    assistant_context: ac,
                 },
                 "prompt" | "on_prompt" => EscalationTrigger::Prompt {
                     prompt_type: "permission".to_string(),
+                    assistant_context: ac,
                 },
                 t if t.ends_with("_exhausted") => {
                     // Handle "idle_exhausted", "error_exhausted",
                     // "prompt:question_exhausted" etc.
                     let base = t.trim_end_matches("_exhausted");
                     match base {
-                        "idle" => EscalationTrigger::Idle,
+                        "idle" => EscalationTrigger::Idle {
+                            assistant_context: ac,
+                        },
                         "prompt:question" => EscalationTrigger::Question {
                             question_data: question_data.cloned(),
+                            assistant_context: ac,
                         },
                         "error" => EscalationTrigger::Error {
                             error_type: "exhausted".to_string(),
                             message: message.unwrap_or("").to_string(),
+                            assistant_context: ac,
                         },
-                        _ => EscalationTrigger::Dead { exit_code: None },
+                        _ => EscalationTrigger::Dead {
+                            exit_code: None,
+                            assistant_context: ac,
+                        },
                     }
                 }
-                _ => EscalationTrigger::Idle, // fallback
+                _ => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                }, // fallback
             };
 
             let (_decision_id, decision_event) = EscalationDecisionBuilder::for_job(
@@ -293,6 +311,7 @@ pub fn build_action_effects_for_agent_run(
     trigger: &str,
     input: &HashMap<String, String>,
     _question_data: Option<&QuestionData>,
+    assistant_context: Option<&str>,
 ) -> Result<ActionEffects, RuntimeError> {
     let action = action_config.action();
     let message = action_config.message();
@@ -358,37 +377,53 @@ pub fn build_action_effects_for_agent_run(
                 "escalating standalone agent to human — creating decision"
             );
 
+            let ac = assistant_context.map(|s| s.to_string());
             // Determine escalation trigger type from the trigger string
             let escalation_trigger = match trigger {
-                "idle" | "on_idle" => EscalationTrigger::Idle,
-                "dead" | "on_dead" | "exit" | "exited" => {
-                    EscalationTrigger::Dead { exit_code: None }
-                }
+                "idle" | "on_idle" => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                },
+                "dead" | "on_dead" | "exit" | "exited" => EscalationTrigger::Dead {
+                    exit_code: None,
+                    assistant_context: ac,
+                },
                 "error" | "on_error" => EscalationTrigger::Error {
                     error_type: "unknown".to_string(),
                     message: message.unwrap_or("").to_string(),
+                    assistant_context: ac,
                 },
                 "prompt:question" => EscalationTrigger::Question {
                     question_data: _question_data.cloned(),
+                    assistant_context: ac,
                 },
                 "prompt" | "on_prompt" => EscalationTrigger::Prompt {
                     prompt_type: "permission".to_string(),
+                    assistant_context: ac,
                 },
                 t if t.ends_with("_exhausted") => {
                     let base = t.trim_end_matches("_exhausted");
                     match base {
-                        "idle" => EscalationTrigger::Idle,
+                        "idle" => EscalationTrigger::Idle {
+                            assistant_context: ac,
+                        },
                         "prompt:question" => EscalationTrigger::Question {
                             question_data: _question_data.cloned(),
+                            assistant_context: ac,
                         },
                         "error" => EscalationTrigger::Error {
                             error_type: "exhausted".to_string(),
                             message: message.unwrap_or("").to_string(),
+                            assistant_context: ac,
                         },
-                        _ => EscalationTrigger::Dead { exit_code: None },
+                        _ => EscalationTrigger::Dead {
+                            exit_code: None,
+                            assistant_context: ac,
+                        },
                     }
                 }
-                _ => EscalationTrigger::Idle, // fallback
+                _ => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                }, // fallback
             };
 
             let (_decision_id, decision_event) = EscalationDecisionBuilder::for_agent_run(

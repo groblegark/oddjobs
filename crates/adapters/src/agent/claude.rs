@@ -435,6 +435,17 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
         let log_path = super::watcher::find_session_log(&workspace_path, &log_session_id)?;
         tokio::fs::metadata(&log_path).await.ok().map(|m| m.len())
     }
+
+    async fn last_assistant_message(&self, agent_id: &AgentId) -> Option<String> {
+        let workspace_path = {
+            let agents = self.agents.lock();
+            agents.get(agent_id).map(|info| info.workspace_path.clone())
+        }?;
+
+        let log_session_id = agent_id.to_string();
+        let log_path = super::watcher::find_session_log(&workspace_path, &log_session_id)?;
+        super::watcher::extract_last_assistant_text(&log_path)
+    }
 }
 
 /// Check for a prompt and log the result.

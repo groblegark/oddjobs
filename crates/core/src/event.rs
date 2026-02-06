@@ -147,6 +147,9 @@ pub enum Event {
         /// Populated when prompt_type is Question — contains the actual question and options
         #[serde(default, skip_serializing_if = "Option::is_none")]
         question_data: Option<QuestionData>,
+        /// Last assistant text from the session transcript, providing context for the prompt
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        assistant_context: Option<String>,
     },
 
     // -- command --

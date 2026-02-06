@@ -241,6 +241,7 @@ fn event_agent_prompt_roundtrip() {
         agent_id: AgentId::new("hook-agent-2"),
         prompt_type: PromptType::Permission,
         question_data: None,
+        assistant_context: None,
     };
     let json: serde_json::Value = serde_json::to_value(&event).unwrap();
     assert_eq!(json["type"], "agent:prompt");
@@ -264,6 +265,7 @@ fn event_agent_prompt_all_types_roundtrip() {
             agent_id: AgentId::new("a1"),
             prompt_type: pt,
             question_data: None,
+            assistant_context: None,
         };
         assert_roundtrip(&event);
     }
@@ -295,6 +297,7 @@ fn event_agent_prompt_name() {
         agent_id: AgentId::new("a1"),
         prompt_type: PromptType::Permission,
         question_data: None,
+        assistant_context: None,
     };
     assert_eq!(event.name(), "agent:prompt");
 }

@@ -26,7 +26,7 @@ pub mod log_entry;
 mod watcher;
 
 pub use claude::{extract_process_name, ClaudeAgentAdapter};
-pub use watcher::find_session_log;
+pub use watcher::{extract_last_assistant_text, find_session_log};
 
 /// Configuration for reconnecting to an existing agent session
 #[derive(Debug, Clone)]
@@ -166,6 +166,11 @@ pub trait AgentAdapter: Clone + Send + Sync + 'static {
     /// Returns `None` if the log file doesn't exist or can't be read.
     /// Used by the idle grace timer to detect activity during the grace period.
     async fn session_log_size(&self, agent_id: &AgentId) -> Option<u64>;
+
+    /// Extract the last assistant text message from the agent's session log.
+    ///
+    /// Used to provide context on decisions (idle, dead, prompt, question).
+    async fn last_assistant_message(&self, agent_id: &AgentId) -> Option<String>;
 }
 
 #[cfg(test)]

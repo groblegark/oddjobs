@@ -273,6 +273,7 @@ where
         agent_id: &AgentId,
         prompt_type: &PromptType,
         question_data: Option<&QuestionData>,
+        assistant_context: Option<&str>,
     ) -> Result<Vec<Event>, RuntimeError> {
         match self.get_owner_context(agent_id) {
             OwnerContext::Job { job, .. } => {
@@ -289,6 +290,7 @@ where
                     MonitorState::Prompting {
                         prompt_type: prompt_type.clone(),
                         question_data: question_data.cloned(),
+                        assistant_context: assistant_context.map(|s| s.to_string()),
                     },
                 )
                 .await
@@ -312,6 +314,7 @@ where
                     MonitorState::Prompting {
                         prompt_type: prompt_type.clone(),
                         question_data: question_data.cloned(),
+                        assistant_context: assistant_context.map(|s| s.to_string()),
                     },
                 )
                 .await

@@ -178,6 +178,27 @@ where
         agent_def: &oj_runbook::AgentDef,
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Fetch assistant context: from MonitorState for prompts, from executor for other states
+        let assistant_context: Option<String> = match &state {
+            MonitorState::Prompting {
+                assistant_context, ..
+            } => assistant_context.clone(),
+            MonitorState::Working => None,
+            _ => {
+                // For idle, exited, gone, failed: fetch from agent adapter
+                let agent_id = job
+                    .step_history
+                    .iter()
+                    .rfind(|r| r.name == job.step)
+                    .and_then(|r| r.agent_id.as_ref())
+                    .map(|s| AgentId::new(s));
+                match agent_id {
+                    Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+                    None => None,
+                }
+            }
+        };
+
         let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
                 // Cancel idle grace timer — agent is working
@@ -248,6 +269,7 @@ where
             MonitorState::Prompting {
                 ref prompt_type,
                 ref question_data,
+                ..
             } => {
                 tracing::info!(
                     job_id = %job.id,
@@ -284,7 +306,15 @@ where
                 }
                 let error_action = agent_def.on_error.action_for(error_type.as_ref());
                 return self
-                    .execute_action_with_attempts(job, agent_def, &error_action, message, 0, None)
+                    .execute_action_with_attempts(
+                        job,
+                        agent_def,
+                        &error_action,
+                        message,
+                        0,
+                        None,
+                        assistant_context.as_deref(),
+                    )
                     .await;
             }
             MonitorState::Exited => {
@@ -305,8 +335,16 @@ where
             }
         };
 
-        self.execute_action_with_attempts(job, agent_def, action_config, trigger, 0, qd.as_ref())
-            .await
+        self.execute_action_with_attempts(
+            job,
+            agent_def,
+            action_config,
+            trigger,
+            0,
+            qd.as_ref(),
+            assistant_context.as_deref(),
+        )
+        .await
     }
 
     /// Execute an action with attempt tracking and cooldown support
@@ -318,6 +356,7 @@ where
         trigger: &str,
         chain_pos: usize,
         question_data: Option<&QuestionData>,
+        assistant_context: Option<&str>,
     ) -> Result<Vec<Event>, RuntimeError> {
         let attempts = action_config.attempts();
         let job_id = JobId::new(&job.id);
@@ -367,6 +406,7 @@ where
                         &format!("{}_exhausted", trigger),
                         &job.vars,
                         question_data,
+                        assistant_context,
                     )?,
                 )
                 .await;
@@ -422,6 +462,7 @@ where
                 trigger,
                 &job.vars,
                 question_data,
+                assistant_context,
             )?,
         )
         .await

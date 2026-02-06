@@ -10,7 +10,8 @@ mod workspace;
 use super::*;
 use crate::RuntimeDeps;
 use oj_adapters::{
-    AgentError, AgentReconnectConfig, FakeAgentAdapter, FakeNotifyAdapter, FakeSessionAdapter,
+    AgentAdapterError, AgentReconnectConfig, FakeAgentAdapter, FakeNotifyAdapter,
+    FakeSessionAdapter,
 };
 use oj_core::{AgentId, AgentRunId, FakeClock, JobId, OwnerId, SessionId, TimerId, WorkspaceId};
 use std::collections::HashMap;

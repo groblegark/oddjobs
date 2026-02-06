@@ -80,7 +80,7 @@ async fn spawn_agent_error_propagates() {
     // Inject a spawn error
     harness
         .agents
-        .set_spawn_error(AgentError::SpawnFailed("test failure".to_string()));
+        .set_spawn_error(AgentAdapterError::SpawnFailed("test failure".to_string()));
 
     let result = harness
         .executor
@@ -142,7 +142,7 @@ async fn send_to_agent_error_propagates() {
 
     harness
         .agents
-        .set_send_error(AgentError::NotFound("agent-missing".to_string()));
+        .set_send_error(AgentAdapterError::NotFound("agent-missing".to_string()));
 
     let result = harness
         .executor
@@ -194,7 +194,7 @@ async fn kill_agent_error_propagates() {
 
     harness
         .agents
-        .set_kill_error(AgentError::NotFound("agent-gone".to_string()));
+        .set_kill_error(AgentAdapterError::NotFound("agent-gone".to_string()));
 
     let result = harness
         .executor

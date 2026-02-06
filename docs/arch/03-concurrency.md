@@ -178,8 +178,7 @@ Shared State                        Protected By              Held Across .await
 MaterializedState                   Arc<Mutex<..>>            No
 Wal                                 Arc<Mutex<..>>            No
 Scheduler                           Arc<Mutex<..>>            No
-Runtime.agent_jobs             Mutex<HashMap<..>>        No
-Runtime.agent_runs                  Mutex<HashMap<..>>        No
+Runtime.agent_owners                Mutex<HashMap<..>>        No
 Runtime.runbook_cache               Mutex<HashMap<..>>        No
 Runtime.worker_states               Mutex<HashMap<..>>        No
 Runtime.cron_states                 Mutex<HashMap<..>>        No

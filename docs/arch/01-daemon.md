@@ -514,7 +514,7 @@ flowchart LR
    - Backup rotation: `.bak` → `.bak.2` → `.bak.3` (max 3 kept)
 
 6. **Set up adapters and runtime**
-   - Create traced adapters (tmux, git, claude agent)
+   - Create traced adapters (tmux session, claude agent) and notify adapter
    - Create internal event channel for runtime-produced events
    - Spawn runtime event forwarder (internal channel → EventBus)
 
@@ -640,9 +640,11 @@ This provides seamless UX - users don't need to think about daemon lifecycle for
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OJ_IDLE_TIMEOUT_MS` | `180000` | Idle detection timeout. When an agent shows no activity for this duration, triggers `on_idle`. |
+| `OJ_IDLE_GRACE_MS` | `60000` | Grace period before confirming idle. After an `AgentIdle` event, the engine waits this long, then re-checks log growth and agent state before triggering `on_idle`. |
 | `OJ_PROMPT_POLL_MS` | `3000` | Timeout for detecting and handling Claude Code prompts (permissions bypass, workspace trust). |
+| `OJ_SESSION_POLL_MS` | `1000` | Polling interval while waiting for an agent's session log to appear after spawn. |
 | `OJ_WATCHER_POLL_MS` | `5000` | Fallback polling interval for agent watcher when file-based monitoring isn't available. |
+| `OJ_TIMER_CHECK_MS` | `1000` | Interval for the main loop's timer check branch (how often fired timers are collected). |
 
 ## See Also
 

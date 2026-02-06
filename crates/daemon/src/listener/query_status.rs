@@ -9,7 +9,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 
-use oj_core::{split_scoped_name, OwnerId, StepOutcome};
+use oj_core::{split_scoped_name, OwnerId, StepOutcome, StepStatusKind};
 use oj_engine::breadcrumb::Breadcrumb;
 use oj_storage::{MaterializedState, QueueItemStatus};
 
@@ -64,7 +64,7 @@ pub(super) fn handle_status_overview(
             name: p.name.clone(),
             kind: p.kind.clone(),
             step: p.step.clone(),
-            step_status: p.step_status.to_string(),
+            step_status: StepStatusKind::from(&p.step_status),
             elapsed_ms,
             last_activity_ms,
             waiting_reason,

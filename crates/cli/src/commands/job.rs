@@ -10,7 +10,7 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use oj_core::ShortId;
+use oj_core::{ShortId, StepOutcomeKind};
 
 use crate::client::{ClientKind, DaemonClient};
 use crate::color;
@@ -231,7 +231,7 @@ pub(crate) fn format_job_list(out: &mut impl Write, jobs: &[oj_daemon::JobSummar
         if show_retries {
             cells.push(p.retry_count.to_string());
         }
-        cells.push(p.step_status.clone());
+        cells.push(p.step_status.to_string());
         table.row(cells);
     }
 
@@ -268,7 +268,7 @@ pub async fn handle(
             if let Some(ref st) = status {
                 let st_lower = st.to_lowercase();
                 jobs.retain(|p| {
-                    p.step_status.to_lowercase() == st_lower || p.step.to_lowercase() == st_lower
+                    p.step_status.to_string() == st_lower || p.step.to_lowercase() == st_lower
                 });
             }
 
@@ -316,7 +316,7 @@ pub async fn handle(
                         println!(
                             "  {} {}",
                             color::context("Status:"),
-                            color::status(&p.step_status)
+                            color::status(&p.step_status.to_string())
                         );
                         if let Some(session) = &p.session_id {
                             println!("  {} {}", color::context("Session:"), session);
@@ -337,22 +337,21 @@ pub async fn handle(
                                     step.started_at_ms,
                                     step.finished_at_ms,
                                 );
-                                let status = match step.outcome.as_str() {
-                                    "completed" => "completed".to_string(),
-                                    "running" => "running".to_string(),
-                                    "failed" => match &step.detail {
+                                let status = match step.outcome {
+                                    StepOutcomeKind::Completed => "completed".to_string(),
+                                    StepOutcomeKind::Running => "running".to_string(),
+                                    StepOutcomeKind::Failed => match &step.detail {
                                         Some(d) => {
                                             format!("failed ({})", truncate(d, 40))
                                         }
                                         None => "failed".to_string(),
                                     },
-                                    "waiting" => match &step.detail {
+                                    StepOutcomeKind::Waiting => match &step.detail {
                                         Some(d) => {
                                             format!("waiting ({})", truncate(d, 40))
                                         }
                                         None => "waiting".to_string(),
                                     },
-                                    other => other.to_string(),
                                 };
                                 println!(
                                     "    {:<12} {:<8} {}",

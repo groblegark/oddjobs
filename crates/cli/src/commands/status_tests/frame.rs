@@ -1,5 +1,7 @@
 use serial_test::serial;
 
+use oj_core::StepStatusKind;
+
 use super::super::{format_text, render_frame, CLEAR_TO_END, CLEAR_TO_EOL, CURSOR_HOME};
 use super::{empty_ns, job_entry, setup_no_color};
 
@@ -210,7 +212,7 @@ fn non_tty_frame_with_full_status_has_no_ansi_escapes() {
     ns.escalated_jobs.push({
         let mut e = job_entry("efgh5678", "deploy", "approve");
         e.name = "deploy".to_string();
-        e.step_status = "waiting".to_string();
+        e.step_status = StepStatusKind::Waiting;
         e.elapsed_ms = 120_000;
         e.waiting_reason = Some("needs manual approval".to_string());
         e

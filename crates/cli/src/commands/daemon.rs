@@ -320,7 +320,7 @@ async fn orphans(format: OutputFormat) -> Result<()> {
                     truncate(&o.kind, 10),
                     truncate(&o.name, 20),
                     truncate(&o.current_step, 12),
-                    truncate(&o.step_status, 10),
+                    truncate(&o.step_status.to_string(), 10),
                     o.updated_at,
                 );
             }

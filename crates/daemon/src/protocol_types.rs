@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use oj_core::{StepOutcome, StepRecord};
+use oj_core::{StepOutcome, StepOutcomeKind, StepRecord, StepStatusKind};
 use serde::{Deserialize, Serialize};
 
 /// Summary of a job for listing
@@ -16,7 +16,7 @@ pub struct JobSummary {
     pub name: String,
     pub kind: String,
     pub step: String,
-    pub step_status: String,
+    pub step_status: StepStatusKind,
     #[serde(default)]
     pub created_at_ms: u64,
     /// Most recent activity timestamp (from step history)
@@ -35,7 +35,7 @@ pub struct JobDetail {
     pub name: String,
     pub kind: String,
     pub step: String,
-    pub step_status: String,
+    pub step_status: StepStatusKind,
     pub vars: HashMap<String, String>,
     pub workspace_path: Option<PathBuf>,
     pub session_id: Option<String>,
@@ -54,7 +54,7 @@ pub struct StepRecordDetail {
     pub name: String,
     pub started_at_ms: u64,
     pub finished_at_ms: Option<u64>,
-    pub outcome: String,
+    pub outcome: StepOutcomeKind,
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
@@ -68,12 +68,7 @@ impl From<&StepRecord> for StepRecordDetail {
             name: r.name.clone(),
             started_at_ms: r.started_at_ms,
             finished_at_ms: r.finished_at_ms,
-            outcome: match &r.outcome {
-                StepOutcome::Running => "running".to_string(),
-                StepOutcome::Completed => "completed".to_string(),
-                StepOutcome::Failed(_) => "failed".to_string(),
-                StepOutcome::Waiting(_) => "waiting".to_string(),
-            },
+            outcome: StepOutcomeKind::from(&r.outcome),
             detail: match &r.outcome {
                 StepOutcome::Failed(e) => Some(e.clone()),
                 StepOutcome::Waiting(r) => Some(r.clone()),

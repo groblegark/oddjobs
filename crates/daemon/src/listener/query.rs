@@ -24,7 +24,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 
-use oj_core::{scoped_name, split_scoped_name};
+use oj_core::{scoped_name, split_scoped_name, StepStatusKind};
 use oj_storage::MaterializedState;
 
 use oj_engine::breadcrumb::Breadcrumb;
@@ -71,7 +71,7 @@ pub(super) fn handle_query(
                         name: p.name.clone(),
                         kind: p.kind.clone(),
                         step: p.step.clone(),
-                        step_status: p.step_status.to_string(),
+                        step_status: StepStatusKind::from(&p.step_status),
                         created_at_ms: p.step_history.first().map(|r| r.started_at_ms).unwrap_or(0),
                         updated_at_ms,
                         namespace: p.namespace.clone(),
@@ -108,7 +108,7 @@ pub(super) fn handle_query(
                     name: p.name.clone(),
                     kind: p.kind.clone(),
                     step: p.step.clone(),
-                    step_status: p.step_status.to_string(),
+                    step_status: StepStatusKind::from(&p.step_status),
                     vars,
                     workspace_path: p.workspace_path.clone(),
                     session_id: p.session_id.clone(),
@@ -220,7 +220,7 @@ pub(super) fn handle_query(
                         .iter()
                         .map(|item| QueueItemSummary {
                             id: item.id.clone(),
-                            status: format!("{:?}", item.status).to_lowercase(),
+                            status: item.status.to_string(),
                             data: item.data.clone(),
                             worker_name: item.worker_name.clone(),
                             pushed_at_epoch_ms: item.pushed_at_epoch_ms,

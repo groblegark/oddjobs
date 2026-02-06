@@ -1,6 +1,8 @@
 use serial_test::serial;
 
 use super::super::format_text;
+use oj_core::StepStatusKind;
+
 use super::{empty_ns, job_entry, setup_no_color};
 
 // ── name display ────────────────────────────────────────────────────
@@ -58,7 +60,7 @@ fn escalated_job_hides_name_when_same_as_id() {
     setup_no_color();
 
     let mut entry = job_entry("efgh5678-0000-0000-0000", "deploy", "test");
-    entry.step_status = "waiting".to_string();
+    entry.step_status = StepStatusKind::Waiting;
     entry.waiting_reason = Some("gate check failed".to_string());
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
@@ -122,7 +124,7 @@ fn escalated_job_shows_friendly_name() {
 
     let mut entry = job_entry("efgh5678-0000-0000-0000", "deploy", "test");
     entry.name = "deploy-staging-efgh5678".to_string();
-    entry.step_status = "waiting".to_string();
+    entry.step_status = StepStatusKind::Waiting;
     entry.waiting_reason = Some("gate check failed".to_string());
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
@@ -164,7 +166,7 @@ fn escalated_job_shows_source_label() {
 
     let mut entry = job_entry("efgh5678-0000-0000-0000", "deploy", "test");
     entry.name = "deploy-staging-efgh5678".to_string();
-    entry.step_status = "waiting".to_string();
+    entry.step_status = StepStatusKind::Waiting;
     entry.waiting_reason = Some("Agent is idle".to_string());
     entry.escalate_source = Some("idle".to_string());
     let mut ns = empty_ns("myproject");
@@ -185,7 +187,7 @@ fn escalated_job_no_source_label_when_none() {
 
     let mut entry = job_entry("efgh5678-0000-0000-0000", "deploy", "test");
     entry.name = "deploy-staging-efgh5678".to_string();
-    entry.step_status = "waiting".to_string();
+    entry.step_status = StepStatusKind::Waiting;
     entry.waiting_reason = Some("gate check failed".to_string());
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
@@ -208,7 +210,7 @@ fn escalated_job_truncates_long_reason() {
     let long_reason = "e".repeat(200);
     let mut entry = job_entry("efgh5678", "deploy", "test");
     entry.name = "efgh5678".to_string();
-    entry.step_status = "Waiting".to_string();
+    entry.step_status = StepStatusKind::Waiting;
     entry.waiting_reason = Some(long_reason.clone());
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);

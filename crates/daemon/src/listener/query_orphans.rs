@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+use oj_core::StepStatusKind;
 use oj_engine::breadcrumb::Breadcrumb;
 
 use crate::protocol::{
@@ -26,7 +27,7 @@ pub(super) fn handle_list_orphans(orphans: &Arc<Mutex<Vec<Breadcrumb>>>) -> Resp
             kind: bc.kind.clone(),
             name: bc.name.clone(),
             current_step: bc.current_step.clone(),
-            step_status: bc.step_status.clone(),
+            step_status: parse_step_status_kind(&bc.step_status),
             workspace_root: bc.workspace_root.clone(),
             agents: bc
                 .agents
@@ -92,7 +93,7 @@ pub(super) fn append_orphan_summaries(
             name: bc.name.clone(),
             kind: bc.kind.clone(),
             step: bc.current_step.clone(),
-            step_status: "orphaned".to_string(),
+            step_status: StepStatusKind::Orphaned,
             created_at_ms: updated_at_ms,
             updated_at_ms,
             namespace: bc.project.clone(),
@@ -116,7 +117,7 @@ pub(super) fn find_orphan_detail(
                 name: bc.name.clone(),
                 kind: bc.kind.clone(),
                 step: bc.current_step.clone(),
-                step_status: "orphaned".to_string(),
+                step_status: StepStatusKind::Orphaned,
                 vars: bc.vars.clone(),
                 workspace_path: bc.workspace_root.clone(),
                 session_id: bc.agents.iter().find_map(|a| a.session_name.clone()),
@@ -171,7 +172,7 @@ pub(super) fn collect_orphan_status_entries(
                 name: bc.name.clone(),
                 kind: bc.kind.clone(),
                 step: bc.current_step.clone(),
-                step_status: "orphaned".to_string(),
+                step_status: StepStatusKind::Orphaned,
                 elapsed_ms,
                 last_activity_ms: updated_at_ms,
                 waiting_reason: None,
@@ -179,6 +180,18 @@ pub(super) fn collect_orphan_status_entries(
             });
     }
     ns_orphaned
+}
+
+/// Parse a step status string from a breadcrumb into a `StepStatusKind`.
+fn parse_step_status_kind(s: &str) -> StepStatusKind {
+    match s {
+        "pending" => StepStatusKind::Pending,
+        "running" => StepStatusKind::Running,
+        "waiting" => StepStatusKind::Waiting,
+        "completed" => StepStatusKind::Completed,
+        "failed" => StepStatusKind::Failed,
+        _ => StepStatusKind::Orphaned,
+    }
 }
 
 /// Parse an RFC 3339 UTC timestamp (e.g. "2026-01-15T10:30:00Z") to epoch milliseconds.

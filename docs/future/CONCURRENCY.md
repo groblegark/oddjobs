@@ -7,12 +7,17 @@ Proposed changes to the concurrency model described in
 
 The event loop blocks for 3-40+ seconds during job creation because
 workspace creation, agent spawning, and shell evaluation are awaited inline
-within `process_event()`. During these windows:
+within `handle_event()`. During these windows:
 
 - Timers cannot fire (liveness checks, idle timeouts, cron schedules)
 - Subsequent events queue up (agent state changes, shell completions)
 - CLI queries respond normally (state lock is not held across awaits), but
   the system cannot *act* on anything until the current event completes
+
+The event types needed for deferred execution (`WorkspaceReady`,
+`WorkspaceFailed`, `SessionCreated`) already exist in the event enum but
+are currently no-ops in the handler — the deferred execution model is not
+yet wired up.
 
 ## Goals
 
@@ -67,28 +72,35 @@ Background tasks:
 ### Effect classification
 
 ```
-Immediate (<10ms, execute inline)     Deferred (spawned, emit result event)
+Already immediate (<10ms)             Already deferred (spawned)
 ────────────────────────────────────  ──────────────────────────────────────
-Emit          state mutation          CreateWorkspace   git worktree
-SetTimer      scheduler insert        DeleteWorkspace   git + rm
-CancelTimer   scheduler remove        SpawnAgent        tmux + prompts
-Notify        fire-and-forget thread   Shell             (already deferred)
-                                      PollQueue          (already deferred)
-                                      TakeQueueItem     bash subprocess
-                                      SendToAgent       tmux + settle
-                                      KillAgent         tmux kill
-                                      SendToSession     tmux send
-                                      KillSession       tmux kill
+Emit          state mutation          Shell             bash subprocess
+SetTimer      scheduler insert        PollQueue         bash subprocess
+CancelTimer   scheduler remove        TakeQueueItem     bash subprocess
+Notify        fire-and-forget thread
+
+To be deferred (currently inline)
+──────────────────────────────────────
+CreateWorkspace   git worktree
+DeleteWorkspace   git + rm
+SpawnAgent        tmux + prompts
+SendToAgent       tmux + settle
+KillAgent         tmux kill
+SendToSession     tmux send
+KillSession       tmux kill
 ```
 
 ### Sequential dependencies via events
 
-Today, `create_and_start_job()` runs three phases in one async function:
+Currently, `create_and_start_job()` runs three phases in one async
+function. It also evaluates shell expressions for `workspace.ref`,
+`locals`, and `git rev-parse` inline before workspace creation:
 
 ```
+Phase 0: Shell eval (workspace.ref, locals, git rev-parse) ← blocks 50-500ms each
 Phase 1: Emit JobCreated
-Phase 2: execute(CreateWorkspace).await     ← blocks event loop
-Phase 3: start_step() → execute(SpawnAgent).await  ← blocks again
+Phase 2: execute_all(workspace_effects).await               ← blocks event loop
+Phase 3: start_step() → execute(SpawnAgent).await           ← blocks again
 ```
 
 With deferred effects, each phase becomes an event-driven step:
@@ -175,7 +187,7 @@ Options:
 
 ### Phase 1: Deferred workspace and agent effects
 
-1. Add `WorkspaceFailed` event to the core event enum (if not present)
+1. ~~Add `WorkspaceFailed` event to the core event enum~~ (done — exists, currently a no-op)
 2. Add `AgentSpawnFailed` event to the core event enum
 3. Move `CreateWorkspace` execution into a `tokio::spawn` task in the executor,
    following the `Shell` effect pattern
@@ -183,7 +195,9 @@ Options:
 5. Refactor `create_and_start_job()` to return after emitting effects
    instead of awaiting them
 6. Add `WorkspaceReady` → `start_step()` handler to the runtime
+   (event exists, handler is a no-op)
 7. Add `WorkspaceFailed` → `fail_job()` handler
+   (event exists, handler is a no-op)
 8. Add `AgentSpawnFailed` → `fail_job()` handler
 
 ### Phase 2: Deferred remaining I/O effects
@@ -191,7 +205,8 @@ Options:
 1. Move `DeleteWorkspace` to deferred (emit `WorkspaceDeleted`)
 2. Move `SendToAgent` to deferred (fire-and-forget, no result event)
 3. Move `KillAgent`, `KillSession`, `SendToSession` to deferred
-4. Move `TakeQueueItem` to deferred (same pattern as `Shell`/`PollQueue`)
+
+(`TakeQueueItem` is already deferred, following the `Shell`/`PollQueue` pattern.)
 
 ### Phase 3: IPC handler timeouts
 

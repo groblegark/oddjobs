@@ -28,6 +28,7 @@ use oj_core::{namespace_to_option, scoped_name, split_scoped_name, StepStatusKin
 use oj_storage::MaterializedState;
 
 use oj_engine::breadcrumb::Breadcrumb;
+use oj_engine::MetricsHealth;
 
 use crate::protocol::{
     CronSummary, DecisionDetail, DecisionOptionDetail, DecisionSummary, JobDetail, JobSummary,
@@ -40,6 +41,7 @@ pub(super) fn handle_query(
     query: Query,
     state: &Arc<Mutex<MaterializedState>>,
     orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
+    metrics_health: &Arc<Mutex<MetricsHealth>>,
     logs_path: &Path,
     start_time: Instant,
 ) -> Response {
@@ -373,7 +375,9 @@ pub(super) fn handle_query(
             Response::Crons { crons }
         }
 
-        Query::StatusOverview => query_status::handle_status_overview(&state, orphans, start_time),
+        Query::StatusOverview => {
+            query_status::handle_status_overview(&state, orphans, metrics_health, start_time)
+        }
 
         Query::GetQueueLogs {
             queue_name,

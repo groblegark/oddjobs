@@ -121,7 +121,7 @@ fn content_identical_across_tty_modes() {
     let mut ns = empty_ns("proj");
     ns.active_jobs.push(entry);
 
-    let text = format_text(60, &[ns], Some("5s"));
+    let text = format_text(60, &[ns], Some("5s"), None);
 
     let tty_frame = render_frame(&text, true);
     let non_tty_frame = render_frame(&text, false);
@@ -136,8 +136,8 @@ fn content_identical_across_tty_modes() {
 fn consecutive_frames_tty_each_have_escape_codes() {
     setup_no_color();
 
-    let frame1_content = format_text(60, &[], Some("5s"));
-    let frame2_content = format_text(120, &[], Some("5s"));
+    let frame1_content = format_text(60, &[], Some("5s"), None);
+    let frame2_content = format_text(120, &[], Some("5s"), None);
 
     let frame1 = render_frame(&frame1_content, true);
     let frame2 = render_frame(&frame2_content, true);
@@ -162,8 +162,8 @@ fn consecutive_frames_tty_each_have_escape_codes() {
 fn consecutive_frames_non_tty_no_escape_codes() {
     setup_no_color();
 
-    let frame1_content = format_text(60, &[], Some("5s"));
-    let frame2_content = format_text(120, &[], Some("5s"));
+    let frame1_content = format_text(60, &[], Some("5s"), None);
+    let frame2_content = format_text(120, &[], Some("5s"), None);
 
     let frame1 = render_frame(&frame1_content, false);
     let frame2 = render_frame(&frame2_content, false);
@@ -185,13 +185,13 @@ fn consecutive_frames_non_tty_no_escape_codes() {
 fn format_text_never_contains_escape_sequences() {
     setup_no_color();
 
-    let with_watch = format_text(300, &[], Some("3s"));
+    let with_watch = format_text(300, &[], Some("3s"), None);
     assert!(
         !with_watch.contains('\x1B'),
         "format_text must not inject escape codes"
     );
 
-    let without_watch = format_text(300, &[], None);
+    let without_watch = format_text(300, &[], None, None);
     assert!(
         !without_watch.contains('\x1B'),
         "format_text must not inject escape codes"
@@ -239,7 +239,7 @@ fn non_tty_frame_with_full_status_has_no_ansi_escapes() {
         status: "running".to_string(),
     });
 
-    let text = format_text(600, &[ns], Some("5s"));
+    let text = format_text(600, &[ns], Some("5s"), None);
     let frame = render_frame(&text, false);
 
     assert!(
@@ -259,7 +259,7 @@ fn tty_frame_preserves_color_codes_in_content() {
     std::env::remove_var("NO_COLOR");
     std::env::set_var("COLOR", "1");
 
-    let text = format_text(120, &[], Some("5s"));
+    let text = format_text(120, &[], Some("5s"), None);
     let frame = render_frame(&text, true);
 
     assert!(frame.starts_with(CURSOR_HOME));

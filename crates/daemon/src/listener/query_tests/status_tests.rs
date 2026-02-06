@@ -28,10 +28,7 @@ fn status_overview_empty_state() {
         start,
     );
     match response {
-        Response::StatusOverview {
-            uptime_secs: _,
-            namespaces,
-        } => {
+        Response::StatusOverview { namespaces, .. } => {
             assert!(namespaces.is_empty());
         }
         other => panic!("unexpected response: {:?}", other),

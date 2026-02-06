@@ -147,6 +147,17 @@ pub struct QueueItemEntry {
     pub status: String,
 }
 
+/// Summary of metrics collector health for `oj status`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetricsHealthSummary {
+    pub last_collection_ms: u64,
+    pub sessions_tracked: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub ghost_sessions: Vec<String>,
+}
+
 /// Summary of a project with active work
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectSummary {

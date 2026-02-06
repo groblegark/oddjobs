@@ -11,15 +11,18 @@ use parking_lot::Mutex;
 
 use oj_core::{split_scoped_name, OwnerId, StepOutcome, StepStatusKind};
 use oj_engine::breadcrumb::Breadcrumb;
+use oj_engine::MetricsHealth;
 use oj_storage::{MaterializedState, QueueItemStatus};
 
 use crate::protocol::{
-    AgentStatusEntry, JobStatusEntry, NamespaceStatus, QueueStatus, Response, WorkerSummary,
+    AgentStatusEntry, JobStatusEntry, MetricsHealthSummary, NamespaceStatus, QueueStatus, Response,
+    WorkerSummary,
 };
 
 pub(super) fn handle_status_overview(
     state: &MaterializedState,
     orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
+    metrics_health: &Arc<Mutex<MetricsHealth>>,
     start_time: Instant,
 ) -> Response {
     let uptime_secs = start_time.elapsed().as_secs();
@@ -241,8 +244,19 @@ pub(super) fn handle_status_overview(
         .collect();
     namespaces.sort_by(|a, b| a.namespace.cmp(&b.namespace));
 
+    let metrics = {
+        let mh = metrics_health.lock();
+        MetricsHealthSummary {
+            last_collection_ms: mh.last_collection_ms,
+            sessions_tracked: mh.sessions_tracked,
+            last_error: mh.last_error.clone(),
+            ghost_sessions: mh.ghost_sessions.clone(),
+        }
+    };
+
     Response::StatusOverview {
         uptime_secs,
         namespaces,
+        metrics_health: Some(metrics),
     }
 }

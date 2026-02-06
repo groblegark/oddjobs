@@ -16,7 +16,7 @@ fn active_job_shows_kind_not_name() {
     ns.active_jobs
         .push(job_entry("abcd1234-0000-0000-0000", "build", "check"));
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(
         output.contains("build"),
@@ -43,7 +43,7 @@ fn active_job_hides_nonce_only_name() {
     let mut ns = empty_ns("myproject");
     ns.active_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(output.contains("build"));
     assert!(output.contains("check"));
@@ -65,7 +65,7 @@ fn escalated_job_hides_name_when_same_as_id() {
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(output.contains("deploy"));
     assert!(output.contains("test"));
@@ -85,7 +85,7 @@ fn orphaned_job_hides_name_when_same_as_id() {
     ns.orphaned_jobs
         .push(job_entry("ijkl9012-0000-0000-0000", "ci", "lint"));
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(output.contains("ci"));
     assert!(output.contains("lint"));
@@ -107,7 +107,7 @@ fn active_job_shows_friendly_name() {
     let mut ns = empty_ns("myproject");
     ns.active_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(output.contains("build"));
     assert!(
@@ -129,7 +129,7 @@ fn escalated_job_shows_friendly_name() {
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(output.contains("deploy"));
     assert!(
@@ -148,7 +148,7 @@ fn orphaned_job_shows_friendly_name() {
     let mut ns = empty_ns("myproject");
     ns.orphaned_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(output.contains("ci"));
     assert!(
@@ -172,7 +172,7 @@ fn escalated_job_shows_source_label() {
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(
         output.contains("[idle]"),
@@ -192,7 +192,7 @@ fn escalated_job_no_source_label_when_none() {
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(
         !output.contains('['),
@@ -215,7 +215,7 @@ fn escalated_job_truncates_long_reason() {
     let mut ns = empty_ns("myproject");
     ns.escalated_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     assert!(
         !output.contains(&long_reason),

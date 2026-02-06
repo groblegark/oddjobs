@@ -200,7 +200,14 @@ impl DaemonClient {
     /// Get cross-project status overview
     pub async fn status_overview(
         &self,
-    ) -> Result<(u64, Vec<oj_daemon::NamespaceStatus>), ClientError> {
+    ) -> Result<
+        (
+            u64,
+            Vec<oj_daemon::NamespaceStatus>,
+            Option<oj_daemon::MetricsHealthSummary>,
+        ),
+        ClientError,
+    > {
         let query = Request::Query {
             query: Query::StatusOverview,
         };
@@ -208,7 +215,8 @@ impl DaemonClient {
             Response::StatusOverview {
                 uptime_secs,
                 namespaces,
-            } => Ok((uptime_secs, namespaces)),
+                metrics_health,
+            } => Ok((uptime_secs, namespaces, metrics_health)),
             other => Self::reject(other),
         }
     }

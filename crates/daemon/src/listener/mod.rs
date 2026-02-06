@@ -32,6 +32,7 @@ use tracing::{debug, error, warn};
 
 use crate::event_bus::EventBus;
 use oj_engine::breadcrumb::Breadcrumb;
+use oj_engine::MetricsHealth;
 
 use crate::protocol::{self, Request, Response, DEFAULT_TIMEOUT, PROTOCOL_VERSION};
 
@@ -41,6 +42,7 @@ pub(crate) struct Listener {
     event_bus: EventBus,
     state: Arc<Mutex<MaterializedState>>,
     orphans: Arc<Mutex<Vec<Breadcrumb>>>,
+    metrics_health: Arc<Mutex<MetricsHealth>>,
     logs_path: std::path::PathBuf,
     start_time: Instant,
     shutdown: Arc<Notify>,
@@ -61,11 +63,13 @@ pub(crate) enum ConnectionError {
 
 impl Listener {
     /// Create a new listener.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         socket: UnixListener,
         event_bus: EventBus,
         state: Arc<Mutex<MaterializedState>>,
         orphans: Arc<Mutex<Vec<Breadcrumb>>>,
+        metrics_health: Arc<Mutex<MetricsHealth>>,
         logs_path: std::path::PathBuf,
         start_time: Instant,
         shutdown: Arc<Notify>,
@@ -75,6 +79,7 @@ impl Listener {
             event_bus,
             state,
             orphans,
+            metrics_health,
             logs_path,
             start_time,
             shutdown,
@@ -89,13 +94,21 @@ impl Listener {
                     let event_bus = self.event_bus.clone();
                     let state = Arc::clone(&self.state);
                     let orphans = Arc::clone(&self.orphans);
+                    let metrics_health = Arc::clone(&self.metrics_health);
                     let logs_path = self.logs_path.clone();
                     let start_time = self.start_time;
                     let shutdown = Arc::clone(&self.shutdown);
 
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
-                            stream, event_bus, state, orphans, logs_path, start_time, shutdown,
+                            stream,
+                            event_bus,
+                            state,
+                            orphans,
+                            &metrics_health,
+                            logs_path,
+                            start_time,
+                            shutdown,
                         )
                         .await
                         {
@@ -120,11 +133,13 @@ impl Listener {
 }
 
 /// Handle a single client connection.
+#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     stream: UnixStream,
     event_bus: EventBus,
     state: Arc<Mutex<MaterializedState>>,
     orphans: Arc<Mutex<Vec<Breadcrumb>>>,
+    metrics_health: &Arc<Mutex<MetricsHealth>>,
     logs_path: std::path::PathBuf,
     start_time: Instant,
     shutdown: Arc<Notify>,
@@ -143,7 +158,14 @@ async fn handle_connection(
 
     // Handle request
     let response = handle_request(
-        request, &event_bus, &state, &orphans, &logs_path, start_time, &shutdown,
+        request,
+        &event_bus,
+        &state,
+        &orphans,
+        metrics_health,
+        &logs_path,
+        start_time,
+        &shutdown,
     )
     .await?;
 
@@ -156,11 +178,13 @@ async fn handle_connection(
 }
 
 /// Handle a single request and return a response.
+#[allow(clippy::too_many_arguments)]
 async fn handle_request(
     request: Request,
     event_bus: &EventBus,
     state: &Arc<Mutex<MaterializedState>>,
     orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
+    metrics_health: &Arc<Mutex<MetricsHealth>>,
     logs_path: &std::path::Path,
     start_time: Instant,
     shutdown: &Notify,
@@ -178,7 +202,12 @@ async fn handle_request(
         }
 
         Request::Query { query } => Ok(query::handle_query(
-            query, state, orphans, logs_path, start_time,
+            query,
+            state,
+            orphans,
+            metrics_health,
+            logs_path,
+            start_time,
         )),
 
         Request::Shutdown { kill } => {

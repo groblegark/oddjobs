@@ -18,7 +18,7 @@ fn column_order_is_id_name_kindstep_status_elapsed() {
     let mut ns = empty_ns("myproject");
     ns.active_jobs.push(entry);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let line = output
         .lines()
@@ -63,7 +63,7 @@ fn columns_are_aligned_across_rows() {
     ns.active_jobs.push(entry1);
     ns.active_jobs.push(entry2);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let lines: Vec<&str> = output
         .lines()
@@ -103,7 +103,7 @@ fn name_column_omitted_when_all_names_hidden() {
     ns.active_jobs.push(entry1);
     ns.active_jobs.push(entry2);
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let line = output
         .lines()
@@ -146,7 +146,7 @@ fn worker_columns_are_aligned_across_rows() {
         updated_at_ms: 0,
     });
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let lines: Vec<&str> = output.lines().filter(|l| l.contains("active")).collect();
     assert_eq!(lines.len(), 2, "should find exactly 2 worker rows");
@@ -176,7 +176,7 @@ fn worker_shows_full_at_max_concurrency() {
         updated_at_ms: 0,
     });
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
     let line = output.lines().find(|l| l.contains("busy")).unwrap();
     assert!(
         line.contains("full"),
@@ -209,7 +209,7 @@ fn queue_columns_are_aligned_across_rows() {
         dead: 1,
     });
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let lines: Vec<&str> = output.lines().filter(|l| l.contains("pending")).collect();
     assert_eq!(lines.len(), 2, "should find exactly 2 queue rows");
@@ -244,7 +244,7 @@ fn agent_columns_are_aligned_across_rows() {
         status: "idle".to_string(),
     });
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let lines: Vec<&str> = output.lines().filter(|l| l.contains("agent-")).collect();
     assert_eq!(lines.len(), 2, "should find exactly 2 agent rows");
@@ -297,7 +297,7 @@ fn project_filter_restricts_text_output() {
 
     let namespaces = vec![make_ns("alpha"), make_ns("beta")];
     let filtered = filter_namespaces(namespaces, Some("alpha"));
-    let output = format_text(60, &filtered, None);
+    let output = format_text(60, &filtered, None, None);
 
     assert!(
         output.contains("alpha"),
@@ -329,7 +329,7 @@ fn workers_sorted_alphabetically() {
         });
     }
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let alpha_pos = output.find("alpha").unwrap();
     let mid_pos = output.find("mid").unwrap();
@@ -357,7 +357,7 @@ fn jobs_sorted_by_most_recent_activity() {
         ns.active_jobs.push(entry);
     }
 
-    let output = format_text(30, &[ns], None);
+    let output = format_text(30, &[ns], None, None);
 
     let newest_pos = output.find("newest").unwrap();
     let middle_pos = output.find("middle").unwrap();

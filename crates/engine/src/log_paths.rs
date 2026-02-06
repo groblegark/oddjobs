@@ -83,6 +83,16 @@ pub fn breadcrumb_path(logs_dir: &Path, job_id: &str) -> PathBuf {
     logs_dir.join(format!("{}.crumb.json", job_id))
 }
 
+/// Build the path to the usage metrics JSONL file.
+///
+/// Structure: `{state_dir}/metrics/usage.jsonl`
+///
+/// # Arguments
+/// * `state_dir` - Root state directory (e.g., `~/.local/state/oj`)
+pub fn metrics_usage_path(state_dir: &Path) -> PathBuf {
+    state_dir.join("metrics").join("usage.jsonl")
+}
+
 #[cfg(test)]
 #[path = "log_paths_tests.rs"]
 mod tests;

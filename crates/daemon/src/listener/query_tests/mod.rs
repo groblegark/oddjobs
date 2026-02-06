@@ -18,10 +18,30 @@ use oj_core::{
 use oj_storage::{CronRecord, MaterializedState, QueueItem, QueueItemStatus, WorkerRecord};
 
 use oj_engine::breadcrumb::{Breadcrumb, BreadcrumbAgent};
+use oj_engine::MetricsHealth;
 
 use crate::protocol::{Query, Response};
 
-use super::handle_query;
+use super::handle_query as real_handle_query;
+
+/// Wrapper that supplies a default empty MetricsHealth for tests.
+fn handle_query(
+    query: Query,
+    state: &Arc<Mutex<MaterializedState>>,
+    orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
+    logs_path: &std::path::Path,
+    start_time: Instant,
+) -> Response {
+    let metrics_health = Arc::new(Mutex::new(MetricsHealth::default()));
+    real_handle_query(
+        query,
+        state,
+        orphans,
+        &metrics_health,
+        logs_path,
+        start_time,
+    )
+}
 
 fn empty_state() -> Arc<Mutex<MaterializedState>> {
     Arc::new(Mutex::new(MaterializedState::default()))

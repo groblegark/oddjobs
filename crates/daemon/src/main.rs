@@ -143,6 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         daemon.event_bus.clone(),
         Arc::clone(&daemon.state),
         Arc::clone(&daemon.orphans),
+        Arc::clone(&daemon.metrics_health),
         daemon.config.logs_path.clone(),
         daemon.start_time,
         Arc::clone(&shutdown_notify),

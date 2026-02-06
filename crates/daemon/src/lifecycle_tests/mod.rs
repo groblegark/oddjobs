@@ -161,6 +161,7 @@ async fn setup_daemon_with_job_and_reader() -> (DaemonState, EventReader, PathBu
         event_bus,
         start_time: std::time::Instant::now(),
         orphans: Arc::new(Mutex::new(Vec::new())),
+        metrics_health: Arc::new(Mutex::new(oj_engine::MetricsHealth::default())),
     };
 
     (daemon, event_reader, wal_path)

@@ -19,7 +19,9 @@ use oj_adapters::{
 };
 use oj_core::{Event, SystemClock};
 use oj_engine::breadcrumb::{self, Breadcrumb};
-use oj_engine::{AgentLogger, Runtime, RuntimeConfig, RuntimeDeps};
+use oj_engine::{
+    AgentLogger, MetricsHealth, Runtime, RuntimeConfig, RuntimeDeps, UsageMetricsCollector,
+};
 use oj_storage::{load_snapshot, Checkpointer, MaterializedState, Wal};
 use thiserror::Error;
 use tokio::net::UnixListener;
@@ -100,6 +102,8 @@ pub struct DaemonState {
     pub start_time: Instant,
     /// Orphaned jobs detected from breadcrumbs at startup
     pub orphans: Arc<Mutex<Vec<Breadcrumb>>>,
+    /// Metrics collector health handle
+    pub metrics_health: Arc<Mutex<MetricsHealth>>,
 }
 
 /// Result of daemon startup - includes both the daemon state and the listener.
@@ -450,7 +454,13 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
         internal_tx.clone(),
     ));
 
-    // 10. Prepare reconciliation context (will run as background task after READY)
+    // 10. Spawn usage metrics collector
+    let metrics_health = UsageMetricsCollector::spawn_collector(
+        Arc::clone(&state),
+        config.state_dir.join("metrics"),
+    );
+
+    // 11. Prepare reconciliation context (will run as background task after READY)
     //
     // Clone state to avoid holding the mutex during async reconciliation,
     // which also locks state internally (lock_state_mut) — holding the lock here
@@ -491,6 +501,7 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
             event_bus,
             start_time: Instant::now(),
             orphans,
+            metrics_health,
         },
         listener,
         event_reader,

@@ -19,8 +19,8 @@ pub use query::Query;
 mod status;
 pub use status::{
     AgentEntry, AgentStatusEntry, CronEntry, CronSummary, JobEntry, JobStatusEntry,
-    NamespaceStatus, OrphanAgent, OrphanSummary, ProjectSummary, QueueItemEntry, QueueStatus,
-    SessionEntry, WorkerEntry,
+    MetricsHealthSummary, NamespaceStatus, OrphanAgent, OrphanSummary, ProjectSummary,
+    QueueItemEntry, QueueStatus, SessionEntry, WorkerEntry,
 };
 
 #[path = "protocol_types.rs"]
@@ -636,6 +636,8 @@ pub enum Response {
     StatusOverview {
         uptime_secs: u64,
         namespaces: Vec<NamespaceStatus>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        metrics_health: Option<MetricsHealthSummary>,
     },
 
     /// List of orphaned jobs detected from breadcrumbs

@@ -49,7 +49,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-/// Errors from agent operations
+/// Errors from agent adapter operations
 #[derive(Debug, Error)]
 pub enum AgentAdapterError {
     #[error("agent not found: {0}")]

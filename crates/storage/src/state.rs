@@ -315,14 +315,16 @@ impl MaterializedState {
                 owner,
                 ..
             } => {
-                // Route by owner
+                // Route by owner (skip if job already reached a terminal step)
                 if let OwnerId::Job(job_id) = owner {
                     if let Some(job) = self.jobs.get_mut(job_id.as_str()) {
-                        if *exit_code == Some(0) {
-                            job.step_status = StepStatus::Completed;
-                        } else {
-                            job.step_status = StepStatus::Failed;
-                            job.error = Some(format!("exit code: {:?}", exit_code));
+                        if !job.is_terminal() {
+                            if *exit_code == Some(0) {
+                                job.step_status = StepStatus::Completed;
+                            } else {
+                                job.step_status = StepStatus::Failed;
+                                job.error = Some(format!("exit code: {:?}", exit_code));
+                            }
                         }
                     }
                 }
@@ -338,11 +340,13 @@ impl MaterializedState {
                 owner,
                 ..
             } => {
-                // Route by owner
+                // Route by owner (skip if job already reached a terminal step)
                 if let OwnerId::Job(job_id) = owner {
                     if let Some(job) = self.jobs.get_mut(job_id.as_str()) {
-                        job.step_status = StepStatus::Failed;
-                        job.error = Some(error.to_string());
+                        if !job.is_terminal() {
+                            job.step_status = StepStatus::Failed;
+                            job.error = Some(error.to_string());
+                        }
                     }
                 }
                 // Update unified agent record
@@ -354,11 +358,16 @@ impl MaterializedState {
             Event::AgentGone {
                 agent_id, owner, ..
             } => {
-                // Route by owner
+                // Route by owner (skip if job already reached a terminal step —
+                // the tmux session often closes after the job has already
+                // advanced through remaining shell steps to "done")
                 if let OwnerId::Job(job_id) = owner {
                     if let Some(job) = self.jobs.get_mut(job_id.as_str()) {
-                        job.step_status = StepStatus::Failed;
-                        job.error = Some("session terminated unexpectedly".to_string());
+                        if !job.is_terminal() {
+                            job.step_status = StepStatus::Failed;
+                            job.error =
+                                Some("session terminated unexpectedly".to_string());
+                        }
                     }
                 }
                 // Update unified agent record

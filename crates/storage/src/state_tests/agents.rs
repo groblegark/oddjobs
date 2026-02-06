@@ -183,6 +183,65 @@ fn removed_on_agent_run_deleted() {
     assert!(!state.agents.contains_key("agent-1"));
 }
 
+// ── Terminal job guards ──────────────────────────────────────────────────────
+// Agent events arriving after a job has already reached a terminal step
+// (done/failed/cancelled) must not overwrite the job's status.
+
+#[test]
+fn agent_gone_does_not_overwrite_terminal_job() {
+    let mut state = state_with_job_agent("pipe-1", "agent-1");
+    // Advance job to terminal "done"
+    state.apply_event(&job_transition_event("pipe-1", "done"));
+    assert!(state.jobs["pipe-1"].is_terminal());
+    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+
+    // Session closes after job already completed
+    state.apply_event(&Event::AgentGone {
+        agent_id: oj_core::AgentId::new("agent-1"),
+        owner: OwnerId::Job(JobId::new("pipe-1")),
+    });
+
+    // Job should still be completed, not failed
+    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+    assert!(state.jobs["pipe-1"].error.is_none());
+    // Agent record should still update
+    assert_eq!(state.agents["agent-1"].status, oj_core::AgentRecordStatus::Gone);
+}
+
+#[test]
+fn agent_exited_does_not_overwrite_terminal_job() {
+    let mut state = state_with_job_agent("pipe-1", "agent-1");
+    state.apply_event(&job_transition_event("pipe-1", "done"));
+
+    state.apply_event(&Event::AgentExited {
+        agent_id: oj_core::AgentId::new("agent-1"),
+        exit_code: Some(1),
+        owner: OwnerId::Job(JobId::new("pipe-1")),
+    });
+
+    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+    assert!(state.jobs["pipe-1"].error.is_none());
+    assert_eq!(state.agents["agent-1"].status, oj_core::AgentRecordStatus::Exited);
+}
+
+#[test]
+fn agent_failed_does_not_overwrite_terminal_job() {
+    let mut state = state_with_job_agent("pipe-1", "agent-1");
+    state.apply_event(&job_transition_event("pipe-1", "done"));
+
+    state.apply_event(&Event::AgentFailed {
+        agent_id: oj_core::AgentId::new("agent-1"),
+        error: oj_core::AgentError::Other("api error".to_string()),
+        owner: OwnerId::Job(JobId::new("pipe-1")),
+    });
+
+    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+    assert!(state.jobs["pipe-1"].error.is_none());
+    assert_eq!(state.agents["agent-1"].status, oj_core::AgentRecordStatus::Exited);
+}
+
+// ── Idempotency ─────────────────────────────────────────────────────────────
+
 #[test]
 fn idempotent_step_started() {
     let mut state = state_with_job_agent("pipe-1", "agent-1");

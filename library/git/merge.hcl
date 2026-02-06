@@ -228,7 +228,10 @@ agent "conflicts" {
     1. Run `git status` to see conflicted files
     2. Resolve the conflicts and `git add` the resolved files
     3. Run `git commit --no-edit` to complete the merge
-    4. Run `${raw(const.check)}` to verify everything passes
+    4. Verify:
+       ```
+       ${raw(const.check)}
+       ```
     5. Fix any issues
   PROMPT
 }

@@ -1,22 +1,28 @@
-# File a wok bug and dispatch it to a fix worker.
+# Wok-based issue queues for bugs, chores, and epics.
 #
-# Worker pulls bugs from wok, fixes them, and submits to the merge queue.
+# Consts:
+#   prefix - wok issue prefix (required)
+#   check  - verification command (default: "true")
+
+const "prefix" {}
+const "check" { default = "true" }
+
+# File a wok bug and dispatch it to a fix worker.
 #
 # Examples:
 #   oj run fix "Button doesn't respond to clicks"
 #   oj run fix "Login page crashes on empty password"
-
 command "fix" {
   args = "<description>"
   run  = <<-SHELL
-    wok new bug "${args.description}"
+    wok new bug "${args.description}" -p ${const.prefix}
     oj worker start bug
   SHELL
 }
 
 queue "bugs" {
   type = "external"
-  list = "wok ready -t bug -p oj -o json"
+  list = "wok ready -t bug -p ${const.prefix} -o json"
   take = "wok start ${item.id}"
   poll = "30s"
 }
@@ -39,8 +45,8 @@ job "bug" {
   }
 
   locals {
-    base   = "main"
-    title  = "$(printf 'fix: %.75s' \"${var.bug.title}\")"
+    base  = "main"
+    title = "$(printf 'fix: %.75s' \"${var.bug.title}\")"
   }
 
   notify {
@@ -54,7 +60,6 @@ job "bug" {
     on_done = { step = "submit" }
   }
 
-  # TODO: hook into merge job to mark issue done instead
   step "submit" {
     run = <<-SHELL
       git add -A
@@ -82,10 +87,19 @@ job "bug" {
 }
 
 agent "bugs" {
-  # NOTE: Since bugs should quick and small, prevent unnecessary EnterPlanMode and ExitPlanMode
   run      = "claude --model opus --dangerously-skip-permissions --disallowed-tools ExitPlanMode,EnterPlanMode"
-  on_idle  = { action = "nudge", message = "Keep working. Fix the bug, write tests, run make check, and commit." }
-  on_dead  = { action = "gate", run = "make check" }
+  on_dead = { action = "gate", run = "${raw(const.check)}" }
+
+  on_idle {
+    action  = "nudge"
+    message = <<-MSG
+      Keep working. Fix the bug, write tests, verify with:
+      ```
+      ${raw(const.check)}
+      ```
+      Then commit your changes.
+    MSG
+  }
 
   session "tmux" {
     color = "blue"
@@ -107,7 +121,10 @@ agent "bugs" {
     2. Find the relevant code
     3. Implement a fix
     4. Write or update tests
-    5. Run `make check` to verify
+    5. Verify:
+       ```
+       ${raw(const.check)}
+       ```
     6. Commit your changes
     7. Mark the issue as done: `wok done ${var.bug.id}`
 

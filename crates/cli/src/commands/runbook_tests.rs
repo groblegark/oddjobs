@@ -41,7 +41,7 @@ fn parse_show_subcommand() {
 fn search_filters_by_query() {
     let libraries = oj_runbook::available_libraries();
 
-    let q = "merge";
+    let q = "wok";
     let q_lower = q.to_lowercase();
     let filtered: Vec<_> = libraries
         .into_iter()
@@ -52,5 +52,5 @@ fn search_filters_by_query() {
         .collect();
 
     assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered[0].source, "oj/merge");
+    assert_eq!(filtered[0].source, "oj/wok");
 }

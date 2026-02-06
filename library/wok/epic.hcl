@@ -3,7 +3,7 @@
 # Creates an epic issue, then workers handle planning and implementation:
 # 1. Plan worker explores codebase and writes plan to issue notes
 # 2. Epic worker implements the plan and submits to merge queue (build:needed)
-#    — or draft worker implements without merging (draft:needed)
+#    -- or draft worker implements without merging (draft:needed)
 
 # Create a new wok epic with 'plan:needed' and 'build:needed' (or 'draft:needed').
 #
@@ -15,11 +15,11 @@ command "epic" {
   args = "<description> [--draft]"
   run  = <<-SHELL
     if [ "${args.draft}" = "true" ]; then
-      wok new epic "${args.description}" -l plan:needed -l draft:needed
+      wok new epic "${args.description}" -p ${const.prefix} -l plan:needed -l draft:needed
       oj worker start plan
       oj worker start draft
     else
-      wok new epic "${args.description}" -l plan:needed -l build:needed
+      wok new epic "${args.description}" -p ${const.prefix} -l plan:needed -l build:needed
       oj worker start plan
       oj worker start epic
     fi
@@ -33,12 +33,11 @@ command "epic" {
 # Create a new wok epic with 'plan:needed' only.
 #
 # Examples:
-#   oj run plan oj-abc123
-#   oj run plan oj-abc123 oj-def456
+#   oj run idea "Add caching layer for API responses"
 command "idea" {
   args = "<description>"
   run  = <<-SHELL
-    wok new epic "${args.description}" -l plan:needed
+    wok new epic "${args.description}" -p ${const.prefix} -l plan:needed
     oj worker start plan
   SHELL
 }
@@ -79,7 +78,7 @@ command "build" {
 }
 
 # Queue existing feature/epic for drafting, adding the 'draft:needed' label.
-# Like build, but skips the merge step — leaves changes on the branch.
+# Like build, but skips the merge step -- leaves changes on the branch.
 #
 # Examples:
 #   oj run draft oj-abc123
@@ -101,7 +100,7 @@ command "draft" {
 
 queue "plans" {
   type = "external"
-  list = "wok ready -t epic,feature -l plan:needed -p oj -o json"
+  list = "wok ready -t epic,feature -l plan:needed -p ${const.prefix} -o json"
   take = "wok start ${item.id}"
   poll = "30s"
 }
@@ -148,7 +147,7 @@ job "plan" {
 
 queue "epics" {
   type = "external"
-  list = "wok ready -t epic,feature -l build:needed -l plan:ready -p oj -o json"
+  list = "wok ready -t epic,feature -l build:needed -l plan:ready -p ${const.prefix} -o json"
   take = "wok start ${item.id}"
   poll = "30s"
 }
@@ -210,7 +209,7 @@ job "epic" {
 
 queue "drafts" {
   type = "external"
-  list = "wok ready -t epic,feature -l draft:needed -l plan:ready -p oj -o json"
+  list = "wok ready -t epic,feature -l draft:needed -l plan:ready -p ${const.prefix} -o json"
   take = "wok start ${item.id}"
   poll = "30s"
 }
@@ -295,8 +294,18 @@ agent "plan" {
 
 agent "implement" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
-  on_idle = { action = "nudge", message = "Follow the plan, implement, test, commit." }
-  on_dead = { action = "gate", run = "make check" }
+  on_dead = { action = "gate", run = "${raw(const.check)}" }
+
+  on_idle {
+    action  = "nudge"
+    message = <<-MSG
+      Follow the plan, implement, test, then verify with:
+      ```
+      ${raw(const.check)}
+      ```
+      Then commit your changes.
+    MSG
+  }
 
   session "tmux" {
     color = "blue"
@@ -316,7 +325,10 @@ agent "implement" {
 
     1. Follow the plan
     2. Implement
-    3. Run `make check`
+    3. Verify:
+       ```
+       ${raw(const.check)}
+       ```
     4. Commit
     5. Run: `wok done ${var.epic.id}`
   PROMPT
@@ -324,8 +336,18 @@ agent "implement" {
 
 agent "draft" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
-  on_idle = { action = "nudge", message = "Follow the plan, implement, test, commit." }
-  on_dead = { action = "gate", run = "make check" }
+  on_dead = { action = "gate", run = "${raw(const.check)}" }
+
+  on_idle {
+    action  = "nudge"
+    message = <<-MSG
+      Follow the plan, implement, test, then verify with:
+      ```
+      ${raw(const.check)}
+      ```
+      Then commit your changes.
+    MSG
+  }
 
   session "tmux" {
     color = "blue"
@@ -345,7 +367,10 @@ agent "draft" {
 
     1. Follow the plan
     2. Implement
-    3. Run `make check`
+    3. Verify:
+       ```
+       ${raw(const.check)}
+       ```
     4. Commit
     5. Run: `wok done ${var.epic.id}`
   PROMPT

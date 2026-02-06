@@ -6,8 +6,8 @@
 //! Handles `import` and `const` blocks in HCL runbooks:
 //!
 //! ```hcl
-//! import "oj/wok" { const = { prefix = "oj" } }
-//! import "oj/merge" "merge" {}
+//! import "oj/wok" { const "prefix" { value = "oj" } }
+//! import "oj/git" { alias = "git" }
 //! ```
 
 use crate::find::extract_file_comment;
@@ -34,18 +34,41 @@ pub struct ConstDef {
     pub default: Option<String>,
 }
 
+/// A const value provided at an import site.
+///
+/// ```hcl
+/// const "prefix" { value = "oj" }
+/// ```
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ImportConst {
+    pub value: String,
+}
+
 /// An import declaration in a user runbook.
 ///
 /// ```hcl
 /// import "oj/wok" {}
-/// import "oj/wok" { alias = "wok", const = { prefix = "oj" } }
+/// import "oj/wok" {
+///   alias = "wok"
+///   const "prefix" { value = "oj" }
+/// }
 /// ```
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ImportDef {
     #[serde(default)]
     pub alias: Option<String>,
     #[serde(default, rename = "const")]
-    pub consts: HashMap<String, String>,
+    pub consts: HashMap<String, ImportConst>,
+}
+
+impl ImportDef {
+    /// Flatten const values into a simple string map.
+    pub fn const_values(&self) -> HashMap<String, String> {
+        self.consts
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect()
+    }
 }
 
 /// Warning from import resolution.
@@ -150,7 +173,7 @@ pub fn validate_consts(
                     return Err(ParseError::InvalidFormat {
                         location: format!("import \"{}\"", source),
                         message: format!(
-                            "missing required const '{}'; add const = {{ {} = \"...\" }}",
+                            "missing required const '{}'; add const \"{}\" {{ value = \"...\" }}",
                             name, name
                         ),
                     });
@@ -176,55 +199,61 @@ pub fn validate_consts(
 // Library resolution
 // =============================================================================
 
-/// Built-in library: oj/wok
-const LIBRARY_WOK: &str = include_str!("library/wok.hcl");
+/// A built-in library: a named collection of HCL files.
+struct BuiltinLibrary {
+    source: &'static str,
+    files: &'static [(&'static str, &'static str)],
+}
 
-/// Built-in library: oj/merge
-const LIBRARY_MERGE: &str = include_str!("library/merge.hcl");
+// Registry of all built-in libraries (auto-generated from `library/` directory).
+include!(concat!(env!("OUT_DIR"), "/builtin_libraries.rs"));
 
 /// Metadata about a built-in library.
 #[derive(Debug, Clone)]
 pub struct LibraryInfo {
     pub source: &'static str,
-    pub content: &'static str,
+    pub files: &'static [(&'static str, &'static str)],
     pub description: String,
 }
 
 /// Return metadata for all built-in libraries.
 pub fn available_libraries() -> Vec<LibraryInfo> {
-    static SOURCES: &[(&str, &str)] = &[("oj/merge", LIBRARY_MERGE), ("oj/wok", LIBRARY_WOK)];
-    SOURCES
+    BUILTIN_LIBRARIES
         .iter()
-        .map(|(source, content)| {
-            let description = extract_file_comment(content)
+        .map(|lib| {
+            let description = lib
+                .files
+                .first()
+                .and_then(|(_, content)| extract_file_comment(content))
                 .map(|c| c.short)
                 .unwrap_or_default();
             LibraryInfo {
-                source,
-                content,
+                source: lib.source,
+                files: lib.files,
                 description,
             }
         })
         .collect()
 }
 
-/// Resolve a library source path to its HCL content.
-///
-/// Built-in libraries:
-/// - `oj/wok` — Wok-based issue queues (fix, chore)
-/// - `oj/merge` — Local merge queue with conflict resolution
-pub fn resolve_library(source: &str) -> Result<&'static str, ParseError> {
-    match source {
-        "oj/wok" => Ok(LIBRARY_WOK),
-        "oj/merge" => Ok(LIBRARY_MERGE),
-        _ => Err(ParseError::InvalidFormat {
-            location: format!("import \"{}\"", source),
-            message: format!(
-                "unknown library '{}'; available libraries: oj/wok, oj/merge",
-                source
-            ),
-        }),
+/// Resolve a library source path to its HCL file list.
+pub fn resolve_library(
+    source: &str,
+) -> Result<&'static [(&'static str, &'static str)], ParseError> {
+    for lib in BUILTIN_LIBRARIES {
+        if lib.source == source {
+            return Ok(lib.files);
+        }
     }
+    let available: Vec<&str> = BUILTIN_LIBRARIES.iter().map(|l| l.source).collect();
+    Err(ParseError::InvalidFormat {
+        location: format!("import \"{}\"", source),
+        message: format!(
+            "unknown library '{}'; available libraries: {}",
+            source,
+            available.join(", ")
+        ),
+    })
 }
 
 // =============================================================================
@@ -233,7 +262,7 @@ pub fn resolve_library(source: &str) -> Result<&'static str, ParseError> {
 
 /// Merge an imported runbook into the target runbook.
 ///
-/// If `alias` is provided, all entity names in `source` are prefixed with `alias.`.
+/// If `alias` is provided, all entity names in `source` are prefixed with `alias:`.
 /// Internal cross-references within the imported runbook are also updated.
 ///
 /// Conflict handling:
@@ -331,32 +360,32 @@ fn prefix_names(runbook: &mut Runbook, prefix: &str) {
     let cmd_renames: HashMap<String, String> = runbook
         .commands
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let job_renames: HashMap<String, String> = runbook
         .jobs
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let agent_renames: HashMap<String, String> = runbook
         .agents
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let queue_renames: HashMap<String, String> = runbook
         .queues
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let worker_renames: HashMap<String, String> = runbook
         .workers
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let cron_renames: HashMap<String, String> = runbook
         .crons
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
 
     // Rename entity map keys
@@ -477,22 +506,44 @@ pub fn parse_with_imports(
 
     // Resolve each import
     for (source, import_def) in &imports {
-        let library_content = resolve_library(source)?;
+        let library_files = resolve_library(source)?;
 
-        // Parse library to get const definitions (${const.name} values
-        // survive as literal strings — hcl-rs doesn't evaluate them)
-        let lib_meta = crate::parser::parse_runbook_no_xref(library_content, Format::Hcl)?;
+        // Collect const definitions from all files in the library
+        let mut all_const_defs: HashMap<String, ConstDef> = HashMap::new();
+        for (filename, content) in library_files {
+            let file_meta = crate::parser::parse_runbook_no_xref(content, Format::Hcl)?;
+            for (name, def) in file_meta.consts {
+                if let Some(_existing) = all_const_defs.insert(name.clone(), def) {
+                    return Err(ParseError::InvalidFormat {
+                        location: format!("import \"{}\"", source),
+                        message: format!(
+                            "duplicate const '{}' in library file '{}'",
+                            name, filename
+                        ),
+                    });
+                }
+            }
+        }
 
         // Validate and resolve const values
         let (const_values, const_warnings) =
-            validate_consts(&lib_meta.consts, &import_def.consts, source)?;
+            validate_consts(&all_const_defs, &import_def.const_values(), source)?;
         all_warnings.extend(const_warnings);
 
-        // Interpolate consts into library content text, then re-parse
-        let interpolated = interpolate_consts(library_content, &const_values);
-        let mut lib_runbook = crate::parser::parse_runbook_with_format(&interpolated, Format::Hcl)?;
-        lib_runbook.consts.clear();
-        lib_runbook.imports.clear();
+        // Parse each file, interpolate consts, and merge into a single library runbook
+        let mut lib_runbook = Runbook::default();
+        for (filename, content) in library_files {
+            let interpolated = interpolate_consts(content, &const_values);
+            let mut file_runbook =
+                crate::parser::parse_runbook_with_format(&interpolated, Format::Hcl)?;
+            file_runbook.consts.clear();
+            file_runbook.imports.clear();
+            let file_source = format!("{}/{}", source, filename);
+            merge_runbook(&mut lib_runbook, file_runbook, None, &file_source)?;
+        }
+
+        // Validate intra-library cross-references
+        crate::parser::validate_cross_refs(&lib_runbook)?;
 
         // Merge into the main runbook
         let merge_warnings = merge_runbook(

@@ -136,8 +136,10 @@ fn validate_consts_unknown_warns() {
 
 #[test]
 fn resolve_known_libraries() {
-    assert!(resolve_library("oj/wok").is_ok());
-    assert!(resolve_library("oj/merge").is_ok());
+    let wok_files = resolve_library("oj/wok").unwrap();
+    assert!(!wok_files.is_empty(), "oj/wok should have files");
+    let git_files = resolve_library("oj/git").unwrap();
+    assert!(!git_files.is_empty(), "oj/git should have files");
 }
 
 #[test]
@@ -215,7 +217,7 @@ fn merge_with_alias_prefixes_names() {
 
     let warnings = merge_runbook(&mut target, source, Some("wok"), "test").unwrap();
     assert!(warnings.is_empty());
-    assert!(target.commands.contains_key("wok.fix"));
+    assert!(target.commands.contains_key("wok:fix"));
     assert!(!target.commands.contains_key("fix"));
 }
 
@@ -225,7 +227,9 @@ fn merge_with_alias_prefixes_names() {
 
 #[test]
 fn parse_import_oj_wok() {
-    let content = r#"import "oj/wok" { const = { prefix = "oj" } }
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+}
 "#;
     let (runbook, warnings) = parse_with_imports(content, Format::Hcl).unwrap();
 
@@ -238,7 +242,7 @@ fn parse_import_oj_wok() {
         );
     }
 
-    // Should have wok entities
+    // Should have wok entities from bug.hcl, chore.hcl, and epic.hcl
     assert!(
         runbook.commands.contains_key("fix"),
         "missing 'fix' command"
@@ -247,60 +251,78 @@ fn parse_import_oj_wok() {
         runbook.commands.contains_key("chore"),
         "missing 'chore' command"
     );
+    assert!(
+        runbook.commands.contains_key("epic"),
+        "missing 'epic' command"
+    );
     assert!(runbook.queues.contains_key("bugs"), "missing 'bugs' queue");
     assert!(
         runbook.queues.contains_key("chores"),
         "missing 'chores' queue"
+    );
+    assert!(
+        runbook.queues.contains_key("plans"),
+        "missing 'plans' queue"
     );
     assert!(runbook.workers.contains_key("bug"), "missing 'bug' worker");
     assert!(
         runbook.workers.contains_key("chore"),
         "missing 'chore' worker"
     );
+    assert!(
+        runbook.workers.contains_key("plan"),
+        "missing 'plan' worker"
+    );
     assert!(runbook.jobs.contains_key("bug"), "missing 'bug' job");
     assert!(runbook.jobs.contains_key("chore"), "missing 'chore' job");
+    assert!(runbook.jobs.contains_key("epic"), "missing 'epic' job");
     assert!(runbook.agents.contains_key("bugs"), "missing 'bugs' agent");
     assert!(
         runbook.agents.contains_key("chores"),
         "missing 'chores' agent"
     );
+    assert!(runbook.agents.contains_key("plan"), "missing 'plan' agent");
 }
 
 #[test]
 fn parse_import_oj_wok_with_alias() {
     let content = r#"import "oj/wok" {
   alias = "wok"
-  const = { prefix = "oj" }
+  const "prefix" { value = "oj" }
 }
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
 
-    // All names should be prefixed with "wok."
+    // All names should be prefixed with "wok:"
     assert!(
-        runbook.commands.contains_key("wok.fix"),
-        "missing 'wok.fix' command"
+        runbook.commands.contains_key("wok:fix"),
+        "missing 'wok:fix' command"
     );
     assert!(
-        runbook.queues.contains_key("wok.bugs"),
-        "missing 'wok.bugs' queue"
+        runbook.commands.contains_key("wok:epic"),
+        "missing 'wok:epic' command"
     );
     assert!(
-        runbook.workers.contains_key("wok.bug"),
-        "missing 'wok.bug' worker"
+        runbook.queues.contains_key("wok:bugs"),
+        "missing 'wok:bugs' queue"
     );
     assert!(
-        runbook.jobs.contains_key("wok.bug"),
-        "missing 'wok.bug' job"
+        runbook.workers.contains_key("wok:bug"),
+        "missing 'wok:bug' worker"
     );
     assert!(
-        runbook.agents.contains_key("wok.bugs"),
-        "missing 'wok.bugs' agent"
+        runbook.jobs.contains_key("wok:bug"),
+        "missing 'wok:bug' job"
+    );
+    assert!(
+        runbook.agents.contains_key("wok:bugs"),
+        "missing 'wok:bugs' agent"
     );
 }
 
 #[test]
-fn parse_import_oj_merge() {
-    let content = r#"import "oj/merge" {}
+fn parse_import_oj_git() {
+    let content = r#"import "oj/git" {}
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
 
@@ -329,7 +351,10 @@ fn parse_import_oj_merge() {
 
 #[test]
 fn parse_import_with_custom_check() {
-    let content = r#"import "oj/wok" { const = { prefix = "oj", check = "make check" } }
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+  const "check" { value = "make check" }
+}
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
 
@@ -357,10 +382,14 @@ fn parse_import_missing_required_const() {
 #[test]
 fn available_libraries_returns_all() {
     let libs = available_libraries();
-    assert_eq!(libs.len(), 2);
     let sources: Vec<&str> = libs.iter().map(|l| l.source).collect();
     assert!(sources.contains(&"oj/wok"), "missing oj/wok");
-    assert!(sources.contains(&"oj/merge"), "missing oj/merge");
+    assert!(sources.contains(&"oj/git"), "missing oj/git");
+    assert!(
+        libs.len() >= 2,
+        "expected at least 2 libraries, got {}",
+        libs.len()
+    );
 }
 
 #[test]
@@ -379,9 +408,14 @@ fn available_libraries_have_descriptions() {
 fn available_libraries_parse_successfully() {
     let libs = available_libraries();
     for lib in &libs {
-        crate::parser::parse_runbook_no_xref(lib.content, Format::Hcl).unwrap_or_else(|e| {
-            panic!("failed to parse library '{}': {}", lib.source, e);
-        });
+        for (filename, content) in lib.files {
+            crate::parser::parse_runbook_no_xref(content, Format::Hcl).unwrap_or_else(|e| {
+                panic!(
+                    "failed to parse library '{}' file '{}': {}",
+                    lib.source, filename, e
+                );
+            });
+        }
     }
 }
 

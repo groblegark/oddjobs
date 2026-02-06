@@ -24,6 +24,26 @@ fn test_event_bus(dir: &std::path::Path) -> (EventBus, PathBuf) {
     (event_bus, wal_path)
 }
 
+/// Helper: create an EventBus and return the WAL arc for reading emitted events.
+fn test_event_bus_with_wal(dir: &std::path::Path) -> (EventBus, Arc<Mutex<Wal>>) {
+    let wal_path = dir.join("test.wal");
+    let wal = Wal::open(&wal_path, 0).unwrap();
+    let (event_bus, reader) = EventBus::new(wal);
+    let wal = reader.wal();
+    (event_bus, wal)
+}
+
+/// Collect all events from the WAL.
+fn drain_events(wal: &Arc<Mutex<Wal>>) -> Vec<oj_core::Event> {
+    let mut events = Vec::new();
+    let mut wal = wal.lock();
+    while let Some(entry) = wal.next_unprocessed().unwrap() {
+        events.push(entry.event);
+        wal.mark_processed(entry.seq);
+    }
+    events
+}
+
 #[test]
 fn start_does_full_start_even_after_restart() {
     let dir = tempdir().unwrap();
@@ -422,5 +442,82 @@ job "handle-merge" {
         matches!(result, Response::WorkerStarted { ref worker_name } if worker_name == "merge"),
         "expected WorkerStarted for 'merge', got {:?}",
         result
+    );
+}
+
+#[test]
+fn start_already_running_worker_emits_wake_instead_of_started() {
+    let dir = tempdir().unwrap();
+    let (event_bus, wal) = test_event_bus_with_wal(dir.path());
+
+    // Create a project with a worker
+    let project = tempdir().unwrap();
+    let runbook_dir = project.path().join(".oj/runbooks");
+    std::fs::create_dir_all(&runbook_dir).unwrap();
+    std::fs::write(
+        runbook_dir.join("test.hcl"),
+        r#"
+queue "bugs" {
+  list = "echo '[]'"
+  take = "echo taken"
+}
+
+worker "fixer" {
+  source  = { queue = "bugs" }
+  handler = { job = "build" }
+  concurrency = 3
+}
+
+job "build" {
+  step "run" {
+    run = "echo build"
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    // Put a running worker in state
+    let mut initial_state = MaterializedState::default();
+    initial_state.workers.insert(
+        "fixer".to_string(),
+        oj_storage::WorkerRecord {
+            name: "fixer".to_string(),
+            project_root: project.path().to_path_buf(),
+            runbook_hash: "old-hash".to_string(),
+            status: "running".to_string(),
+            active_job_ids: vec![],
+            queue_name: "bugs".to_string(),
+            concurrency: 3,
+            namespace: String::new(),
+        },
+    );
+    let state = Arc::new(Mutex::new(initial_state));
+
+    // Call start on the already-running worker
+    let result =
+        handle_worker_start(project.path(), "", "fixer", false, &event_bus, &state).unwrap();
+
+    // Response should still be WorkerStarted (preserving CLI contract)
+    assert!(
+        matches!(result, Response::WorkerStarted { ref worker_name } if worker_name == "fixer"),
+        "expected WorkerStarted response, got {:?}",
+        result
+    );
+
+    // But the emitted event should be WorkerWake, not WorkerStarted
+    let events = drain_events(&wal);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, oj_core::Event::WorkerWake { .. })),
+        "should emit WorkerWake for already-running worker, got events: {:?}",
+        events.iter().map(|e| e.name()).collect::<Vec<_>>()
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, oj_core::Event::WorkerStarted { .. })),
+        "should NOT emit WorkerStarted for already-running worker"
     );
 }

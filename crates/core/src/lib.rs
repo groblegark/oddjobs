@@ -35,7 +35,9 @@ pub use decision::{Decision, DecisionId, DecisionOption, DecisionSource};
 pub use effect::Effect;
 pub use event::{AgentSignalKind, Event, PromptType, QuestionData, QuestionEntry, QuestionOption};
 pub use id::{IdGen, ShortId, UuidIdGen};
-pub use job::{Job, JobConfig, JobId, StepOutcome, StepRecord, StepStatus};
+pub use job::{
+    Job, JobConfig, JobId, StepOutcome, StepOutcomeKind, StepRecord, StepStatus, StepStatusKind,
+};
 pub use namespace::{namespace_to_option, scoped_name, split_scoped_name, Namespace};
 pub use owner::OwnerId;
 pub use session::SessionId;

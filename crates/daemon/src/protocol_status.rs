@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use oj_core::StepStatusKind;
 use serde::{Deserialize, Serialize};
 
 use super::WorkerSummary;
@@ -50,7 +51,7 @@ pub struct JobStatusEntry {
     pub name: String,
     pub kind: String,
     pub step: String,
-    pub step_status: String,
+    pub step_status: StepStatusKind,
     /// Duration since job started (ms)
     pub elapsed_ms: u64,
     /// Epoch ms of the most recent step activity (start or finish)
@@ -87,7 +88,7 @@ pub struct OrphanSummary {
     pub kind: String,
     pub name: String,
     pub current_step: String,
-    pub step_status: String,
+    pub step_status: StepStatusKind,
     pub workspace_root: Option<PathBuf>,
     pub agents: Vec<OrphanAgent>,
     pub updated_at: String,

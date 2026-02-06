@@ -783,7 +783,7 @@ pub(super) fn handle_queue_drain(
                     .filter(|i| i.status == oj_storage::QueueItemStatus::Pending)
                     .map(|i| crate::protocol::QueueItemSummary {
                         id: i.id.clone(),
-                        status: "pending".to_string(),
+                        status: oj_storage::QueueItemStatus::Pending.to_string(),
                         data: i.data.clone(),
                         worker_name: i.worker_name.clone(),
                         pushed_at_epoch_ms: i.pushed_at_epoch_ms,
@@ -1037,7 +1037,7 @@ pub(super) fn handle_queue_prune(
                 to_prune.push(QueueItemEntry {
                     queue_name: queue_name.to_string(),
                     item_id: item.id.clone(),
-                    status: format!("{:?}", item.status).to_lowercase(),
+                    status: item.status.to_string(),
                 });
             }
         }

@@ -66,6 +66,76 @@ pub enum StepOutcome {
     Waiting(String),
 }
 
+/// Tag-only variant of [`StepStatus`] for protocol DTOs (strips associated data).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepStatusKind {
+    Pending,
+    Running,
+    Waiting,
+    Completed,
+    Failed,
+    /// Orphaned job detected from breadcrumb (not a core step status).
+    Orphaned,
+}
+
+impl From<&StepStatus> for StepStatusKind {
+    fn from(s: &StepStatus) -> Self {
+        match s {
+            StepStatus::Pending => StepStatusKind::Pending,
+            StepStatus::Running => StepStatusKind::Running,
+            StepStatus::Waiting(_) => StepStatusKind::Waiting,
+            StepStatus::Completed => StepStatusKind::Completed,
+            StepStatus::Failed => StepStatusKind::Failed,
+        }
+    }
+}
+
+impl fmt::Display for StepStatusKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StepStatusKind::Pending => write!(f, "pending"),
+            StepStatusKind::Running => write!(f, "running"),
+            StepStatusKind::Waiting => write!(f, "waiting"),
+            StepStatusKind::Completed => write!(f, "completed"),
+            StepStatusKind::Failed => write!(f, "failed"),
+            StepStatusKind::Orphaned => write!(f, "orphaned"),
+        }
+    }
+}
+
+/// Tag-only variant of [`StepOutcome`] for protocol DTOs (strips associated data).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepOutcomeKind {
+    Running,
+    Completed,
+    Failed,
+    Waiting,
+}
+
+impl From<&StepOutcome> for StepOutcomeKind {
+    fn from(o: &StepOutcome) -> Self {
+        match o {
+            StepOutcome::Running => StepOutcomeKind::Running,
+            StepOutcome::Completed => StepOutcomeKind::Completed,
+            StepOutcome::Failed(_) => StepOutcomeKind::Failed,
+            StepOutcome::Waiting(_) => StepOutcomeKind::Waiting,
+        }
+    }
+}
+
+impl fmt::Display for StepOutcomeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StepOutcomeKind::Running => write!(f, "running"),
+            StepOutcomeKind::Completed => write!(f, "completed"),
+            StepOutcomeKind::Failed => write!(f, "failed"),
+            StepOutcomeKind::Waiting => write!(f, "waiting"),
+        }
+    }
+}
+
 /// Record of a step execution (for step history)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StepRecord {

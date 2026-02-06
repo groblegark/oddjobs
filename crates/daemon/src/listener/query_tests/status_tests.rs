@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use tempfile::tempdir;
 
-use oj_core::{AgentRun, AgentRunStatus, StepOutcome, StepStatus};
+use oj_core::{AgentRun, AgentRunStatus, StepOutcome, StepStatus, StepStatusKind};
 use oj_storage::QueueItemStatus;
 
 use super::{
@@ -331,7 +331,10 @@ fn status_overview_shows_job_in_separate_namespace() {
             // oddjobs should have the active job
             assert_eq!(namespaces[0].active_jobs.len(), 1);
             assert_eq!(namespaces[0].active_jobs[0].id, "job-1");
-            assert_eq!(namespaces[0].active_jobs[0].step_status, "running");
+            assert_eq!(
+                namespaces[0].active_jobs[0].step_status,
+                StepStatusKind::Running
+            );
             assert!(namespaces[0].workers.is_empty());
             assert!(namespaces[0].queues.is_empty());
 
@@ -419,7 +422,7 @@ fn status_overview_includes_orphans() {
             assert_eq!(ns.namespace, "oddjobs");
             assert_eq!(ns.orphaned_jobs.len(), 1);
             assert_eq!(ns.orphaned_jobs[0].id, "orphan-status-1");
-            assert_eq!(ns.orphaned_jobs[0].step_status, "orphaned");
+            assert_eq!(ns.orphaned_jobs[0].step_status, StepStatusKind::Orphaned);
             assert!(ns.orphaned_jobs[0].elapsed_ms > 0);
         }
         other => panic!("unexpected response: {:?}", other),

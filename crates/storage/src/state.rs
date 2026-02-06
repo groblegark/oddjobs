@@ -116,6 +116,18 @@ pub enum QueueItemStatus {
     Dead,
 }
 
+impl std::fmt::Display for QueueItemStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueueItemStatus::Pending => write!(f, "pending"),
+            QueueItemStatus::Active => write!(f, "active"),
+            QueueItemStatus::Completed => write!(f, "completed"),
+            QueueItemStatus::Failed => write!(f, "failed"),
+            QueueItemStatus::Dead => write!(f, "dead"),
+        }
+    }
+}
+
 /// A single item in a persisted queue
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueItem {

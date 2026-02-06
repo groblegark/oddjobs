@@ -280,7 +280,7 @@ async fn dispatch_job(
             _ => break,
         }
         if let Ok(Some(p)) = client.get_job(job_id).await {
-            if p.step_status != "pending" {
+            if p.step_status != oj_core::StepStatusKind::Pending {
                 started = true;
                 break;
             }

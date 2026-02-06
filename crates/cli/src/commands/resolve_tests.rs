@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use super::*;
+use oj_core::StepStatusKind;
 use oj_daemon::{AgentSummary, JobSummary, SessionSummary};
 
 fn job(id: &str, name: &str) -> JobSummary {
@@ -10,7 +11,7 @@ fn job(id: &str, name: &str) -> JobSummary {
         name: name.to_string(),
         kind: String::new(),
         step: String::new(),
-        step_status: String::new(),
+        step_status: StepStatusKind::Pending,
         created_at_ms: 0,
         updated_at_ms: 0,
         namespace: String::new(),

@@ -323,7 +323,7 @@ fn format_text(
                     id: p.id.short(8).to_string(),
                     name: friendly_name_label(&p.name, &p.kind, &p.id),
                     kind_step: format!("{}/{}", p.kind, p.step),
-                    status: p.step_status.clone(),
+                    status: p.step_status.to_string(),
                     suffix: format_duration_ms(p.elapsed_ms),
                     reason: None,
                 })
@@ -353,7 +353,7 @@ fn format_text(
                         id: p.id.short(8).to_string(),
                         name: friendly_name_label(&p.name, &p.kind, &p.id),
                         kind_step: format!("{}/{}", p.kind, p.step),
-                        status: p.step_status.clone(),
+                        status: p.step_status.to_string(),
                         suffix: format!("{}{}", source_label, elapsed),
                         reason: p.waiting_reason.clone(),
                     }

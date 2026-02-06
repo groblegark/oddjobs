@@ -1,6 +1,8 @@
 use serial_test::serial;
 
 use super::super::{filter_namespaces, format_text};
+use oj_core::StepStatusKind;
+
 use super::{empty_ns, job_entry, make_ns, setup_no_color};
 
 // ── job column order ────────────────────────────────────────────────
@@ -55,7 +57,7 @@ fn columns_are_aligned_across_rows() {
     entry1.name = "short-aaaa1111".to_string();
     let mut entry2 = job_entry("bbbb2222-0000", "deploy", "implement");
     entry2.name = "much-longer-name-bbbb2222".to_string();
-    entry2.step_status = "waiting".to_string();
+    entry2.step_status = StepStatusKind::Waiting;
     entry2.elapsed_ms = 120_000;
     let mut ns = empty_ns("myproject");
     ns.active_jobs.push(entry1);

@@ -224,6 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     &event,
                                     Event::JobAdvanced { step, .. } if step == "failed"
                                 );
+                                let is_resume = matches!(&event, Event::JobResume { .. });
                                 match daemon.process_event(event).await {
                                     Ok(()) => event_reader.mark_processed(seq),
                                     Err(e) => {
@@ -235,8 +236,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                         // Best-effort: fail the associated job so it
                                         // doesn't get stuck. Skip if already a failure
-                                        // transition to avoid cascading events.
-                                        if let Some(pid) = job_id.filter(|_| !is_failure) {
+                                        // transition to avoid cascading events, and skip
+                                        // for resume errors which shouldn't kill healthy jobs.
+                                        if let Some(pid) = job_id.filter(|_| !is_failure && !is_resume) {
                                             let fail_event = Event::JobAdvanced {
                                                 id: JobId::new(pid),
                                                 step: "failed".to_string(),

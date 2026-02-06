@@ -25,40 +25,74 @@ where
     ) -> Result<Vec<Event>, RuntimeError> {
         let job = self.require_job(job_id.as_str())?;
 
+        let is_failed = job.step == "failed";
+
         // If job is in terminal "failed" state, find the last failed step
-        // from history and reset the job to that step so it can be retried.
-        // We track the step name separately because the event may not be applied
-        // to state immediately.
-        let resume_step = if job.step == "failed" {
-            let failed_step = job
-                .step_history
+        // from history so we can reset the job to that step for retry.
+        let resume_step = if is_failed {
+            job.step_history
                 .iter()
                 .rev()
                 .find(|r| matches!(r.outcome, StepOutcome::Failed(_)))
                 .map(|r| r.name.clone())
                 .ok_or_else(|| {
                     RuntimeError::InvalidRequest("no failed step found in history".into())
-                })?;
-
-            tracing::info!(
-                job_id = %job.id,
-                failed_step = %failed_step,
-                "resuming from terminal failure: resetting to failed step"
-            );
-
-            self.executor
-                .execute(Effect::Emit {
-                    event: Event::JobAdvanced {
-                        id: job_id.clone(),
-                        step: failed_step.clone(),
-                    },
-                })
-                .await?;
-
-            failed_step
+                })?
         } else {
             job.step.clone()
         };
+
+        // Determine step type from runbook — do this BEFORE any state mutation
+        // so validation failures don't leave half-applied state.
+        let runbook = self.cached_runbook(&job.runbook_hash)?;
+        let job_def = runbook
+            .get_job(&job.kind)
+            .ok_or_else(|| RuntimeError::JobDefNotFound(job.kind.clone()))?;
+        let step_def = job_def
+            .get_step(&resume_step)
+            .ok_or_else(|| RuntimeError::StepNotFound(resume_step.clone()))?;
+
+        // Resolve message for agent steps BEFORE emitting any events.
+        // For failed jobs, default to "Retrying" if no message provided.
+        // For running jobs, require an explicit message.
+        let resolved_message = if step_def.is_agent() {
+            match message {
+                Some(msg) => Some(msg.to_string()),
+                None if is_failed => Some("Retrying".to_string()),
+                None => {
+                    return Err(RuntimeError::InvalidRequest(format!(
+                        "agent steps require --message for resume. Example:\n  \
+                         oj job resume {} -m \"I fixed the import, try again\"",
+                        job.id.short(12)
+                    )));
+                }
+            }
+        } else {
+            None
+        };
+
+        // All validation passed — now safe to mutate state.
+        let mut result_events = Vec::new();
+
+        // If resuming from "failed", reset the job to the failed step
+        if is_failed {
+            tracing::info!(
+                job_id = %job.id,
+                failed_step = %resume_step,
+                "resuming from terminal failure: resetting to failed step"
+            );
+
+            let events = self
+                .executor
+                .execute(Effect::Emit {
+                    event: Event::JobAdvanced {
+                        id: job_id.clone(),
+                        step: resume_step.clone(),
+                    },
+                })
+                .await?;
+            result_events.extend(events);
+        }
 
         // Persist var updates if any
         if !vars.is_empty() {
@@ -80,31 +114,15 @@ where
             .chain(vars.clone())
             .collect();
 
-        // Determine step type from runbook
-        let runbook = self.cached_runbook(&job.runbook_hash)?;
-        let job_def = runbook
-            .get_job(&job.kind)
-            .ok_or_else(|| RuntimeError::JobDefNotFound(job.kind.clone()))?;
-        let step_def = job_def
-            .get_step(&resume_step)
-            .ok_or_else(|| RuntimeError::StepNotFound(resume_step.clone()))?;
-
-        if step_def.is_agent() {
-            // Agent step: require message
-            let msg = message.ok_or_else(|| {
-                RuntimeError::InvalidRequest(format!(
-                    "agent steps require --message for resume. Example:\n  \
-                     oj job resume {} -m \"I fixed the import, try again\"",
-                    job.id.short(12)
-                ))
-            })?;
-
+        if let Some(msg) = resolved_message {
             let agent_name = step_def
                 .agent_name()
                 .ok_or_else(|| RuntimeError::AgentNotFound("no agent name in step".into()))?;
 
-            self.handle_agent_resume(&job, &resume_step, agent_name, msg, &merged_inputs, kill)
-                .await
+            let events = self
+                .handle_agent_resume(&job, &resume_step, agent_name, &msg, &merged_inputs, kill)
+                .await?;
+            result_events.extend(events);
         } else if step_def.is_shell() {
             // Shell step: re-run command
             if message.is_some() {
@@ -118,13 +136,18 @@ where
                 .shell_command()
                 .ok_or_else(|| RuntimeError::InvalidRequest("no shell command in step".into()))?;
 
-            self.handle_shell_resume(&job, &resume_step, command).await
+            let events = self
+                .handle_shell_resume(&job, &resume_step, command)
+                .await?;
+            result_events.extend(events);
         } else {
-            Err(RuntimeError::InvalidRequest(format!(
+            return Err(RuntimeError::InvalidRequest(format!(
                 "resume not supported for step type in step: {}",
                 resume_step
-            )))
+            )));
         }
+
+        Ok(result_events)
     }
 
     pub(crate) async fn handle_job_cancel(
@@ -360,3 +383,7 @@ where
         Ok(vec![])
     }
 }
+
+#[cfg(test)]
+#[path = "lifecycle_tests.rs"]
+mod tests;

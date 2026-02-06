@@ -432,14 +432,14 @@ where
                     })
                     .await?;
 
-                // Update status to Running
+                // Update status to Running (preserve agent_id for the nudged agent)
                 let job_id = JobId::new(&job.id);
                 self.executor
                     .execute(Effect::Emit {
                         event: Event::StepStarted {
                             job_id: job_id.clone(),
                             step: step.to_string(),
-                            agent_id: None,
+                            agent_id: Some(id.clone()),
                             agent_name: None,
                         },
                     })

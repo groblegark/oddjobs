@@ -228,5 +228,18 @@ agent "conflicts" {
     3. Run `git commit --no-edit` to complete the merge
     4. Run `make check` to verify everything passes
     5. Fix any issues
+
+    ## Conflict resolution strategy
+
+    When one side refactored (e.g., split a file into submodules) and the other
+    side modified the original file:
+
+    - Keep the refactored structure — never collapse submodules back into a
+      monolithic file.
+    - Identify only the semantic delta from the incoming branch (new methods,
+      changed signatures, added fields).
+    - Apply those changes to the appropriate submodule files.
+    - Write the conflicted file clean (no conflict markers) using the refactored
+      layout, then `git add` it.
   PROMPT
 }

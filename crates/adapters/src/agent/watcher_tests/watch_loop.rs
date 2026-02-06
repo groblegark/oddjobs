@@ -308,7 +308,13 @@ async fn watcher_extracts_log_entries_when_log_entry_tx_set() {
     let (log_entry_tx, mut log_entry_rx) = mpsc::channel(32);
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let mut params = log_watch_params(log_path.clone(), sessions, event_tx, shutdown_rx, Some(file_rx));
+    let mut params = log_watch_params(
+        log_path.clone(),
+        sessions,
+        event_tx,
+        shutdown_rx,
+        Some(file_rx),
+    );
     params.log_entry_tx = Some(log_entry_tx);
 
     let _handle = tokio::spawn(watch_loop(params));
@@ -322,7 +328,10 @@ async fn watcher_extracts_log_entries_when_log_entry_tx_set() {
     wait_for_poll().await;
 
     let entry = log_entry_rx.try_recv();
-    assert!(entry.is_ok(), "should receive log entries when log_entry_tx is set");
+    assert!(
+        entry.is_ok(),
+        "should receive log entries when log_entry_tx is set"
+    );
     let (agent_id, entries) = entry.unwrap();
     assert_eq!(agent_id, AgentId::new("test-agent"));
     assert!(!entries.is_empty(), "should have extracted log entries");
@@ -400,7 +409,10 @@ async fn watcher_exits_on_shutdown_signal() {
     shutdown_tx.send(()).unwrap();
 
     let result = tokio::time::timeout(Duration::from_millis(200), handle).await;
-    assert!(result.is_ok(), "watch_loop should exit after shutdown signal");
+    assert!(
+        result.is_ok(),
+        "watch_loop should exit after shutdown signal"
+    );
     assert!(
         event_rx.try_recv().is_err(),
         "should not emit events on clean shutdown"
@@ -493,7 +505,13 @@ async fn watcher_forwards_log_entries_on_file_change() {
     let (log_entry_tx, mut log_entry_rx) = mpsc::channel(32);
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let mut params = log_watch_params(log_path.clone(), sessions, event_tx, shutdown_rx, Some(file_rx));
+    let mut params = log_watch_params(
+        log_path.clone(),
+        sessions,
+        event_tx,
+        shutdown_rx,
+        Some(file_rx),
+    );
     params.log_entry_tx = Some(log_entry_tx);
 
     let _handle = tokio::spawn(watch_loop(params));

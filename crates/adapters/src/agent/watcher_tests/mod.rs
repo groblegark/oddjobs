@@ -44,7 +44,11 @@ fn setup_claude_project(session_id: &str) -> (TempDir, TempDir, PathBuf) {
 }
 
 /// Build a `WatcherConfig` with sensible defaults for tests.
-fn test_watcher_config(log_session_id: &str, tmux_session_id: &str, project_path: &Path) -> WatcherConfig {
+fn test_watcher_config(
+    log_session_id: &str,
+    tmux_session_id: &str,
+    project_path: &Path,
+) -> WatcherConfig {
     WatcherConfig {
         agent_id: AgentId::new("test-agent"),
         log_session_id: log_session_id.to_string(),

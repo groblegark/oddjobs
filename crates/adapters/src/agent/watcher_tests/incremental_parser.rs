@@ -5,9 +5,7 @@ use super::*;
 
 #[test]
 fn incremental_parser_reads_only_new_content() {
-    let (_dir, log_path) = temp_log(
-        "{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n",
-    );
+    let (_dir, log_path) = temp_log("{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n");
 
     let mut parser = SessionLogParser::new();
     let state = parser.parse(&log_path);
@@ -68,9 +66,7 @@ fn incremental_parser_handles_file_truncation() {
 
 #[test]
 fn incremental_parser_handles_multiple_appends() {
-    let (_dir, log_path) = temp_log(
-        "{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n",
-    );
+    let (_dir, log_path) = temp_log("{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n");
 
     let mut parser = SessionLogParser::new();
     assert_eq!(parser.parse(&log_path), AgentState::Working);
@@ -99,9 +95,7 @@ fn incremental_parser_handles_multiple_appends() {
 
 #[test]
 fn incremental_parser_handles_incomplete_final_line() {
-    let (_dir, log_path) = temp_log(
-        "{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n",
-    );
+    let (_dir, log_path) = temp_log("{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n");
 
     let mut parser = SessionLogParser::new();
     assert_eq!(parser.parse(&log_path), AgentState::Working);

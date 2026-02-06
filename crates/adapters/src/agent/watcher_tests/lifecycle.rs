@@ -126,7 +126,10 @@ async fn check_liveness_returns_none_when_alive() {
 
     let agent_id = AgentId::new("test-agent");
     let result = check_liveness(&sessions, "test-session", "claude", &agent_id).await;
-    assert!(result.is_none(), "should return None when session and process are alive");
+    assert!(
+        result.is_none(),
+        "should return None when session and process are alive"
+    );
 }
 
 #[tokio::test]
@@ -200,7 +203,10 @@ async fn check_trust_prompt_not_present() {
     sessions.add_session("test-session", true);
     sessions.set_output(
         "test-session",
-        vec!["Welcome to Claude".to_string(), "How can I help?".to_string()],
+        vec![
+            "Welcome to Claude".to_string(),
+            "How can I help?".to_string(),
+        ],
     );
     assert!(!check_and_accept_trust_prompt(&sessions, "test-session").await);
 }
@@ -306,17 +312,15 @@ async fn wait_for_session_log_checks_trust_prompt_early() {
         vec!["Do you trust the files in this folder?".to_string()],
     );
 
-    let _ = wait_for_session_log_or_exit(
-        workspace_dir.path(),
-        "no-session",
-        "trust-tmux",
-        &sessions,
-    )
-    .await;
+    let _ =
+        wait_for_session_log_or_exit(workspace_dir.path(), "no-session", "trust-tmux", &sessions)
+            .await;
 
     let calls = sessions.calls();
     assert!(
-        calls.iter().any(|c| matches!(c, SessionCall::Send { input, .. } if input == "y")),
+        calls
+            .iter()
+            .any(|c| matches!(c, SessionCall::Send { input, .. } if input == "y")),
         "should send 'y' for trust prompt during early iterations"
     );
 
@@ -419,7 +423,10 @@ async fn watch_agent_with_session_log_enters_watch_loop() {
 
     // Let it enter watch_loop
     tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(event_rx.try_recv().is_err(), "no event for initial Working state");
+    assert!(
+        event_rx.try_recv().is_err(),
+        "no event for initial Working state"
+    );
 
     // Kill the session to trigger liveness check
     sessions_clone.set_exited("tmux-found", 0);
@@ -456,7 +463,11 @@ async fn start_watcher_returns_shutdown_sender() {
     sessions.add_session("start-watcher-tmux", false);
 
     let (event_tx, mut event_rx) = mpsc::channel(32);
-    let config = test_watcher_config("start-watcher-session", "start-watcher-tmux", workspace_dir.path());
+    let config = test_watcher_config(
+        "start-watcher-session",
+        "start-watcher-tmux",
+        workspace_dir.path(),
+    );
     let shutdown_tx = start_watcher(config, sessions, event_tx, None);
 
     let event = tokio::time::timeout(Duration::from_millis(500), event_rx.recv()).await;
@@ -492,7 +503,10 @@ async fn start_watcher_shutdown_stops_watcher() {
     shutdown_tx.send(()).unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    assert!(event_rx.try_recv().is_err(), "no events after clean shutdown");
+    assert!(
+        event_rx.try_recv().is_err(),
+        "no events after clean shutdown"
+    );
 
     std::env::remove_var("CLAUDE_CONFIG_DIR");
     std::env::remove_var("OJ_SESSION_POLL_MS");

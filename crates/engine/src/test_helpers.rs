@@ -3,11 +3,14 @@
 
 //! Shared test helpers for the engine crate.
 
-use crate::{Runtime, RuntimeConfig, RuntimeDeps};
+use crate::spawn::{build_spawn_effects, SpawnCtx};
+use crate::{Runtime, RuntimeConfig, RuntimeDeps, RuntimeError};
 use oj_adapters::{FakeAgentAdapter, FakeNotifyAdapter, FakeSessionAdapter};
-use oj_core::{Event, FakeClock};
+use oj_core::{Effect, Event, FakeClock};
+use oj_runbook::AgentDef;
 use oj_storage::MaterializedState;
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -91,4 +94,23 @@ pub(crate) fn load_runbook_hash(ctx: &TestContext, content: &str) -> String {
         });
     });
     hash
+}
+
+/// Convenience wrapper for `build_spawn_effects` with empty input and no resume session.
+pub(crate) fn spawn_effects(
+    agent_def: &AgentDef,
+    ctx: &SpawnCtx<'_>,
+    agent_name: &str,
+    workspace_path: &Path,
+    state_dir: &Path,
+) -> Result<Vec<Effect>, RuntimeError> {
+    build_spawn_effects(
+        agent_def,
+        ctx,
+        agent_name,
+        &HashMap::new(),
+        workspace_path,
+        state_dir,
+        None,
+    )
 }

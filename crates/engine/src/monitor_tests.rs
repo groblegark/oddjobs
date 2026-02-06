@@ -4,7 +4,7 @@
 //! Tests for monitor module
 
 use super::*;
-use oj_core::{Job, JobId, StepStatus, TimerId};
+use oj_core::{Job, JobId, TimerId};
 use oj_runbook::{parse_runbook, ActionConfig, AgentAction, AgentDef};
 
 fn test_job() -> Job {
@@ -196,8 +196,7 @@ fn escalate_emits_decision_created() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "gate_failed"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "gate_failed"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let decision_created = effects.iter().find(|e| {
             matches!(
@@ -352,8 +351,7 @@ fn escalate_cancels_exit_deferred_but_keeps_liveness() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let cancelled_timer_ids: Vec<&str> = effects
             .iter()
@@ -733,8 +731,7 @@ fn escalate_idle_trigger_emits_idle_source() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -754,8 +751,7 @@ fn escalate_exit_trigger_emits_error_source() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "exit"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "exit"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -775,8 +771,7 @@ fn escalate_error_trigger_emits_error_source() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "error"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "error"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -796,8 +791,7 @@ fn escalate_prompt_trigger_emits_approval_source() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "prompt"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "prompt"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -817,8 +811,7 @@ fn escalate_prompt_question_trigger_emits_question_source() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "prompt:question"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "prompt:question"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -838,8 +831,7 @@ fn escalate_idle_exhausted_trigger_emits_idle_source() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "idle_exhausted"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "idle_exhausted"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -859,8 +851,7 @@ fn escalate_error_exhausted_trigger_emits_error_source() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Escalate);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "error_exhausted"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "error_exhausted"), &job).unwrap();
     if let ActionEffects::Escalate { effects } = result {
         let source = effects.iter().find_map(|e| match e {
             oj_core::Effect::Emit {
@@ -905,8 +896,7 @@ fn nudge_uses_default_message() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Nudge);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
     if let ActionEffects::Nudge { effects } = result {
         match &effects[0] {
             Effect::SendToSession { input, .. } => {
@@ -925,8 +915,7 @@ fn nudge_uses_custom_message() {
     let agent = test_agent_def();
     let config = ActionConfig::with_message(AgentAction::Nudge, "Keep going!");
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "idle"), &job).unwrap();
     if let ActionEffects::Nudge { effects } = result {
         match &effects[0] {
             Effect::SendToSession { input, .. } => {
@@ -949,8 +938,7 @@ fn fail_uses_trigger_as_error_message() {
     let agent = test_agent_def();
     let config = ActionConfig::simple(AgentAction::Fail);
 
-    let result =
-        build_action_effects(&test_ctx(&agent, &config, "on_error"), &job).unwrap();
+    let result = build_action_effects(&test_ctx(&agent, &config, "on_error"), &job).unwrap();
     if let ActionEffects::FailJob { error } = result {
         assert_eq!(error, "on_error");
     } else {

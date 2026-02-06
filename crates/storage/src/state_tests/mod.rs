@@ -11,109 +11,12 @@ mod step_history;
 mod workers;
 
 use super::*;
+pub(super) use oj_core::test_support::{
+    job_create_event, job_delete_event, job_transition_event, queue_failed_event,
+    queue_pushed_event, queue_taken_event, session_create_event, session_delete_event,
+    step_failed_event, step_started_event, worker_start_event,
+};
 use oj_core::{AgentRunId, Event, JobId, OwnerId, SessionId, StepOutcome, WorkspaceId};
-
-// ── Shared event helpers (used by submodules) ────────────────────────────────
-
-pub(super) fn job_create_event(id: &str, kind: &str, name: &str, initial_step: &str) -> Event {
-    Event::JobCreated {
-        id: JobId::new(id),
-        kind: kind.to_string(),
-        name: name.to_string(),
-        runbook_hash: "testhash".to_string(),
-        cwd: PathBuf::from("/test/project"),
-        vars: HashMap::new(),
-        initial_step: initial_step.to_string(),
-        created_at_epoch_ms: 1_000_000,
-        namespace: String::new(),
-        cron_name: None,
-    }
-}
-
-pub(super) fn job_delete_event(id: &str) -> Event {
-    Event::JobDeleted { id: JobId::new(id) }
-}
-
-pub(super) fn job_transition_event(id: &str, step: &str) -> Event {
-    Event::JobAdvanced {
-        id: JobId::new(id),
-        step: step.to_string(),
-    }
-}
-
-pub(super) fn step_started_event(job_id: &str) -> Event {
-    Event::StepStarted {
-        job_id: JobId::new(job_id),
-        step: "init".to_string(),
-        agent_id: None,
-        agent_name: None,
-    }
-}
-
-pub(super) fn session_create_event(id: &str, job_id: &str) -> Event {
-    Event::SessionCreated {
-        id: SessionId::new(id),
-        owner: OwnerId::Job(JobId::new(job_id)),
-    }
-}
-
-pub(super) fn session_delete_event(id: &str) -> Event {
-    Event::SessionDeleted {
-        id: SessionId::new(id),
-    }
-}
-
-pub(super) fn queue_pushed_event(queue_name: &str, item_id: &str) -> Event {
-    Event::QueuePushed {
-        queue_name: queue_name.to_string(),
-        item_id: item_id.to_string(),
-        data: [
-            ("title".to_string(), "Fix bug".to_string()),
-            ("id".to_string(), "123".to_string()),
-        ]
-        .into_iter()
-        .collect(),
-        pushed_at_epoch_ms: 1_000_000,
-        namespace: String::new(),
-    }
-}
-
-pub(super) fn queue_taken_event(queue_name: &str, item_id: &str, worker_name: &str) -> Event {
-    Event::QueueTaken {
-        queue_name: queue_name.to_string(),
-        item_id: item_id.to_string(),
-        worker_name: worker_name.to_string(),
-        namespace: String::new(),
-    }
-}
-
-pub(super) fn queue_failed_event(queue_name: &str, item_id: &str, error: &str) -> Event {
-    Event::QueueFailed {
-        queue_name: queue_name.to_string(),
-        item_id: item_id.to_string(),
-        error: error.to_string(),
-        namespace: String::new(),
-    }
-}
-
-pub(super) fn worker_start_event(name: &str, ns: &str) -> Event {
-    Event::WorkerStarted {
-        worker_name: name.to_string(),
-        project_root: PathBuf::from("/test/project"),
-        runbook_hash: "abc123".to_string(),
-        queue_name: "queue".to_string(),
-        concurrency: 1,
-        namespace: ns.to_string(),
-    }
-}
-
-pub(super) fn step_failed_event(job_id: &str, step: &str, error: &str) -> Event {
-    Event::StepFailed {
-        job_id: JobId::new(job_id),
-        step: step.to_string(),
-        error: error.to_string(),
-    }
-}
 
 // ── Basic job CRUD ───────────────────────────────────────────────────────────
 

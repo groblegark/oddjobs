@@ -56,29 +56,7 @@ handler = { job = "build" }
 concurrency = 2
 "#;
 
-/// Helper: parse a runbook, load it into cache, and return its hash.
-pub(super) fn load_runbook_hash(ctx: &TestContext, content: &str) -> String {
-    let runbook = oj_runbook::parse_runbook(content).unwrap();
-    let runbook_json = serde_json::to_value(&runbook).unwrap();
-    let hash = {
-        use sha2::{Digest, Sha256};
-        let canonical = serde_json::to_string(&runbook_json).unwrap();
-        let digest = Sha256::digest(canonical.as_bytes());
-        format!("{:x}", digest)
-    };
-    {
-        let mut cache = ctx.runtime.runbook_cache.lock();
-        cache.insert(hash.clone(), runbook);
-    }
-    ctx.runtime.lock_state_mut(|state| {
-        state.apply_event(&Event::RunbookLoaded {
-            hash: hash.clone(),
-            version: 1,
-            runbook: runbook_json,
-        });
-    });
-    hash
-}
+pub(super) use crate::test_helpers::load_runbook_hash;
 
 /// Helper: push N items to a persisted queue via MaterializedState events.
 pub(super) fn push_persisted_items(ctx: &TestContext, queue: &str, count: usize) {

@@ -4,6 +4,7 @@
 //! Tests for agent spawning
 
 use super::*;
+use crate::test_helpers::spawn_effects;
 use oj_core::{JobId, OwnerId};
 use oj_runbook::PrimeDef;
 use std::collections::HashMap;
@@ -101,16 +102,8 @@ fn build_spawn_effects_uses_absolute_cwd() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SpawnAgent { cwd, .. } = &effects[0] {
         assert_eq!(cwd.as_ref().unwrap(), &PathBuf::from("/absolute/path"));
@@ -128,16 +121,8 @@ fn build_spawn_effects_uses_relative_cwd() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SpawnAgent { cwd, .. } = &effects[0] {
         assert_eq!(cwd.as_ref().unwrap(), &workspace.path().join("subdir"));
@@ -154,16 +139,7 @@ fn build_spawn_effects_prepares_workspace() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     // Workspace should not have CLAUDE.md (that comes from the worktree, not workspace prep)
     let claude_md = workspace.path().join("CLAUDE.md");
@@ -183,15 +159,7 @@ fn build_spawn_effects_fails_on_missing_prompt_file() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let result = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    );
+    let result = spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path());
 
     // Should fail due to missing prompt file
     assert!(result.is_err());
@@ -262,20 +230,12 @@ fn build_spawn_effects_timer_uses_liveness_interval() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SetTimer { id, duration } = &effects[1] {
         assert_eq!(id, "liveness:pipe-1");
-        assert_eq!(*duration, LIVENESS_INTERVAL);
+        assert_eq!(duration, &LIVENESS_INTERVAL);
     } else {
         panic!("Expected SetTimer effect");
     }
@@ -405,16 +365,8 @@ fn build_spawn_effects_escapes_backticks_in_prompt() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SpawnAgent { command, .. } = &effects[0] {
         // Backticks should be escaped to prevent shell command substitution
@@ -440,16 +392,8 @@ fn build_spawn_effects_with_prime_succeeds() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     // Should still produce 2 effects: SpawnAgent, SetTimer
     assert_eq!(effects.len(), 2);
@@ -465,16 +409,8 @@ fn build_spawn_effects_with_prime_script_succeeds() {
 
     let pid = JobId::new("pipe-prime-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     // Should produce standard effects
     assert_eq!(effects.len(), 2);
@@ -591,16 +527,8 @@ fn build_spawn_effects_includes_default_status() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SpawnAgent {
         session_config,
@@ -657,16 +585,8 @@ fn build_spawn_effects_explicit_session_overrides_defaults() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SpawnAgent { session_config, .. } = &effects[0] {
         let tmux = session_config.get("tmux").unwrap();
@@ -703,16 +623,8 @@ fn build_spawn_effects_always_passes_oj_state_dir() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        state_dir.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), state_dir.path()).unwrap();
 
     if let Effect::SpawnAgent { env, .. } = &effects[0] {
         let oj_state = env
@@ -738,16 +650,8 @@ fn build_spawn_effects_no_session_block_gets_defaults() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SpawnAgent { session_config, .. } = &effects[0] {
         // Even without a session block, tmux config should exist with defaults
@@ -856,16 +760,8 @@ fn build_spawn_effects_injects_user_env_vars() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        state_dir.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), state_dir.path()).unwrap();
 
     if let Effect::SpawnAgent { env, .. } = &effects[0] {
         let env_map: HashMap<&str, &str> =
@@ -894,16 +790,8 @@ fn build_spawn_effects_user_env_does_not_override_system_vars() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        state_dir.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), state_dir.path()).unwrap();
 
     if let Effect::SpawnAgent { env, .. } = &effects[0] {
         let env_map: HashMap<&str, &str> =
@@ -933,16 +821,8 @@ fn build_spawn_effects_trims_trailing_newlines_from_command() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        workspace.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), workspace.path()).unwrap();
 
     if let Effect::SpawnAgent { command, .. } = &effects[0] {
         // --session-id should be on the same line as the base command (no bare newline between)
@@ -990,16 +870,8 @@ fn build_spawn_effects_project_env_overrides_global() {
 
     let pid = JobId::new("pipe-1");
     let ctx = SpawnCtx::from_job(&job, &pid);
-    let effects = build_spawn_effects(
-        &agent,
-        &ctx,
-        "worker",
-        &HashMap::new(),
-        workspace.path(),
-        state_dir.path(),
-        None,
-    )
-    .unwrap();
+    let effects =
+        spawn_effects(&agent, &ctx, "worker", workspace.path(), state_dir.path()).unwrap();
 
     if let Effect::SpawnAgent { env, .. } = &effects[0] {
         let env_map: HashMap<&str, &str> =

@@ -26,6 +26,9 @@ pub mod timer;
 pub mod worker;
 pub mod workspace;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 // ActionTracker and AgentSignal available via action_tracker module or job re-export
 pub use agent::{AgentError, AgentId, AgentState};
 pub use agent_record::{AgentRecord, AgentRecordStatus};

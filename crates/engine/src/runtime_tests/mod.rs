@@ -28,26 +28,10 @@ mod worker_external;
 mod worker_queue;
 
 use super::*;
-use crate::{RuntimeConfig, RuntimeDeps};
-use oj_adapters::{FakeAgentAdapter, FakeNotifyAdapter, FakeSessionAdapter};
-use oj_core::{AgentId, FakeClock, JobId};
+use crate::test_helpers::{setup_with_runbook, TestContext};
+use oj_core::{AgentId, JobId};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use tempfile::tempdir;
-use tokio::sync::mpsc;
-
-type TestRuntime = Runtime<FakeSessionAdapter, FakeAgentAdapter, FakeNotifyAdapter, FakeClock>;
-
-/// Test context holding the runtime and project path
-pub(super) struct TestContext {
-    runtime: TestRuntime,
-    clock: FakeClock,
-    project_root: PathBuf,
-    event_rx: mpsc::Receiver<Event>,
-    sessions: FakeSessionAdapter,
-    agents: FakeAgentAdapter,
-    notifier: FakeNotifyAdapter,
-}
+use std::path::Path;
 
 fn command_event(
     job_id: &str,
@@ -117,47 +101,6 @@ OJ_STEP = "execute"
 
 async fn setup() -> TestContext {
     setup_with_runbook(TEST_RUNBOOK).await
-}
-
-async fn setup_with_runbook(runbook_content: &str) -> TestContext {
-    let dir = tempdir().unwrap();
-    // Keep the temp directory alive by leaking it
-    let dir_path = dir.keep();
-
-    // Create project structure with runbook file
-    let runbook_dir = dir_path.join(".oj/runbooks");
-    std::fs::create_dir_all(&runbook_dir).unwrap();
-    std::fs::write(runbook_dir.join("test.toml"), runbook_content).unwrap();
-
-    let sessions = FakeSessionAdapter::new();
-    let agents = FakeAgentAdapter::new();
-    let notifier = FakeNotifyAdapter::new();
-    let clock = FakeClock::new();
-    let (event_tx, event_rx) = mpsc::channel(100);
-    let runtime = Runtime::new(
-        RuntimeDeps {
-            sessions: sessions.clone(),
-            agents: agents.clone(),
-            notifier: notifier.clone(),
-            state: Arc::new(Mutex::new(MaterializedState::default())),
-        },
-        clock.clone(),
-        RuntimeConfig {
-            state_dir: dir_path.clone(),
-            log_dir: dir_path.join("logs"),
-        },
-        event_tx,
-    );
-
-    TestContext {
-        runtime,
-        clock,
-        project_root: dir_path,
-        event_rx,
-        sessions,
-        agents,
-        notifier,
-    }
 }
 
 async fn create_job(ctx: &TestContext) -> String {

@@ -4,26 +4,10 @@
 //! Unit tests for worker lifecycle handling (start/stop/resize/reconcile)
 
 use crate::runtime::handlers::worker::WorkerStatus;
-use crate::{RuntimeConfig, RuntimeDeps};
-use oj_adapters::{FakeAgentAdapter, FakeNotifyAdapter, FakeSessionAdapter};
-use oj_core::{Clock, Event, FakeClock, JobId, TimerId};
-use oj_storage::{MaterializedState, QueueItemStatus};
+use crate::test_helpers::{load_runbook_hash, setup_with_runbook, TestContext};
+use oj_core::{Clock, Event, JobId, TimerId};
+use oj_storage::QueueItemStatus;
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use parking_lot::Mutex;
-use tempfile::tempdir;
-use tokio::sync::mpsc;
-
-type TestRuntime =
-    crate::runtime::Runtime<FakeSessionAdapter, FakeAgentAdapter, FakeNotifyAdapter, FakeClock>;
-
-struct TestContext {
-    runtime: TestRuntime,
-    clock: FakeClock,
-    project_root: PathBuf,
-}
 
 /// External queue runbook (default queue type)
 const EXTERNAL_RUNBOOK: &str = r#"
@@ -125,65 +109,6 @@ source = { queue = "bugs" }
 handler = { job = "build" }
 concurrency = 2
 "#;
-
-async fn setup_with_runbook(runbook_content: &str) -> TestContext {
-    let dir = tempdir().unwrap();
-    let dir_path = dir.keep();
-
-    let runbook_dir = dir_path.join(".oj/runbooks");
-    std::fs::create_dir_all(&runbook_dir).unwrap();
-    std::fs::write(runbook_dir.join("test.toml"), runbook_content).unwrap();
-
-    let sessions = FakeSessionAdapter::new();
-    let agents = FakeAgentAdapter::new();
-    let notifier = FakeNotifyAdapter::new();
-    let clock = FakeClock::new();
-    let (event_tx, _event_rx) = mpsc::channel(100);
-    let runtime = TestRuntime::new(
-        RuntimeDeps {
-            sessions,
-            agents,
-            notifier,
-            state: Arc::new(Mutex::new(MaterializedState::default())),
-        },
-        clock.clone(),
-        RuntimeConfig {
-            state_dir: dir_path.clone(),
-            log_dir: dir_path.join("logs"),
-        },
-        event_tx,
-    );
-
-    TestContext {
-        runtime,
-        clock,
-        project_root: dir_path,
-    }
-}
-
-/// Parse a runbook, load it into cache + state, and return its hash.
-fn load_runbook_hash(ctx: &TestContext, content: &str) -> String {
-    let runbook = oj_runbook::parse_runbook(content).unwrap();
-    let runbook_json = serde_json::to_value(&runbook).unwrap();
-    let hash = {
-        use sha2::{Digest, Sha256};
-        let canonical = serde_json::to_string(&runbook_json).unwrap();
-        let digest = Sha256::digest(canonical.as_bytes());
-        format!("{:x}", digest)
-    };
-    {
-        let mut cache = ctx.runtime.runbook_cache.lock();
-        cache.insert(hash.clone(), runbook);
-    }
-    ctx.runtime.lock_state_mut(|state| {
-        state.apply_event(&Event::RunbookLoaded {
-            hash: hash.clone(),
-            version: 1,
-            runbook: runbook_json,
-        });
-    });
-    hash
-}
 
 /// Collect all pending timer IDs from the scheduler.
 fn pending_timer_ids(ctx: &TestContext) -> Vec<String> {

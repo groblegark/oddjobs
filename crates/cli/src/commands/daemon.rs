@@ -62,6 +62,8 @@ pub enum DaemonCommand {
         #[arg(long)]
         dismiss: Option<String>,
     },
+    /// Structured health check for GT doctor integration
+    Health,
 }
 
 pub async fn daemon(args: DaemonArgs, format: OutputFormat) -> Result<()> {
@@ -81,6 +83,7 @@ pub async fn daemon(args: DaemonArgs, format: OutputFormat) -> Result<()> {
         }) => logs(limit, no_limit, follow, format).await,
         Some(DaemonCommand::Orphans { dismiss: Some(id) }) => dismiss_orphan(id, format).await,
         Some(DaemonCommand::Orphans { dismiss: None }) => orphans(format).await,
+        Some(DaemonCommand::Health) => health(format).await,
         None => {
             // No subcommand — show colorized help
             let cmd = crate::find_subcommand(crate::cli_command(), &["daemon"]);
@@ -434,6 +437,75 @@ fn find_ojd_binary() -> Result<PathBuf> {
 #[cfg(test)]
 #[path = "daemon_tests.rs"]
 mod tests;
+
+async fn health(format: OutputFormat) -> Result<()> {
+    let not_running = || match format {
+        OutputFormat::Text => {
+            println!("status: unhealthy");
+            println!("message: Daemon not running");
+            Ok(())
+        }
+        OutputFormat::Json => {
+            let obj = serde_json::json!({
+                "status": "unhealthy",
+                "uptime_secs": 0,
+                "version": "",
+                "checks": [{
+                    "name": "daemon_alive",
+                    "status": "error",
+                    "message": "Daemon not running",
+                }],
+            });
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+            Ok(())
+        }
+    };
+
+    let client = match DaemonClient::connect() {
+        Ok(c) => c,
+        Err(_) => return not_running(),
+    };
+
+    let resp = match client.health().await {
+        Ok(h) => h,
+        Err(crate::client::ClientError::DaemonNotRunning) => return not_running(),
+        Err(crate::client::ClientError::Io(ref e))
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            ) =>
+        {
+            return not_running();
+        }
+        Err(e) => return Err(anyhow!("{}", e)),
+    };
+
+    match format {
+        OutputFormat::Text => {
+            println!("status: {}", resp.status);
+            println!("version: {}", resp.version);
+            println!("uptime: {}s", resp.uptime_secs);
+            println!();
+            for check in &resp.checks {
+                let icon = match check.status.as_str() {
+                    "ok" => "\u{2713}",      // checkmark
+                    "warning" => "\u{26a0}",  // warning
+                    "error" => "\u{2717}",    // cross
+                    _ => "?",
+                };
+                println!("  {} {} {}", icon, check.name, check.message);
+                for detail in &check.details {
+                    println!("      {}", detail);
+                }
+            }
+        }
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+    }
+
+    Ok(())
+}
 
 fn get_log_path() -> Result<PathBuf> {
     let state_dir = crate::env::state_dir()

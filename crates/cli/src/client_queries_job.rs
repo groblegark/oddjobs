@@ -232,6 +232,14 @@ impl DaemonClient {
         }
     }
 
+    /// Get structured health check for GT doctor integration
+    pub async fn health(&self) -> Result<oj_daemon::HealthResponse, ClientError> {
+        match self.send(&Request::Health).await? {
+            Response::Health { health } => Ok(health),
+            other => Self::reject(other),
+        }
+    }
+
     /// List all projects with active work
     pub async fn list_projects(&self) -> Result<Vec<oj_daemon::ProjectSummary>, ClientError> {
         let req = Request::Query {

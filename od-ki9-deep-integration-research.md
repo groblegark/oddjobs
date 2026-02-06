@@ -930,6 +930,222 @@ The hook analysis refines several od-k3o tasks:
 
 ---
 
+## Appendix: Hook System Unification — OJ as Session Manager, Bus as Hook Dispatch
+
+### The Problem: Two Halves of the Same System
+
+GT and OJ each manage Claude Code sessions independently, and each is good at
+a different half of the problem:
+
+| Capability | GT | OJ |
+|---|---|---|
+| Session spawn | tmux new-session, env vars, beacon | AgentAdapter: workspace prep, prompt handling, auto-accept |
+| State detection | None (witness polls tmux existence) | File watcher on session.jsonl, real-time state machine |
+| Idle detection | None (nudges are manual/scheduled) | Automatic: log watcher + 60s grace timer + dual check |
+| Dead detection | Witness liveness poll (is tmux alive?) | File watcher + process tree check (real-time) |
+| Error detection | None | Log parsing: auth, credits, network, rate-limit |
+| Permission handling | None (manual) | Auto-accept bypass, trust, detect login failures |
+| Input injection | tmux send-keys with 200-1500ms debounce | Escape-clear + literal send + dynamic delay (50ms+1ms/char) |
+| Reconnect after restart | None (polecats are ephemeral) | Full reconnect: reattach file watcher, restore monitoring |
+| Log analysis | None | Incremental JSONL parsing: tool use, file ops, commands |
+| Context injection | gt prime + bd prime (rich, multi-source) | Not applicable (OJ doesn't do context) |
+| Workflow hooks | 6 hook types with gt/bd commands | on_idle/on_dead/on_error/on_prompt/on_stop |
+| Gate system | bd gate (file markers, registry, strict/soft) | gate action (shell command, binary pass/fail) |
+| Decision system | bd decision (blocking, async, timeout) | escalate action (creates decision record) |
+| Nudge/mail | gt nudge (queued+direct), gt mail check | nudge action (on_idle only) |
+| Notifications | gt nudge deacon + desktop (via gt) | Effect::Notify → desktop only (NotifyAdapter) |
+
+**GT knows what Claude should be doing. OJ knows what Claude IS doing.**
+
+Neither system alone is complete. GT can't detect an idle agent. OJ can't
+inject workflow context. GT spawns tmux manually. OJ handles permission
+prompts automatically. GT has a rich gate system. OJ has real-time log analysis.
+
+### The Unified Architecture
+
+Three layers, three owners:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ OJ — Session Lifecycle Manager                              │
+│                                                             │
+│ Owns: spawn, monitor, detect, kill, reconnect, input        │
+│                                                             │
+│ • AgentAdapter spawns Claude with prompt handling            │
+│ • File watcher detects idle/dead/error/prompt in real-time  │
+│ • Reconnects surviving sessions after daemon restart         │
+│ • Handles bypass-permissions, trust prompts, login detect   │
+│ • Emits agent state events to bd bus                        │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ events flow down
+┌─────────────────────────▼───────────────────────────────────┐
+│ BD Bus — Universal Hook Dispatch                            │
+│                                                             │
+│ Owns: hook routing, handler registration, blocking/inject   │
+│                                                             │
+│ Claude Code hooks (all become bd bus emit):                  │
+│   SessionStart  → prime handler (inject context)            │
+│   PreCompact    → prime handler (re-inject)                 │
+│   UserPromptSubmit → nudge drain + mail check + decisions   │
+│   PostToolUse   → inject drain + nudge drain                │
+│   PreToolUse    → gate handler (safety evaluation)          │
+│   Stop          → cost handler + decision turn-check        │
+│                                                             │
+│ OJ agent events (from event forwarder):                     │
+│   OjAgentIdle   → witness nudge handler                     │
+│   OjAgentExited → witness cleanup handler                   │
+│   OjAgentFailed → bead comment + notify handler             │
+│   OjEscalated   → auto-triage handler                       │
+│   OjJobCompleted → bead close handler                       │
+│                                                             │
+│ Handlers can BLOCK (exit 2) and INJECT (stdout)             │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ policy flows down
+┌─────────────────────────▼───────────────────────────────────┐
+│ GT — Orchestration and Policy                               │
+│                                                             │
+│ Owns: what to run, when, priority, context, decisions       │
+│                                                             │
+│ • Formulas define work (molecules, wisps, steps)            │
+│ • Refinery scores and dispatches (merge priority, etc)      │
+│ • Witness subscribes to bus events (no more tmux polling)   │
+│ • Prime generates context (bus handler injects it)          │
+│ • Gate evaluates policy (bus handler blocks/allows)         │
+│ • Decisions flow through bus (blocking hooks)               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### What Changes
+
+**GT stops spawning tmux directly:**
+
+Current `session_manager.go` (352 lines) does:
+1. Create tmux session
+2. Set environment variables
+3. Wait for Claude startup
+4. Send startup beacon
+5. Check rate limits in diagnostic output
+6. Validate issue exists
+
+All of this is replaced by `oj run gt-sling --var issue=<id>`:
+- OJ's AgentAdapter handles session spawn with prompt auto-handling
+- OJ's file watcher monitors state in real-time
+- OJ detects rate limits via error type classification (better than GT's regex)
+- Beacon system moves to a bus handler on OjAgentSpawned
+
+What GT keeps:
+- Issue validation (before dispatch, not at session level)
+- Bead hookup (attaching work to agent)
+- Formula/molecule instantiation
+- Priority scoring
+
+**GT witness stops polling tmux:**
+
+Current witness checks `tmux has-session` to see if polecats are alive.
+For OJ-managed agents, it subscribes to bus events instead:
+
+```
+OjAgentExited → witness marks polecat dead, checks for orphan branches
+OjAgentIdle → witness decides nudge/escalate per GT policy
+OjAgentFailed → witness logs error, decides retry/abort
+OjJobCompleted → witness triggers AutoNukeIfClean
+```
+
+No more polling. Real-time. And witness gets error type information
+it never had before (auth vs credits vs network vs rate-limit).
+
+**Claude Code hooks converge to bd bus emit:**
+
+Currently GT configures hooks with compound shell commands:
+```json
+"SessionStart": [{"hooks": [{"command":
+  "gt prime --hook && gt mail check --inject && gt nudge deacon session-started"
+}]}]
+```
+
+These become bus events with registered handlers:
+```json
+"SessionStart": [{"hooks": [{"command": "bd bus emit --hook=SessionStart"}]}]
+```
+
+And handlers registered at daemon startup:
+```
+bd bus register --hook SessionStart --priority 10 --run "gt prime --hook"
+bd bus register --hook SessionStart --priority 20 --run "gt mail check --inject"
+bd bus register --hook SessionStart --priority 30 --run "gt nudge deacon session-started"
+bd bus register --hook SessionStart --priority 40 --run "bd decision check --inject"
+```
+
+Benefits:
+- Each handler runs independently (one failure doesn't break the chain)
+- Priority ordering is explicit and configurable
+- New handlers can be added without editing settings.json
+- Handlers can block (gate) or inject (prime) via bus protocol
+- Same mechanism works for GT hooks AND OJ events
+
+**OJ notification becomes multi-target via bus:**
+
+OJ's `Effect::Notify` currently goes to `DesktopNotifyAdapter` (desktop only).
+With `BusNotifyAdapter`, notifications become bus events:
+
+```
+Effect::Notify { title, message }
+  → BusNotifyAdapter emits OjNotify to bd bus
+  → Handler 1: desktop notification (existing behavior)
+  → Handler 2: gt nudge deacon (GT visibility)
+  → Handler 3: bd comment on job bead (audit trail)
+  → Handler 4: slack webhook (optional)
+```
+
+**OJ's gate action gets bus upgrade:**
+
+OJ's `gate` action runs a shell command (binary pass/fail). BD's gate system
+is much richer (file markers, registry, strict/soft modes, auto-check).
+
+Merge: OJ's gate action calls `bd gate session-check` via bus, which evaluates
+the full gate registry. This gives OJ access to GT's policy decisions without
+OJ knowing about GT.
+
+### Execution Order
+
+This unification builds on existing od-k3o work:
+
+**Already planned (od-k3o):**
+1. NATS activation + handler API (k3o.1, k3o.4)
+2. Bus emit in OJ runtime (k3o.7) — event forwarder tap
+3. BusNotifyAdapter (k3o.10) — replace desktop adapter
+4. Default OJ handlers (k3o.8) — bead sync on job events
+
+**New work for unification:**
+
+| Task | What | Depends On |
+|------|------|------------|
+| Unify Claude Code hooks to bd bus emit | All .claude/settings.json hooks become `bd bus emit --hook=<Type>` | k3o.4 (handler API) |
+| Register GT hook commands as bus handlers | gt prime, gt mail check, gt nudge drain, bd gate, bd decision → bus handlers | k3o.4 |
+| GT witness subscribes to OJ bus events | Replace tmux polling with OjAgentExited/Idle/Failed subscriptions | k3o.7 (OJ bus emit) |
+| GT sling delegates session spawn to OJ | session_manager.go simplified to call `oj run` | od-ki9.1 (stop GT tmux spawn) |
+| OJ gate action → bd gate session-check | Gate validation uses full bd gate registry via bus | k3o.11 (bus gate) |
+
+### Why This Works
+
+The key insight is that **hooks and events are the same thing** when you have
+a bus with blocking/injection:
+
+- A "hook" is an event that can be blocked → bus handler with exit code 2
+- "Context injection" is a handler that returns stdout → bus inject
+- A "gate" is a blocking handler that runs validation → bus blocking
+- A "notification" is a non-blocking handler → fire-and-forget bus event
+- "Agent monitoring" is event emission → OJ emits, bus routes
+
+By making bd bus the universal dispatch layer, we get:
+1. **One configuration point** (bus handlers, not .claude/settings.json edits)
+2. **Composable handlers** (GT prime + OJ monitor + bd gate in one pipeline)
+3. **Real-time visibility** (everything is a bus event, queryable and loggable)
+4. **Graceful degradation** (handlers are independent; one failure doesn't cascade)
+5. **Clean separation** (OJ does sessions, GT does policy, bus does routing)
+
+---
+
 ## Appendix: Key Code References
 
 | System | File | Lines | What |

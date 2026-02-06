@@ -193,7 +193,10 @@ fn agent_gone_does_not_overwrite_terminal_job() {
     // Advance job to terminal "done"
     state.apply_event(&job_transition_event("pipe-1", "done"));
     assert!(state.jobs["pipe-1"].is_terminal());
-    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+    assert_eq!(
+        state.jobs["pipe-1"].step_status,
+        oj_core::StepStatus::Completed
+    );
 
     // Session closes after job already completed
     state.apply_event(&Event::AgentGone {
@@ -202,10 +205,16 @@ fn agent_gone_does_not_overwrite_terminal_job() {
     });
 
     // Job should still be completed, not failed
-    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+    assert_eq!(
+        state.jobs["pipe-1"].step_status,
+        oj_core::StepStatus::Completed
+    );
     assert!(state.jobs["pipe-1"].error.is_none());
     // Agent record should still update
-    assert_eq!(state.agents["agent-1"].status, oj_core::AgentRecordStatus::Gone);
+    assert_eq!(
+        state.agents["agent-1"].status,
+        oj_core::AgentRecordStatus::Gone
+    );
 }
 
 #[test]
@@ -219,9 +228,15 @@ fn agent_exited_does_not_overwrite_terminal_job() {
         owner: OwnerId::Job(JobId::new("pipe-1")),
     });
 
-    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+    assert_eq!(
+        state.jobs["pipe-1"].step_status,
+        oj_core::StepStatus::Completed
+    );
     assert!(state.jobs["pipe-1"].error.is_none());
-    assert_eq!(state.agents["agent-1"].status, oj_core::AgentRecordStatus::Exited);
+    assert_eq!(
+        state.agents["agent-1"].status,
+        oj_core::AgentRecordStatus::Exited
+    );
 }
 
 #[test]
@@ -235,9 +250,15 @@ fn agent_failed_does_not_overwrite_terminal_job() {
         owner: OwnerId::Job(JobId::new("pipe-1")),
     });
 
-    assert_eq!(state.jobs["pipe-1"].step_status, oj_core::StepStatus::Completed);
+    assert_eq!(
+        state.jobs["pipe-1"].step_status,
+        oj_core::StepStatus::Completed
+    );
     assert!(state.jobs["pipe-1"].error.is_none());
-    assert_eq!(state.agents["agent-1"].status, oj_core::AgentRecordStatus::Exited);
+    assert_eq!(
+        state.agents["agent-1"].status,
+        oj_core::AgentRecordStatus::Exited
+    );
 }
 
 // ── Idempotency ─────────────────────────────────────────────────────────────

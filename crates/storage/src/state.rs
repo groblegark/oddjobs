@@ -365,8 +365,7 @@ impl MaterializedState {
                     if let Some(job) = self.jobs.get_mut(job_id.as_str()) {
                         if !job.is_terminal() {
                             job.step_status = StepStatus::Failed;
-                            job.error =
-                                Some("session terminated unexpectedly".to_string());
+                            job.error = Some("session terminated unexpectedly".to_string());
                         }
                     }
                 }

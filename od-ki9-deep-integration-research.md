@@ -699,6 +699,237 @@ This enables GT to intercept OJ events and return decisions (retry, escalate, re
 
 ---
 
+## Appendix: OJ Hook System Analysis & BD Bus Integration Strategy
+
+### OJ Has Three Distinct "Hook" Mechanisms
+
+OJ's hook system is not one thing — it's three:
+
+**1. Step Transition Hooks** (`on_done`, `on_fail`, `on_cancel`)
+
+These are the **workflow DAG itself**, not side effects. `on_done = { step = "submit" }`
+means "go to step submit when this step succeeds." They're compiled into the job
+state machine and executed synchronously by `advance_job()` / `fail_job()` /
+`cancel_job()` in `crates/engine/src/runtime/job.rs`.
+
+- Defined in HCL at step-level and job-level (job = fallback default)
+- **Cannot and should not be replaced by bus** — they're the execution graph
+- The bus should **observe** these transitions (emit OjStepAdvanced) not replace them
+
+**2. Agent Monitoring Hooks** (`on_idle`, `on_dead`, `on_error`, `on_prompt`, `on_stop`)
+
+Reactive actions when agents enter states. Executed by the monitor subsystem
+(`crates/engine/src/runtime/monitor.rs` and `crates/engine/src/monitor.rs`).
+
+Each hook routes to an **action**: nudge, done, fail, resume, escalate, gate.
+Actions support `attempts` and `cooldown` for retry logic. The `gate` action
+is the only one that executes shell commands (binary pass/fail validation).
+
+| Hook | Trigger | Valid Actions | Shell? |
+|------|---------|---------------|--------|
+| on_idle | Agent waiting >60s | nudge, done, fail, escalate, gate | gate only |
+| on_dead | Process exits | resume, done, fail, escalate, gate | gate only |
+| on_error | API error | resume, fail, escalate, gate | gate only |
+| on_prompt | Permission prompt | done, fail, escalate, gate | gate only |
+| on_stop | Agent tries to exit | signal, idle, escalate | no |
+
+- **CAN be augmented by bus** — bus handlers as alternative action executors
+- **Tightly coupled** to runtime state machine — replacement requires care
+
+**3. Notification Hooks** (`notify { on_start, on_done, on_fail }`)
+
+Desktop-only notifications via `NotifyAdapter` trait. Fire-and-forget, informational.
+Executor calls `self.notifier.notify(&title, &message)` on `Effect::Notify`.
+
+- **Perfect candidate for bus replacement** — NotifyAdapter already abstracted
+- A `BusNotifyAdapter` could emit to `bd bus` instead of desktop
+
+### What Should NOT Be Replaced
+
+**Step transition hooks stay in OJ.** They define the workflow graph. The bus
+should emit events *when* transitions happen but never *control* them:
+
+```
+Step succeeds → OJ on_done routes to next step (KEEP)
+             → bus emits OjStepAdvanced (ADD)
+```
+
+**Agent action execution stays in OJ.** The nudge/resume/escalate/gate actions
+are deeply integrated with OJ's session management, timer system, and agent
+lifecycle. The bus should observe these, not replace them.
+
+### What SHOULD Be Replaced
+
+**1. NotifyAdapter → BusNotifyAdapter** (easiest win)
+
+The `NotifyAdapter` trait (`crates/adapters/src/notify/mod.rs`) is already
+abstracted. Create a `BusNotifyAdapter` that calls `bd bus emit --hook=OjNotify`
+instead of `notify_rust::Notification::show()`:
+
+```rust
+// crates/adapters/src/notify/bus.rs
+pub struct BusNotifyAdapter;
+
+#[async_trait]
+impl NotifyAdapter for BusNotifyAdapter {
+    async fn notify(&self, title: &str, message: &str) -> Result<(), NotifyError> {
+        let payload = json!({"title": title, "message": message});
+        emit_bus_event("OjNotify", &payload).await
+            .map_err(|e| NotifyError::SendFailed(e.to_string()))
+    }
+}
+```
+
+This immediately gives GT/beads visibility into all OJ notifications without
+changing any OJ hook logic. Desktop notifications can be a bus handler instead.
+
+**2. Gate action → Bus blocking** (powerful upgrade)
+
+Currently `gate` runs a shell command and checks exit code. Bus blocking is
+the same pattern but more powerful — any registered handler can vote:
+
+```
+Current:  gate run="make check"  → exit 0 = advance, non-zero = escalate
+Future:   gate bus="OjGateCheck" → emit to bus, handlers vote, blocked = escalate
+```
+
+This enables GT to participate in gate decisions without OJ needing to know
+about GT. A bus handler can run `make check` AND check GT state AND check
+bead metadata, returning a composite decision.
+
+**3. Escalation decisions → Bus events** (integration surface)
+
+When `escalate` fires, OJ creates a `DecisionCreated` event with structured
+trigger data. Today this is only visible via `oj decision list`. If escalation
+emits to `bd bus`, GT can automatically handle common escalations.
+
+### What SHOULD Be Augmented (Bus Alongside OJ)
+
+**Agent monitoring hooks + bus events in parallel.**
+
+Every time `handle_monitor_state()` fires (monitor.rs:174), we emit a
+corresponding bus event. OJ continues executing its configured action AND
+the bus event enables external reaction:
+
+```
+Agent idle → OJ: execute on_idle action (nudge/escalate/etc)
+           → Bus: emit OjAgentIdle { job_id, agent_id, idle_duration }
+           → Bus handler: GT logs "agent idle", updates bead metadata
+
+Agent dead → OJ: execute on_dead action (resume/gate/escalate)
+           → Bus: emit OjAgentExited { job_id, agent_id, exit_code }
+           → Bus handler: GT witness marks polecat dead, checks for orphans
+```
+
+The bus events are additive — they don't interfere with OJ's action execution.
+
+### Integration Architecture: Three Layers
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 1: OBSERVE (fire-and-forget, no latency impact)       │
+│                                                             │
+│ OJ event → spawn_runtime_event_forwarder → WAL (existing)  │
+│                                         → bd bus emit (NEW) │
+│                                                             │
+│ Events: all 53 OJ event types mirrored to bus               │
+│ Latency: async, non-blocking, <1ms added to OJ hot path    │
+└─────────────────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 2: REACT (handlers fire on bus events)                │
+│                                                             │
+│ bd bus handler: OjJobCompleted → bd close <bead>            │
+│ bd bus handler: OjAgentIdle → gt witness log                │
+│ bd bus handler: OjNotify → desktop + slack + bead comment   │
+│                                                             │
+│ Replaces: DesktopNotifyAdapter (single target)              │
+│ Enables: Multi-target notifications, bead state sync        │
+└─────────────────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 3: INFLUENCE (bus blocking for decisions) [PHASE 3]   │
+│                                                             │
+│ OJ gate action → bd bus emit --hook=OjGateCheck (blocking)  │
+│ Bus handler: GT evaluates gate → returns pass/block          │
+│ OJ reads response → advance or escalate                     │
+│                                                             │
+│ Replaces: Shell-only gate validation                        │
+│ Enables: GT policy decisions in OJ workflow                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Best Interception Point in OJ
+
+The **runtime event forwarder** (`crates/daemon/src/lifecycle/mod.rs:518`) is
+the ideal tap point for Layer 1. All runtime-generated events pass through it
+before WAL persistence:
+
+```rust
+fn spawn_runtime_event_forwarder(mut rx: mpsc::Receiver<Event>, event_bus: EventBus) {
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            // ADD: async mirror to bd bus (fire-and-forget)
+            let _ = bd_tx.try_send(event.clone());
+
+            // EXISTING: forward to WAL
+            if event_bus.send(event).is_err() { ... }
+            // ... flush logic ...
+        }
+    });
+}
+```
+
+This adds zero latency to the critical path (try_send is non-blocking).
+A separate tokio task consumes from `bd_tx` and calls `bd bus emit`.
+
+For Layer 2 (NotifyAdapter replacement), the change is in executor construction
+where `DesktopNotifyAdapter` is swapped for `BusNotifyAdapter`.
+
+For Layer 3 (gate integration), the change is in `execute_action_effects()`
+where `ActionEffects::Gate { command }` currently runs a shell subprocess.
+A new `ActionEffects::BusGate { hook_type }` would emit to bus and check
+the response.
+
+### OJ Event → Bus Event Mapping (Complete)
+
+| OJ Event | Bus Hook Type | Layer | Notes |
+|-----------|---------------|-------|-------|
+| JobCreated | OjJobCreated | 1 | Includes runbook, vars, namespace |
+| JobAdvanced | OjStepAdvanced | 1 | From/to step, outcome |
+| StepCompleted | OjStepCompleted | 1 | Step name, duration |
+| StepFailed | OjStepFailed | 1 | Step name, error |
+| JobAdvanced(done) | OjJobCompleted | 1+2 | Handler: close bead |
+| JobAdvanced(failed) | OjJobFailed | 1+2 | Handler: update bead, notify |
+| JobCancel | OjJobCancelled | 1 | |
+| AgentWorking | OjAgentWorking | 1 | |
+| AgentIdle | OjAgentIdle | 1+2 | Handler: GT witness log |
+| AgentExited | OjAgentExited | 1+2 | Handler: check for orphans |
+| AgentFailed | OjAgentFailed | 1+2 | Handler: bead comment |
+| AgentPrompt | OjAgentPrompt | 1 | Prompt type, question data |
+| AgentStop | OjAgentStop | 1 | |
+| DecisionCreated | OjEscalated | 1+2 | Handler: GT auto-triage |
+| WorkerPollComplete | OjWorkerPollComplete | 1 | Queue, item count |
+| QueuePushed | OjQueuePushed | 1 | |
+| QueueTaken | OjQueueTaken | 1 | |
+| Effect::Notify | OjNotify | 2 | Replaces desktop adapter |
+| Gate check | OjGateCheck | 3 | Blocking, returns pass/fail |
+
+### What This Means for od-k3o
+
+The hook analysis refines several od-k3o tasks:
+
+- **od-k3o.6** (OJ event types): Expand from 8 to ~18 types per mapping above
+- **od-k3o.7** (OJ bus emit): Primary approach is event forwarder tap, NOT
+  new Effect variant. The forwarder approach requires no changes to OJ's
+  effect/handler system. Effect::BusEmit is only needed for Layer 3 (gate).
+- **od-k3o.8** (default handlers): Handlers for OjJobCompleted, OjJobFailed,
+  OjEscalated, OjAgentExited are the priority. OjNotify handler replaces desktop.
+- **NEW**: Need a task for BusNotifyAdapter implementation (simple, high value)
+- **NEW**: Need a task for bus-based gate action (Phase 3, medium complexity)
+
+---
+
 ## Appendix: Key Code References
 
 | System | File | Lines | What |
@@ -712,5 +943,15 @@ This enables GT to intercept OJ events and return decisions (retry, escalate, re
 | GT | `gastown/internal/cmd/sling_oj.go` | 37-102 | GT→OJ dispatch bridge |
 | GT | `gastown/internal/witness/handlers.go` | 761 | AutoNukeIfClean() |
 | GT | `gastown/internal/tui/feed/events.go` | 1-607 | GT event feed |
+| OJ | `crates/engine/src/runtime/job.rs` | 138-560 | advance_job/fail_job/cancel_job (step hooks) |
+| OJ | `crates/engine/src/runtime/monitor.rs` | 174-309 | handle_monitor_state (agent hooks) |
+| OJ | `crates/engine/src/monitor.rs` | 260-487 | Action effects + notify builder |
+| OJ | `crates/adapters/src/notify/mod.rs` | 1-34 | NotifyAdapter trait (replace target) |
+| OJ | `crates/adapters/src/notify/desktop.rs` | 1-57 | DesktopNotifyAdapter (replace with bus) |
+| OJ | `crates/engine/src/executor.rs` | 35-44 | Executor struct (holds notifier: N) |
+| OJ | `crates/engine/src/executor.rs` | 642-647 | Effect::Notify execution |
+| OJ | `crates/daemon/src/lifecycle/mod.rs` | 518-539 | Runtime event forwarder (tap point) |
+| OJ | `crates/daemon/src/lifecycle/mod.rs` | 148-173 | process_event (main event loop) |
+| OJ | `crates/runbook/src/agent.rs` | 204-587 | AgentDef + ActionConfig (hook definitions) |
 | Shared | `library/gastown/infra.hcl` | 1-73 | External queue definitions |
 | Shared | `library/gastown/sling.hcl` | 1-192 | GT-OJ sling runbook |

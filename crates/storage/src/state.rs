@@ -1201,6 +1201,7 @@ impl MaterializedState {
             | Event::AgentInput { .. }
             | Event::JobResume { .. }
             | Event::JobCancel { .. }
+            | Event::AgentRunResume { .. }
             | Event::WorkspaceDrop { .. }
             | Event::WorkerWake { .. }
             | Event::WorkerPollComplete { .. }

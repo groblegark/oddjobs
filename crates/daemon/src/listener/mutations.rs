@@ -73,6 +73,138 @@ pub(super) fn handle_status(ctx: &ListenCtx) -> Response {
     }
 }
 
+/// Handle a health request for GT doctor integration.
+///
+/// Returns structured health data with individual checks that map
+/// to GT doctor's `CheckResult` entries.
+pub(super) fn handle_health(ctx: &ListenCtx) -> Response {
+    use crate::protocol::{HealthCheck, HealthResponse, PROTOCOL_VERSION};
+
+    let uptime_secs = ctx.start_time.elapsed().as_secs();
+    let mut checks = Vec::new();
+    let mut has_warning = false;
+
+    // 1. Daemon liveness — always ok if we can respond
+    checks.push(HealthCheck {
+        name: "daemon_alive".to_string(),
+        status: "ok".to_string(),
+        message: format!("Daemon is running (uptime: {}s)", uptime_secs),
+        details: vec![],
+    });
+
+    // 2. Active jobs
+    let (jobs_active, sessions_active, escalated_count) = {
+        let state = ctx.state.lock();
+        let active = state.jobs.values().filter(|p| !p.is_terminal()).count();
+        let sessions = state.sessions.len();
+        let escalated = state
+            .jobs
+            .values()
+            .filter(|p| !p.is_terminal() && p.step_status.is_waiting())
+            .count();
+        (active, sessions, escalated)
+    };
+
+    if escalated_count > 0 {
+        has_warning = true;
+        checks.push(HealthCheck {
+            name: "escalated_jobs".to_string(),
+            status: "warning".to_string(),
+            message: format!(
+                "{} job{} escalated (waiting for human)",
+                escalated_count,
+                if escalated_count == 1 { "" } else { "s" }
+            ),
+            details: vec![],
+        });
+    }
+
+    checks.push(HealthCheck {
+        name: "jobs".to_string(),
+        status: "ok".to_string(),
+        message: format!(
+            "{} active job{}, {} session{}",
+            jobs_active,
+            if jobs_active == 1 { "" } else { "s" },
+            sessions_active,
+            if sessions_active == 1 { "" } else { "s" },
+        ),
+        details: vec![],
+    });
+
+    // 3. Orphan detection
+    let orphan_count = ctx.orphans.lock().len();
+    if orphan_count > 0 {
+        has_warning = true;
+        checks.push(HealthCheck {
+            name: "orphans".to_string(),
+            status: "warning".to_string(),
+            message: format!(
+                "{} orphaned job{} detected",
+                orphan_count,
+                if orphan_count == 1 { "" } else { "s" }
+            ),
+            details: vec!["Run `oj daemon orphans` for details".to_string()],
+        });
+    } else {
+        checks.push(HealthCheck {
+            name: "orphans".to_string(),
+            status: "ok".to_string(),
+            message: "No orphaned jobs".to_string(),
+            details: vec![],
+        });
+    }
+
+    // 4. Metrics collector health
+    {
+        let mh = ctx.metrics_health.lock();
+        if let Some(ref err) = mh.last_error {
+            has_warning = true;
+            checks.push(HealthCheck {
+                name: "metrics".to_string(),
+                status: "warning".to_string(),
+                message: "Metrics collector error".to_string(),
+                details: vec![err.clone()],
+            });
+        } else {
+            let mut details = vec![];
+            if mh.sessions_tracked > 0 {
+                details.push(format!("{} sessions tracked", mh.sessions_tracked));
+            }
+            if !mh.ghost_sessions.is_empty() {
+                has_warning = true;
+                details.push(format!("{} ghost sessions", mh.ghost_sessions.len()));
+            }
+            checks.push(HealthCheck {
+                name: "metrics".to_string(),
+                status: if mh.ghost_sessions.is_empty() {
+                    "ok"
+                } else {
+                    "warning"
+                }
+                .to_string(),
+                message: if mh.ghost_sessions.is_empty() {
+                    "Metrics collector healthy".to_string()
+                } else {
+                    format!("{} ghost session(s) detected", mh.ghost_sessions.len())
+                },
+                details,
+            });
+        }
+    }
+
+    let overall_status = if has_warning { "degraded" } else { "healthy" }.to_string();
+
+    Response::Health {
+        health: HealthResponse {
+            status: overall_status,
+            uptime_secs,
+            version: PROTOCOL_VERSION.to_string(),
+            checks,
+        },
+    }
+}
+
 /// Handle a session send request.
 pub(super) fn handle_session_send(
     ctx: &ListenCtx,

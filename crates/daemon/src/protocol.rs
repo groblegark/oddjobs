@@ -18,9 +18,9 @@ pub use query::Query;
 #[path = "protocol_status.rs"]
 mod status;
 pub use status::{
-    AgentEntry, AgentStatusEntry, CronEntry, CronSummary, JobEntry, JobStatusEntry,
-    MetricsHealthSummary, NamespaceStatus, OrphanAgent, OrphanSummary, ProjectSummary,
-    QueueItemEntry, QueueStatus, SessionEntry, WorkerEntry,
+    AgentEntry, AgentStatusEntry, CronEntry, CronSummary, HealthCheck, HealthResponse, JobEntry,
+    JobStatusEntry, MetricsHealthSummary, NamespaceStatus, OrphanAgent, OrphanSummary,
+    ProjectSummary, QueueItemEntry, QueueStatus, SessionEntry, WorkerEntry,
 };
 
 #[path = "protocol_types.rs"]
@@ -63,6 +63,9 @@ pub enum Request {
 
     /// Get daemon status
     Status,
+
+    /// Structured health check for GT doctor integration
+    Health,
 
     /// Send input to a session
     SessionSend { id: String, input: String },
@@ -448,6 +451,11 @@ pub enum Response {
         sessions_active: usize,
         #[serde(default)]
         orphan_count: usize,
+    },
+
+    /// Structured health response for GT doctor integration
+    Health {
+        health: HealthResponse,
     },
 
     /// Error response

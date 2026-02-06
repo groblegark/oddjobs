@@ -158,6 +158,36 @@ pub struct MetricsHealthSummary {
     pub ghost_sessions: Vec<String>,
 }
 
+/// Structured health response for GT doctor integration.
+///
+/// Returns an overall status plus individual health checks that map
+/// directly to GT doctor's `CheckResult` entries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HealthResponse {
+    /// Overall daemon health: "healthy", "degraded", or "unhealthy"
+    pub status: String,
+    /// Daemon uptime in seconds
+    pub uptime_secs: u64,
+    /// Daemon version string
+    pub version: String,
+    /// Individual health checks
+    pub checks: Vec<HealthCheck>,
+}
+
+/// A single health check result within the health response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HealthCheck {
+    /// Check identifier (e.g. "daemon_alive", "orphans", "metrics")
+    pub name: String,
+    /// Check status: "ok", "warning", or "error"
+    pub status: String,
+    /// Human-readable result message
+    pub message: String,
+    /// Additional details (optional)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<String>,
+}
+
 /// Summary of a project with active work
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectSummary {

@@ -143,6 +143,17 @@ impl FakeSessionAdapter {
     }
 }
 
+impl FakeSessionState {
+    /// Record a call and check that the session exists, returning NotFound if not.
+    fn record_and_check(&mut self, call: SessionCall, id: &str) -> Result<(), SessionError> {
+        self.calls.push(call);
+        if !self.sessions.contains_key(id) {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl SessionAdapter for FakeSessionAdapter {
     async fn spawn(
@@ -153,110 +164,79 @@ impl SessionAdapter for FakeSessionAdapter {
         env: &[(String, String)],
     ) -> Result<String, SessionError> {
         let mut inner = self.inner.lock();
-
         inner.next_id += 1;
         let id = format!("fake-{}", inner.next_id);
-
         inner.calls.push(SessionCall::Spawn {
             name: name.to_string(),
             cwd: cwd.to_path_buf(),
             cmd: cmd.to_string(),
             env: env.to_vec(),
         });
-
-        let session = FakeSession {
-            name: name.to_string(),
-            cwd: cwd.to_path_buf(),
-            cmd: cmd.to_string(),
-            env: env.to_vec(),
-            output: Vec::new(),
-            alive: true,
-            exit_code: None,
-            process_running: true,
-        };
-
-        inner.sessions.insert(id.clone(), session);
-
+        inner.sessions.insert(
+            id.clone(),
+            FakeSession {
+                name: name.to_string(),
+                cwd: cwd.to_path_buf(),
+                cmd: cmd.to_string(),
+                env: env.to_vec(),
+                output: Vec::new(),
+                alive: true,
+                exit_code: None,
+                process_running: true,
+            },
+        );
         Ok(id)
     }
 
     async fn send(&self, id: &str, input: &str) -> Result<(), SessionError> {
-        let mut inner = self.inner.lock();
-
-        inner.calls.push(SessionCall::Send {
-            id: id.to_string(),
-            input: input.to_string(),
-        });
-
-        if !inner.sessions.contains_key(id) {
-            return Err(SessionError::NotFound(id.to_string()));
-        }
-
-        Ok(())
+        self.inner.lock().record_and_check(
+            SessionCall::Send {
+                id: id.to_string(),
+                input: input.to_string(),
+            },
+            id,
+        )
     }
 
     async fn send_literal(&self, id: &str, text: &str) -> Result<(), SessionError> {
-        let mut inner = self.inner.lock();
-
-        inner.calls.push(SessionCall::SendLiteral {
-            id: id.to_string(),
-            text: text.to_string(),
-        });
-
-        if !inner.sessions.contains_key(id) {
-            return Err(SessionError::NotFound(id.to_string()));
-        }
-
-        Ok(())
+        self.inner.lock().record_and_check(
+            SessionCall::SendLiteral {
+                id: id.to_string(),
+                text: text.to_string(),
+            },
+            id,
+        )
     }
 
     async fn send_enter(&self, id: &str) -> Result<(), SessionError> {
-        let mut inner = self.inner.lock();
-
-        inner
-            .calls
-            .push(SessionCall::SendEnter { id: id.to_string() });
-
-        if !inner.sessions.contains_key(id) {
-            return Err(SessionError::NotFound(id.to_string()));
-        }
-
-        Ok(())
+        self.inner
+            .lock()
+            .record_and_check(SessionCall::SendEnter { id: id.to_string() }, id)
     }
 
     async fn kill(&self, id: &str) -> Result<(), SessionError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(SessionCall::Kill { id: id.to_string() });
-
         if let Some(session) = inner.sessions.get_mut(id) {
             session.alive = false;
         }
-
         Ok(())
     }
 
     async fn is_alive(&self, id: &str) -> Result<bool, SessionError> {
         let mut inner = self.inner.lock();
-
         inner
             .calls
             .push(SessionCall::IsAlive { id: id.to_string() });
-
-        match inner.sessions.get(id) {
-            Some(session) => Ok(session.alive),
-            None => Ok(false),
-        }
+        Ok(inner.sessions.get(id).map(|s| s.alive).unwrap_or(false))
     }
 
     async fn capture_output(&self, id: &str, lines: u32) -> Result<String, SessionError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(SessionCall::CaptureOutput {
             id: id.to_string(),
             lines,
         });
-
         match inner.sessions.get(id) {
             Some(session) => {
                 let start = session.output.len().saturating_sub(lines as usize);
@@ -268,40 +248,29 @@ impl SessionAdapter for FakeSessionAdapter {
 
     async fn is_process_running(&self, id: &str, pattern: &str) -> Result<bool, SessionError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(SessionCall::IsProcessRunning {
             id: id.to_string(),
             pattern: pattern.to_string(),
         });
-
-        match inner.sessions.get(id) {
-            Some(session) => Ok(session.process_running),
-            None => Ok(false),
-        }
+        Ok(inner
+            .sessions
+            .get(id)
+            .map(|s| s.process_running)
+            .unwrap_or(false))
     }
 
     async fn get_exit_code(&self, id: &str) -> Result<Option<i32>, SessionError> {
-        let inner = self.inner.lock();
-
-        match inner.sessions.get(id) {
-            Some(session) => Ok(session.exit_code),
-            None => Ok(None),
-        }
+        Ok(self.inner.lock().sessions.get(id).and_then(|s| s.exit_code))
     }
 
     async fn configure(&self, id: &str, config: &serde_json::Value) -> Result<(), SessionError> {
-        let mut inner = self.inner.lock();
-
-        inner.calls.push(SessionCall::Configure {
-            id: id.to_string(),
-            config: config.clone(),
-        });
-
-        if !inner.sessions.contains_key(id) {
-            return Err(SessionError::NotFound(id.to_string()));
-        }
-
-        Ok(())
+        self.inner.lock().record_and_check(
+            SessionCall::Configure {
+                id: id.to_string(),
+                config: config.clone(),
+            },
+            id,
+        )
     }
 }
 

@@ -30,14 +30,7 @@ pub fn extract_process_name(command: &str) -> String {
         .to_string()
 }
 
-/// Generate a friendly tmux session name from job context.
-///
-/// Format: `{job}-{step}-{random}` (oj- prefix added by TmuxAdapter)
-///
-/// Sanitizes names for tmux compatibility:
-/// - Replaces invalid characters with hyphens
-/// - Truncates to reasonable length
-/// - Adds 4-char random suffix for uniqueness
+/// Generate a friendly tmux session name: `{job}-{step}-{random}`
 fn generate_session_name(job_name: &str, step_name: &str) -> String {
     let sanitized_job = sanitize_for_tmux(job_name, 20);
     let sanitized_step = sanitize_for_tmux(step_name, 15);
@@ -46,10 +39,7 @@ fn generate_session_name(job_name: &str, step_name: &str) -> String {
     format!("{}-{}-{}", sanitized_job, sanitized_step, random_suffix)
 }
 
-/// Sanitize a string for use in tmux session names.
-///
-/// tmux session names cannot contain: colon `:`, period `.`
-/// Also replaces other problematic characters for shell friendliness.
+/// Sanitize a string for tmux session names (replace non-alphanumeric with hyphens).
 fn sanitize_for_tmux(s: &str, max_len: usize) -> String {
     let sanitized: String = s
         .chars()
@@ -83,8 +73,7 @@ fn generate_short_random(len: usize) -> String {
         .collect()
 }
 
-/// Augment a claude command to add `--allow-dangerously-skip-permissions` if
-/// `--dangerously-skip-permissions` is present but the allow flag is not.
+/// Add `--allow-dangerously-skip-permissions` if skip-permissions is present.
 fn augment_command_for_skip_permissions(command: &str) -> String {
     if command.contains("--dangerously-skip-permissions")
         && !command.contains("--allow-dangerously-skip-permissions")
@@ -95,185 +84,41 @@ fn augment_command_for_skip_permissions(command: &str) -> String {
     }
 }
 
-/// Result of checking for the bypass permissions prompt
+/// Result of polling for an interactive prompt in a session pane.
 #[derive(Debug, PartialEq)]
-enum BypassPromptResult {
-    /// Prompt detected and accepted
-    Accepted,
-    /// No prompt detected (agent started normally)
+pub(crate) enum PromptResult {
+    /// Prompt detected and handled (accepted or detected-only).
+    Handled,
+    /// No prompt detected within the polling window.
     NotPresent,
-    /// Unexpected content in the pane
+    /// Unexpected content (e.g. error output) detected in the pane.
     Unexpected(String),
 }
 
-/// Compute the number of 200ms poll attempts for prompt detection.
-///
-/// Override with `OJ_PROMPT_POLL_MS` env var (e.g. `200` for a single check).
-/// Default: 3000ms → 15 attempts.
-fn prompt_poll_max_attempts() -> usize {
-    crate::env::prompt_poll_max_attempts()
+/// Configuration for detecting and handling an interactive prompt.
+pub(crate) struct PromptCheck<'a> {
+    /// Patterns to match in pane output. Matching logic controlled by `match_any`.
+    pub detect: &'a [&'a str],
+    /// If true, any pattern triggers; if false, all patterns must be present.
+    pub match_any: bool,
+    /// Key to send when the prompt is detected (None = detect only).
+    pub response: Option<&'a str>,
+    /// Whether to treat error output as unexpected (vs. ignoring it).
+    pub check_errors: bool,
 }
 
-/// Check for and auto-accept the bypass permissions confirmation prompt.
-///
-/// Claude Code with `--dangerously-skip-permissions` shows an interactive dialog:
-/// ```text
-/// WARNING: Claude Code running in Bypass Permissions mode
-/// ...
-/// ❯ 1. No, exit
-///   2. Yes, I accept
-/// ```
-///
-/// This function detects this prompt and sends "2" to accept it.
-async fn handle_bypass_permissions_prompt<S: SessionAdapter>(
+/// Poll a session pane for an interactive prompt and optionally respond.
+pub(crate) async fn poll_for_prompt<S: SessionAdapter>(
     sessions: &S,
     session_id: &str,
     max_attempts: usize,
-) -> Result<BypassPromptResult, AgentAdapterError> {
-    // Poll for the prompt with a timeout
-    // The prompt should appear within a second or two of spawn
-    let check_interval = Duration::from_millis(200);
-
-    for attempt in 0..max_attempts {
-        // Small delay before first check to let the TUI render
-        if attempt > 0 {
-            tokio::time::sleep(check_interval).await;
-        }
-
-        // Capture the pane output
-        let output = match sessions.capture_output(session_id, 50).await {
-            Ok(out) => out,
-            Err(_) => continue, // Session might not be ready yet
-        };
-
-        // Check if we see the bypass permissions prompt
-        let has_bypass_warning = output.contains("Bypass Permissions mode");
-        let has_no_option = output.contains("1. No");
-        let has_yes_option = output.contains("2. Yes");
-
-        if has_bypass_warning && has_no_option && has_yes_option {
-            tracing::info!(
-                session_id,
-                "detected bypass permissions prompt, sending '2' to accept"
-            );
-
-            // Send "2" to select "Yes, I accept"
-            sessions
-                .send(session_id, "2")
-                .await
-                .map_err(|e| AgentAdapterError::SendFailed(e.to_string()))?;
-
-            return Ok(BypassPromptResult::Accepted);
-        }
-
-        // If we see an error, report it
-        if output.contains("Error:") || output.contains("error:") {
-            return Ok(BypassPromptResult::Unexpected(output));
-        }
-    }
-
-    // Timeout - no prompt detected, assume agent started normally
-    Ok(BypassPromptResult::NotPresent)
-}
-
-/// Result of checking for the workspace trust prompt
-#[derive(Debug, PartialEq)]
-enum WorkspaceTrustResult {
-    /// Prompt detected and accepted
-    Accepted,
-    /// No prompt detected (agent started normally)
-    NotPresent,
-    /// Unexpected content in the pane
-    Unexpected(String),
-}
-
-/// Check for and auto-accept the workspace trust prompt.
-///
-/// Claude Code shows an interactive dialog when accessing a workspace:
-/// ```text
-/// Accessing workspace:
-/// /path/to/project
-/// ...
-/// ❯ 1. Yes, I trust this folder
-///   2. No, exit
-/// ```
-///
-/// This function detects this prompt and sends "1" to trust the folder.
-async fn handle_workspace_trust_prompt<S: SessionAdapter>(
-    sessions: &S,
-    session_id: &str,
-    max_attempts: usize,
-) -> Result<WorkspaceTrustResult, AgentAdapterError> {
-    // Poll for the prompt with a timeout
-    // The prompt should appear within a second or two of spawn
-    let check_interval = Duration::from_millis(200);
-
-    for attempt in 0..max_attempts {
-        // Small delay before first check to let the TUI render
-        if attempt > 0 {
-            tokio::time::sleep(check_interval).await;
-        }
-
-        // Capture the pane output
-        let output = match sessions.capture_output(session_id, 50).await {
-            Ok(out) => out,
-            Err(_) => continue, // Session might not be ready yet
-        };
-
-        // Check if we see the workspace trust prompt
-        let has_workspace_msg = output.contains("Accessing workspace");
-        let has_yes_option = output.contains("1. Yes");
-        let has_no_option = output.contains("2. No");
-
-        if has_workspace_msg && has_yes_option && has_no_option {
-            tracing::info!(
-                session_id,
-                "detected workspace trust prompt, sending '1' to trust"
-            );
-
-            // Send "1" to select "Yes, I trust this folder"
-            sessions
-                .send(session_id, "1")
-                .await
-                .map_err(|e| AgentAdapterError::SendFailed(e.to_string()))?;
-
-            return Ok(WorkspaceTrustResult::Accepted);
-        }
-
-        // If we see an error, report it
-        if output.contains("Error:") || output.contains("error:") {
-            return Ok(WorkspaceTrustResult::Unexpected(output));
-        }
-    }
-
-    // Timeout - no prompt detected, assume agent started normally
-    Ok(WorkspaceTrustResult::NotPresent)
-}
-
-/// Result of checking for the login/onboarding prompt
-#[derive(Debug, PartialEq)]
-enum LoginPromptResult {
-    /// Login prompt detected — agent is not authenticated
-    Detected,
-    /// No login prompt detected (agent started normally)
-    NotPresent,
-}
-
-/// Check for the Claude Code login/onboarding prompt.
-///
-/// When Claude Code is not authenticated, it shows an interactive dialog asking
-/// the user to select a login method or choose text style. If detected, the
-/// agent cannot proceed and should fail with a clear error message.
-async fn handle_login_prompt<S: SessionAdapter>(
-    sessions: &S,
-    session_id: &str,
-    max_attempts: usize,
-) -> Result<LoginPromptResult, AgentAdapterError> {
-    let check_interval = Duration::from_millis(200);
+    check: &PromptCheck<'_>,
+) -> Result<PromptResult, AgentAdapterError> {
+    let interval = Duration::from_millis(200);
 
     for attempt in 0..max_attempts {
         if attempt > 0 {
-            tokio::time::sleep(check_interval).await;
+            tokio::time::sleep(interval).await;
         }
 
         let output = match sessions.capture_output(session_id, 50).await {
@@ -281,14 +126,39 @@ async fn handle_login_prompt<S: SessionAdapter>(
             Err(_) => continue,
         };
 
-        // Claude Code login flow shows "Select login method" or onboarding
-        // prompts like "Choose the text style"
-        if output.contains("Select login method") || output.contains("Choose the text style") {
-            return Ok(LoginPromptResult::Detected);
+        let matched = if check.match_any {
+            check.detect.iter().any(|p| output.contains(p))
+        } else {
+            check.detect.iter().all(|p| output.contains(p))
+        };
+        if matched {
+            if let Some(key) = check.response {
+                sessions
+                    .send(session_id, key)
+                    .await
+                    .map_err(|e| AgentAdapterError::SendFailed(e.to_string()))?;
+            }
+            return Ok(PromptResult::Handled);
+        }
+
+        if check.check_errors && (output.contains("Error:") || output.contains("error:")) {
+            return Ok(PromptResult::Unexpected(output));
         }
     }
 
-    Ok(LoginPromptResult::NotPresent)
+    Ok(PromptResult::NotPresent)
+}
+
+/// Log the result of a prompt poll for consistent tracing.
+fn log_prompt_result(agent_id: &AgentId, name: &str, result: &PromptResult) {
+    match result {
+        PromptResult::Handled => tracing::info!(%agent_id, "{} prompt accepted", name),
+        PromptResult::NotPresent => tracing::debug!(%agent_id, "no {} prompt detected", name),
+        PromptResult::Unexpected(output) => tracing::warn!(
+            %agent_id, output = %output,
+            "unexpected output while checking for {} prompt", name
+        ),
+    }
 }
 
 /// Agent adapter for Claude Code
@@ -321,6 +191,32 @@ impl<S: SessionAdapter> ClaudeAgentAdapter<S> {
     pub fn with_log_entry_tx(mut self, tx: mpsc::Sender<AgentLogMessage>) -> Self {
         self.log_entry_tx = Some(tx);
         self
+    }
+
+    /// Start a file watcher and register the agent in the agent map.
+    fn start_watcher_and_register(
+        &self,
+        config: WatcherConfig,
+        workspace_path: PathBuf,
+        event_tx: mpsc::Sender<Event>,
+    ) -> AgentHandle {
+        let agent_id = config.agent_id.clone();
+        let session_id = config.tmux_session_id.clone();
+        let shutdown_tx = start_watcher(
+            config,
+            self.sessions.clone(),
+            event_tx,
+            self.log_entry_tx.clone(),
+        );
+        self.agents.lock().insert(
+            agent_id.clone(),
+            AgentInfo {
+                session_id: session_id.clone(),
+                workspace_path: workspace_path.clone(),
+                shutdown_tx: Some(shutdown_tx),
+            },
+        );
+        AgentHandle::new(agent_id, session_id, workspace_path)
     }
 
     /// Register a fake agent for testing (bypasses spawn)
@@ -402,105 +298,26 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
             }
         }
 
-        // 5b. Handle bypass permissions prompt if present
-        if command.contains("--dangerously-skip-permissions") {
-            match handle_bypass_permissions_prompt(
-                &self.sessions,
-                &spawned_id,
-                prompt_poll_max_attempts(),
-            )
-            .await?
-            {
-                BypassPromptResult::Accepted => {
-                    tracing::info!(agent_id = %config.agent_id, "bypass permissions prompt accepted");
-                }
-                BypassPromptResult::NotPresent => {
-                    tracing::debug!(agent_id = %config.agent_id, "no bypass permissions prompt detected");
-                }
-                BypassPromptResult::Unexpected(output) => {
-                    tracing::warn!(
-                        agent_id = %config.agent_id,
-                        output = %output,
-                        "unexpected output while checking for bypass permissions prompt"
-                    );
-                    // Continue anyway - the watcher will detect if something is wrong
-                }
-            }
-        }
+        // 5b. Handle interactive startup prompts (bypass permissions, workspace trust, login)
+        handle_startup_prompts(
+            &self.sessions,
+            &spawned_id,
+            &config.agent_id,
+            command.contains("--dangerously-skip-permissions"),
+        )
+        .await?;
 
-        // 5c. Handle workspace trust prompt if present
-        match handle_workspace_trust_prompt(&self.sessions, &spawned_id, prompt_poll_max_attempts())
-            .await?
-        {
-            WorkspaceTrustResult::Accepted => {
-                tracing::info!(agent_id = %config.agent_id, "workspace trust prompt accepted");
-            }
-            WorkspaceTrustResult::NotPresent => {
-                tracing::debug!(agent_id = %config.agent_id, "no workspace trust prompt detected");
-            }
-            WorkspaceTrustResult::Unexpected(output) => {
-                tracing::warn!(
-                    agent_id = %config.agent_id,
-                    output = %output,
-                    "unexpected output while checking for workspace trust prompt"
-                );
-                // Continue anyway - the watcher will detect if something is wrong
-            }
-        }
-
-        // 5d. Check for login/onboarding prompt (agent not authenticated)
-        if let LoginPromptResult::Detected =
-            handle_login_prompt(&self.sessions, &spawned_id, prompt_poll_max_attempts()).await?
-        {
-            tracing::error!(
-                agent_id = %config.agent_id,
-                "Claude Code is not authenticated — login/onboarding prompt detected"
-            );
-            // Kill the session since the agent can't proceed
-            let _ = self.sessions.kill(&spawned_id).await;
-            return Err(AgentAdapterError::SpawnFailed(
-                "Claude Code is not authenticated. Run `claude` once manually to complete setup."
-                    .to_string(),
-            ));
-        }
-
-        // 6. Start background watcher (with optional log entry extraction)
-        // Pass agent_id (UUID) for log lookup (matches --session-id {agent_id} passed to claude)
-        // Pass spawned_id (friendly tmux name with oj- prefix) for liveness checking
+        // Start watcher and register agent
         let process_name = extract_process_name(&config.command);
         let watcher_config = WatcherConfig {
-            agent_id: config.agent_id.clone(),
             log_session_id: config.agent_id.to_string(),
-            tmux_session_id: spawned_id.clone(),
-            project_path: cwd.clone(),
+            agent_id: config.agent_id,
+            tmux_session_id: spawned_id,
+            project_path: cwd,
             process_name,
-            owner: config.owner.clone(),
+            owner: config.owner,
         };
-        let shutdown_tx = start_watcher(
-            watcher_config,
-            self.sessions.clone(),
-            event_tx,
-            self.log_entry_tx.clone(),
-        );
-
-        // 7. Store agent info (use spawned_id for session operations like kill/send)
-        {
-            let mut agents = self.agents.lock();
-            agents.insert(
-                config.agent_id.clone(),
-                AgentInfo {
-                    session_id: spawned_id.clone(),
-                    workspace_path: config.workspace_path.clone(),
-                    shutdown_tx: Some(shutdown_tx),
-                },
-            );
-        }
-
-        Ok(AgentHandle::new(
-            config.agent_id,
-            spawned_id,
-            config.workspace_path,
-        ))
+        Ok(self.start_watcher_and_register(watcher_config, config.workspace_path, event_tx))
     }
 
     async fn reconnect(
@@ -515,43 +332,15 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
             "reconnecting to existing agent session"
         );
 
-        // Start background watcher (same as spawn step 6)
-        // Use agent_id for log session ID (matches --session-id {agent_id})
-        // config.session_id is the tmux session ID (has oj- prefix)
         let watcher_config = WatcherConfig {
-            agent_id: config.agent_id.clone(),
             log_session_id: config.agent_id.to_string(),
-            tmux_session_id: config.session_id.clone(),
+            agent_id: config.agent_id,
+            tmux_session_id: config.session_id,
             project_path: config.workspace_path.clone(),
-            process_name: config.process_name.clone(),
-            owner: config.owner.clone(),
+            process_name: config.process_name,
+            owner: config.owner,
         };
-        let shutdown_tx = start_watcher(
-            watcher_config,
-            self.sessions.clone(),
-            event_tx,
-            self.log_entry_tx.clone(),
-        );
-
-        // Store agent info (same as spawn step 7)
-        let session_id = config.session_id.clone();
-        {
-            let mut agents = self.agents.lock();
-            agents.insert(
-                config.agent_id.clone(),
-                AgentInfo {
-                    session_id: config.session_id,
-                    workspace_path: config.workspace_path.clone(),
-                    shutdown_tx: Some(shutdown_tx),
-                },
-            );
-        }
-
-        Ok(AgentHandle::new(
-            config.agent_id,
-            session_id,
-            config.workspace_path,
-        ))
+        Ok(self.start_watcher_and_register(watcher_config, config.workspace_path, event_tx))
     }
 
     async fn send(&self, agent_id: &AgentId, input: &str) -> Result<(), AgentAdapterError> {
@@ -563,22 +352,15 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
                 .ok_or_else(|| AgentAdapterError::NotFound(agent_id.to_string()))?
         };
 
+        // Clear current input: Esc, pause, Esc, pause
         let key_pause = Duration::from_millis(50);
-
-        // Clear current input: Esc, pause, Esc
-        self.sessions
-            .send(&session_id, "Escape")
-            .await
-            .map_err(|e| AgentAdapterError::SendFailed(e.to_string()))?;
-
-        tokio::time::sleep(key_pause).await;
-
-        self.sessions
-            .send(&session_id, "Escape")
-            .await
-            .map_err(|e| AgentAdapterError::SendFailed(e.to_string()))?;
-
-        tokio::time::sleep(key_pause).await;
+        for _ in 0..2 {
+            self.sessions
+                .send(&session_id, "Escape")
+                .await
+                .map_err(|e| AgentAdapterError::SendFailed(e.to_string()))?;
+            tokio::time::sleep(key_pause).await;
+        }
 
         // Send literal text
         self.sessions
@@ -586,13 +368,10 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
             .await
             .map_err(|e| AgentAdapterError::SendFailed(e.to_string()))?;
 
-        // Wait for the TUI to process all characters before pressing Enter.
-        // Scale the delay with input length: the TUI re-renders per keystroke,
-        // so longer messages need more time. Base 100ms, +1ms per char, cap 2s.
+        // Scale delay with input length: TUI re-renders per keystroke
         let text_settle = Duration::from_millis((100 + input.len() as u64).min(2000));
         tokio::time::sleep(text_settle).await;
 
-        // Send Enter to submit
         self.sessions
             .send_enter(&session_id)
             .await
@@ -656,6 +435,84 @@ impl<S: SessionAdapter> AgentAdapter for ClaudeAgentAdapter<S> {
         let log_path = super::watcher::find_session_log(&workspace_path, &log_session_id)?;
         tokio::fs::metadata(&log_path).await.ok().map(|m| m.len())
     }
+}
+
+/// Check for a prompt and log the result.
+async fn check_prompt<S: SessionAdapter>(
+    sessions: &S,
+    session_id: &str,
+    agent_id: &AgentId,
+    name: &str,
+    check: &PromptCheck<'_>,
+) -> Result<PromptResult, AgentAdapterError> {
+    let r = poll_for_prompt(
+        sessions,
+        session_id,
+        crate::env::prompt_poll_max_attempts(),
+        check,
+    )
+    .await?;
+    log_prompt_result(agent_id, name, &r);
+    Ok(r)
+}
+
+/// Handle interactive startup prompts: bypass permissions, workspace trust, login.
+async fn handle_startup_prompts<S: SessionAdapter>(
+    sessions: &S,
+    session_id: &str,
+    agent_id: &AgentId,
+    has_skip_permissions: bool,
+) -> Result<(), AgentAdapterError> {
+    if has_skip_permissions {
+        check_prompt(
+            sessions,
+            session_id,
+            agent_id,
+            "bypass permissions",
+            &PromptCheck {
+                detect: &["Bypass Permissions mode", "1. No", "2. Yes"],
+                match_any: false,
+                response: Some("2"),
+                check_errors: true,
+            },
+        )
+        .await?;
+    }
+    check_prompt(
+        sessions,
+        session_id,
+        agent_id,
+        "workspace trust",
+        &PromptCheck {
+            detect: &["Accessing workspace", "1. Yes", "2. No"],
+            match_any: false,
+            response: Some("1"),
+            check_errors: true,
+        },
+    )
+    .await?;
+    let r = check_prompt(
+        sessions,
+        session_id,
+        agent_id,
+        "login",
+        &PromptCheck {
+            detect: &["Select login method", "Choose the text style"],
+            match_any: true,
+            response: None,
+            check_errors: false,
+        },
+    )
+    .await?;
+    if r == PromptResult::Handled {
+        tracing::error!(%agent_id, "Claude Code is not authenticated — login/onboarding prompt detected");
+        let _ = sessions.kill(session_id).await;
+        return Err(AgentAdapterError::SpawnFailed(
+            "Claude Code is not authenticated. Run `claude` once manually to complete setup."
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Prepare workspace for agent execution

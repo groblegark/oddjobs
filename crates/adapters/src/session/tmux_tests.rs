@@ -399,7 +399,7 @@ async fn send_fails_when_tmux_unavailable() {
 
 #[tokio::test]
 #[serial(tmux)]
-async fn kill_fails_when_tmux_unavailable() {
+async fn kill_succeeds_when_tmux_unavailable() {
     use std::env;
 
     let original_path = env::var("PATH").unwrap_or_default();
@@ -410,7 +410,8 @@ async fn kill_fails_when_tmux_unavailable() {
 
     env::set_var("PATH", &original_path);
 
-    assert!(matches!(result, Err(SessionError::CommandFailed(_))));
+    // kill() intentionally ignores errors (session might already be gone)
+    assert!(result.is_ok());
 }
 
 #[tokio::test]

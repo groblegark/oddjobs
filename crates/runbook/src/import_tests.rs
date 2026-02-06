@@ -528,6 +528,23 @@ fn const_directive_whitespace_strip() {
     assert_eq!(result, "before\nincluded\nafter\n");
 }
 
+#[yare::parameterized(
+    eq_match    = { "hello", "==", "hello", "yes\n" },
+    eq_mismatch = { "hello", "==", "world", "" },
+    ne_match    = { "hello", "!=", "world", "yes\n" },
+    ne_mismatch = { "hello", "!=", "hello", "" },
+    ne_default  = { "true",  "!=", "true",  "" },
+    ne_custom   = { "make",  "!=", "true",  "yes\n" },
+)]
+fn const_directive_comparison(value: &str, op: &str, literal: &str, expected: &str) {
+    let values: HashMap<String, String> = [("x".to_string(), value.to_string())]
+        .into_iter()
+        .collect();
+    let input = format!("%{{ if const.x {op} \"{literal}\" }}\nyes\n%{{ endif }}\n");
+    let result = interpolate_consts(&input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
 // =============================================================================
 // imported command description tests
 // =============================================================================

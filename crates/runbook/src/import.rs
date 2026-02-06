@@ -108,10 +108,18 @@ impl std::fmt::Display for ImportWarning {
 // =============================================================================
 
 /// Regex for `%{ if const.name }` directives.
+///
+/// Supports:
+/// - `%{ if const.name }`        — truthy (non-empty)
+/// - `%{ if !const.name }`       — falsy (empty or missing)
+/// - `%{ if const.name == "x" }` — equality
+/// - `%{ if const.name != "x" }` — inequality
 #[allow(clippy::expect_used)]
 static IF_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"%\{~?\s*if\s+(!?)const\.([a-zA-Z_][a-zA-Z0-9_]*)\s*~?\}")
-        .expect("constant regex pattern is valid")
+    Regex::new(
+        r#"%\{~?\s*if\s+(!?)const\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*(==|!=)\s*"([^"]*)")?\s*~?\}"#,
+    )
+    .expect("constant regex pattern is valid")
 });
 
 /// Regex for `%{ else }` directives.
@@ -128,8 +136,10 @@ static ENDIF_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Process `%{ if const.name }` / `%{ else }` / `%{ endif }` directives.
 ///
-/// Evaluates conditionals based on const truthiness (non-empty value).
-/// Supports `!` negation, `%{ else }` branches, and nesting.
+/// Evaluates conditionals based on const values. Supports:
+/// - Truthiness: `%{ if const.name }` / `%{ if !const.name }`
+/// - Comparison: `%{ if const.name == "value" }` / `%{ if const.name != "value" }`
+/// - `%{ else }` branches and nesting
 fn process_const_directives(
     content: &str,
     values: &HashMap<String, String>,
@@ -142,11 +152,19 @@ fn process_const_directives(
         if let Some(caps) = IF_DIRECTIVE.captures(line) {
             let negated = &caps[1] == "!";
             let name = &caps[2];
-            let truthy = values
-                .get(name)
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            let condition = if negated { !truthy } else { truthy };
+            let value = values.get(name).map(|v| v.as_str()).unwrap_or("");
+            let condition = match (caps.get(3), caps.get(4)) {
+                // Comparison: const.name == "x" or const.name != "x"
+                (Some(op), Some(literal)) => {
+                    let matches = value == literal.as_str();
+                    if op.as_str() == "==" { matches } else { !matches }
+                }
+                // Truthiness: non-empty = true
+                _ => {
+                    let truthy = !value.is_empty();
+                    if negated { !truthy } else { truthy }
+                }
+            };
             // Only active if parent is active (or we're at top level)
             let parent_active = stack.last().is_none_or(|&(a, _)| a);
             stack.push((parent_active && condition, false));

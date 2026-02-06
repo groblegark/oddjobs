@@ -95,6 +95,7 @@ agent "bugs" {
   run      = "claude --model opus --dangerously-skip-permissions --disallowed-tools ExitPlanMode,EnterPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
+%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
@@ -105,6 +106,12 @@ agent "bugs" {
       Then commit your changes.
     MSG
   }
+%{ else }
+  on_idle {
+    action  = "nudge"
+    message = "Keep working. Fix the bug, write tests, then commit your changes."
+  }
+%{ endif }
 
   session "tmux" {
     color = "blue"
@@ -126,13 +133,17 @@ agent "bugs" {
     2. Find the relevant code
     3. Implement a fix
     4. Write or update tests
-    5. Verify:
-       ```
-       ${raw(const.check)}
-       ```
+%{ if const.check != "true" }
+    5. Verify: `${raw(const.check)}`
     6. Commit your changes
     7. Mark the issue as done: `wok done ${var.bug.id}`
 
     If the bug is already fixed (e.g. by a prior commit), skip to step 7.
+%{ else }
+    5. Commit your changes
+    6. Mark the issue as done: `wok done ${var.bug.id}`
+
+    If the bug is already fixed (e.g. by a prior commit), skip to step 6.
+%{ endif }
   PROMPT
 }

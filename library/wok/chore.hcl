@@ -85,6 +85,7 @@ agent "chores" {
   run      = "claude --model opus --dangerously-skip-permissions --disallowed-tools ExitPlanMode,EnterPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
+%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
@@ -95,6 +96,12 @@ agent "chores" {
       Then commit your changes.
     MSG
   }
+%{ else }
+  on_idle {
+    action  = "nudge"
+    message = "Keep working. Complete the task, write tests, then commit your changes."
+  }
+%{ endif }
 
   session "tmux" {
     color = "blue"
@@ -116,13 +123,17 @@ agent "chores" {
     2. Find the relevant code
     3. Implement the changes
     4. Write or update tests
-    5. Verify:
-       ```
-       ${raw(const.check)}
-       ```
+%{ if const.check != "true" }
+    5. Verify: `${raw(const.check)}`
     6. Commit your changes
     7. Mark the issue as done: `wok done ${var.task.id}`
 
     If the task is already completed (e.g. by a prior commit), skip to step 7.
+%{ else }
+    5. Commit your changes
+    6. Mark the issue as done: `wok done ${var.task.id}`
+
+    If the task is already completed (e.g. by a prior commit), skip to step 6.
+%{ endif }
   PROMPT
 }

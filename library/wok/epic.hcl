@@ -299,6 +299,7 @@ agent "implement" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
+%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
@@ -309,6 +310,12 @@ agent "implement" {
       Then commit your changes.
     MSG
   }
+%{ else }
+  on_idle {
+    action  = "nudge"
+    message = "Follow the plan, implement, test, then commit your changes."
+  }
+%{ endif }
 
   session "tmux" {
     color = "blue"
@@ -328,11 +335,12 @@ agent "implement" {
 
     1. Follow the plan
     2. Implement
-    3. Verify:
-       ```
-       ${raw(const.check)}
-       ```
+%{ if const.check != "true" }
+    3. Verify: `${raw(const.check)}`
     4. Commit
+%{ else }
+    3. Commit
+%{ endif }
     5. Run: `wok done ${var.epic.id}`
   PROMPT
 }
@@ -341,6 +349,7 @@ agent "draft" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
+%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
@@ -351,6 +360,12 @@ agent "draft" {
       Then commit your changes.
     MSG
   }
+%{ else }
+  on_idle {
+    action  = "nudge"
+    message = "Follow the plan, implement, test, then commit your changes."
+  }
+%{ endif }
 
   session "tmux" {
     color = "blue"
@@ -370,11 +385,12 @@ agent "draft" {
 
     1. Follow the plan
     2. Implement
-    3. Verify:
-       ```
-       ${raw(const.check)}
-       ```
+%{ if const.check != "true" }
+    3. Verify: `${raw(const.check)}`
     4. Commit
+%{ else }
+    3. Commit
+%{ endif }
     5. Run: `wok done ${var.epic.id}`
   PROMPT
 }

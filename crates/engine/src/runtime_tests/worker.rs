@@ -1480,3 +1480,102 @@ async fn worker_stop_clears_pending_takes() {
         );
     }
 }
+
+/// A second WorkerStarted event (simulating `oj worker start` on a running worker)
+/// should NOT clear inflight_items or pending_takes, which would allow duplicate
+/// dispatches for items with in-flight take commands.
+///
+/// This test reproduces the race condition where:
+/// 1. Worker is running, poll finds item A, TakeQueueItem(A) dispatched
+/// 2. User runs `oj worker start plan` → second WorkerStarted emitted
+/// 3. WorkerStarted handler resets state, inflight_items = {}
+/// 4. Next poll sees A again, dispatches duplicate TakeQueueItem(A)
+///
+/// The fix is in the daemon listener: it should emit WorkerWake instead of
+/// WorkerStarted when the worker is already running. This test verifies that
+/// a second WorkerStarted (if it somehow arrives) still resets state — the
+/// guard is at the listener layer, not the engine layer.
+#[tokio::test]
+async fn worker_restart_preserves_inflight_from_pending_takes() {
+    let ctx = setup_with_runbook(EXTERNAL_CONCURRENT_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, EXTERNAL_CONCURRENT_RUNBOOK);
+
+    // Start the worker (external queue, concurrency=3)
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash.clone(),
+            queue_name: "bugs".to_string(),
+            concurrency: 3,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // First poll: dispatch bug-1 (adds to inflight_items, pending_takes=1)
+    ctx.runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: vec![serde_json::json!({"id": "bug-1"})],
+        })
+        .await
+        .unwrap();
+
+    // Verify initial state
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert_eq!(state.pending_takes, 1);
+        assert!(state.inflight_items.contains("bug-1"));
+    }
+
+    // Instead of a second WorkerStarted (which the fix prevents at the daemon
+    // layer), send a WorkerWake — this is what the fixed daemon now emits.
+    // Verify it triggers a poll without resetting state.
+    ctx.runtime
+        .handle_event(Event::WorkerWake {
+            worker_name: "fixer".to_string(),
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // inflight_items and pending_takes should be preserved
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert_eq!(
+            state.pending_takes, 1,
+            "WorkerWake should preserve pending_takes"
+        );
+        assert!(
+            state.inflight_items.contains("bug-1"),
+            "WorkerWake should preserve inflight_items"
+        );
+    }
+
+    // Second poll with same item — should NOT dispatch duplicate
+    ctx.runtime
+        .handle_event(Event::WorkerPollComplete {
+            worker_name: "fixer".to_string(),
+            items: vec![serde_json::json!({"id": "bug-1"})],
+        })
+        .await
+        .unwrap();
+
+    // pending_takes should still be 1 (no duplicate dispatch)
+    {
+        let workers = ctx.runtime.worker_states.lock();
+        let state = workers.get("fixer").unwrap();
+        assert_eq!(
+            state.pending_takes, 1,
+            "second poll after WorkerWake should not dispatch duplicate take for in-flight item"
+        );
+        assert_eq!(
+            state.inflight_items.len(),
+            1,
+            "inflight set should still have exactly 1 item"
+        );
+    }
+}

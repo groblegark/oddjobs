@@ -20,9 +20,11 @@ use super::ConnectionError;
 
 /// Handle a WorkerStart request.
 ///
-/// Idempotent: always emits `WorkerStarted`. The runtime's `handle_worker_started`
-/// overwrites any existing in-memory state, so repeated starts are safe and also
-/// serve as a wake (triggering an initial poll).
+/// If the worker is already running, emits `WorkerWake` instead of `WorkerStarted`
+/// to trigger a re-poll without resetting in-memory state (which would clear
+/// `inflight_items` and cause duplicate dispatches for external queues).
+///
+/// For new or stopped workers, emits `WorkerStarted` as before.
 pub(super) fn handle_worker_start(
     project_root: &Path,
     namespace: &str,
@@ -83,6 +85,29 @@ pub(super) fn handle_worker_start(
                 "worker '{}' references unknown job '{}'",
                 worker_name, worker_def.handler.job
             ),
+        });
+    }
+
+    // If the worker is already running, emit WorkerWake instead of WorkerStarted
+    // to trigger a re-poll without resetting in-memory state.
+    let scoped = oj_core::scoped_name(namespace, worker_name);
+    let already_running = state
+        .lock()
+        .workers
+        .get(&scoped)
+        .map(|w| w.status == "running")
+        .unwrap_or(false);
+
+    if already_running {
+        emit(
+            event_bus,
+            Event::WorkerWake {
+                worker_name: worker_name.to_string(),
+                namespace: namespace.to_string(),
+            },
+        )?;
+        return Ok(Response::WorkerStarted {
+            worker_name: worker_name.to_string(),
         });
     }
 

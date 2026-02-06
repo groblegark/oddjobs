@@ -1,7 +1,7 @@
 # Wok-based issue queues: fix bugs and complete chores.
 #
 # Consts:
-#   prefix - wok label prefix (required)
+#   prefix - wok issue prefix (required)
 #   check  - verification command (default: "true")
 
 const "prefix" {}
@@ -11,7 +11,7 @@ const "check" { default = "true" }
 command "fix" {
   args = "<description>"
   run  = <<-SHELL
-    wok new bug "${args.description}" -l ${const.prefix}
+    wok new bug "${args.description}" -p ${const.prefix}
     oj worker start bug
   SHELL
 }
@@ -20,7 +20,7 @@ command "fix" {
 command "chore" {
   args = "<description>"
   run  = <<-SHELL
-    wok new chore "${args.description}" -l ${const.prefix}
+    wok new chore "${args.description}" -p ${const.prefix}
     oj worker start chore
   SHELL
 }

@@ -70,7 +70,7 @@ job "bug" {
         branch="${workspace.branch}" title="${local.title}"
         git push origin "$branch"
         wok done ${var.bug.id}
-        %{ if const.submit }
+        %{ if const.submit != "" }
         ${raw(const.submit)}
         %{ endif }
       elif wok show ${var.bug.id} -o json | grep -q '"status":"done"'; then
@@ -95,23 +95,20 @@ agent "bugs" {
   run      = "claude --model opus --dangerously-skip-permissions --disallowed-tools ExitPlanMode,EnterPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
-%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
+%{ if const.check != "true" }
       Keep working. Fix the bug, write tests, verify with:
       ```
       ${raw(const.check)}
       ```
       Then commit your changes.
+%{ else }
+      Keep working. Fix the bug, write tests, then commit your changes.
+%{ endif }
     MSG
   }
-%{ else }
-  on_idle {
-    action  = "nudge"
-    message = "Keep working. Fix the bug, write tests, then commit your changes."
-  }
-%{ endif }
 
   session "tmux" {
     color = "blue"

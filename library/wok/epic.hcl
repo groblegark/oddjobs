@@ -1,3 +1,14 @@
+# Wok-based issue queues for bugs, chores, and epics.
+#
+# Consts:
+#   prefix - wok issue prefix (required)
+#   check  - verification command (default: "true")
+#   submit - post-push command (default: none)
+
+const "prefix" {}
+const "check"  { default = "true" }
+const "submit" { default = "" }
+
 # Plan and implement large 'epic' wok issues.
 #
 # Creates an epic issue, then workers handle planning and implementation:
@@ -187,7 +198,7 @@ job "epic" {
         branch="${workspace.branch}" title="${local.title}"
         git push origin "$branch"
         wok done ${var.epic.id}
-        %{ if const.submit }
+        %{ if const.submit != "" }
         ${raw(const.submit)}
         %{ endif }
       else
@@ -299,23 +310,20 @@ agent "implement" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
-%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
+%{ if const.check != "true" }
       Follow the plan, implement, test, then verify with:
       ```
       ${raw(const.check)}
       ```
       Then commit your changes.
+%{ else }
+      Follow the plan, implement, test, then commit your changes.
+%{ endif }
     MSG
   }
-%{ else }
-  on_idle {
-    action  = "nudge"
-    message = "Follow the plan, implement, test, then commit your changes."
-  }
-%{ endif }
 
   session "tmux" {
     color = "blue"
@@ -349,23 +357,20 @@ agent "draft" {
   run     = "claude --model opus --dangerously-skip-permissions --disallowed-tools EnterPlanMode,ExitPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
-%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
+%{ if const.check != "true" }
       Follow the plan, implement, test, then verify with:
       ```
       ${raw(const.check)}
       ```
       Then commit your changes.
+%{ else }
+      Follow the plan, implement, test, then commit your changes.
+%{ endif }
     MSG
   }
-%{ else }
-  on_idle {
-    action  = "nudge"
-    message = "Follow the plan, implement, test, then commit your changes."
-  }
-%{ endif }
 
   session "tmux" {
     color = "blue"

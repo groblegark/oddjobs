@@ -369,10 +369,7 @@ fn parse_import_missing_required_const() {
 "#;
     let err = parse_with_imports(content, Format::Hcl).unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("missing required const"),
-        "got: {msg}"
-    );
+    assert!(msg.contains("missing required const"), "got: {msg}");
 }
 
 // =============================================================================
@@ -444,55 +441,21 @@ command "test" {
 // =============================================================================
 
 #[yare::parameterized(
-    truthy  = { "oj run merge", "before\noj run merge\nafter\n" },
-    falsy   = { "",             "before\nafter\n" },
-)]
-fn const_directive_if(value: &str, expected: &str) {
-    let values: HashMap<String, String> = [("submit".to_string(), value.to_string())]
-        .into_iter()
-        .collect();
-    let input = "before\n%{ if const.submit }\n${raw(const.submit)}\n%{ endif }\nafter\n";
-    let result = interpolate_consts(input, &values).unwrap();
-    assert_eq!(result, expected);
-}
-
-#[test]
-fn const_directive_if_missing() {
-    let values: HashMap<String, String> = HashMap::new();
-    let input = "before\n%{ if const.submit }\nincluded\n%{ endif }\nafter\n";
-    let result = interpolate_consts(input, &values).unwrap();
-    assert_eq!(result, "before\nafter\n");
-}
-
-#[yare::parameterized(
-    falsy  = { "",    "no\n" },
-    truthy = { "cmd", "yes\n" },
+    empty     = { "",    "no\n" },
+    non_empty = { "cmd", "yes\n" },
 )]
 fn const_directive_if_else(value: &str, expected: &str) {
     let values: HashMap<String, String> = [("submit".to_string(), value.to_string())]
         .into_iter()
         .collect();
-    let input = "%{ if const.submit }\nyes\n%{ else }\nno\n%{ endif }\n";
-    let result = interpolate_consts(input, &values).unwrap();
-    assert_eq!(result, expected);
-}
-
-#[yare::parameterized(
-    falsy  = { "",    "skipped\n" },
-    truthy = { "cmd", "" },
-)]
-fn const_directive_negation(value: &str, expected: &str) {
-    let values: HashMap<String, String> = [("submit".to_string(), value.to_string())]
-        .into_iter()
-        .collect();
-    let input = "%{ if !const.submit }\nskipped\n%{ endif }\n";
+    let input = "%{ if const.submit != \"\" }\nyes\n%{ else }\nno\n%{ endif }\n";
     let result = interpolate_consts(input, &values).unwrap();
     assert_eq!(result, expected);
 }
 
 #[yare::parameterized(
     both_true   = { "yes", "also", "outer\ninner\n" },
-    outer_false = { "",    "yes",  "" },
+    outer_false = { "no",  "also", "" },
 )]
 fn const_directive_nested(outer: &str, inner: &str, expected: &str) {
     let values: HashMap<String, String> = [
@@ -501,29 +464,27 @@ fn const_directive_nested(outer: &str, inner: &str, expected: &str) {
     ]
     .into_iter()
     .collect();
-    let input = "%{ if const.outer }\nouter\n%{ if const.inner }\ninner\n%{ endif }\n%{ endif }\n";
+    let input = "%{ if const.outer == \"yes\" }\nouter\n%{ if const.inner == \"also\" }\ninner\n%{ endif }\n%{ endif }\n";
     let result = interpolate_consts(input, &values).unwrap();
     assert_eq!(result, expected);
 }
 
 #[yare::parameterized(
     unmatched_endif = { "before\n%{ endif }\nafter\n", "endif without matching if" },
-    unclosed_if     = { "%{ if const.x }\nhello\n",    "unclosed if directive" },
+    unclosed_if     = { "%{ if const.x != \"\" }\nhello\n", "unclosed if directive" },
 )]
 fn const_directive_error(input: &str, expected_err: &str) {
-    let values: HashMap<String, String> = [("x".to_string(), "y".to_string())]
-        .into_iter()
-        .collect();
+    let values: HashMap<String, String> =
+        [("x".to_string(), "y".to_string())].into_iter().collect();
     let result = interpolate_consts(input, &values);
     assert_eq!(result.unwrap_err(), expected_err);
 }
 
 #[test]
 fn const_directive_whitespace_strip() {
-    let values: HashMap<String, String> = [("x".to_string(), "val".to_string())]
-        .into_iter()
-        .collect();
-    let input = "before\n%{~ if const.x ~}\nincluded\n%{~ endif ~}\nafter\n";
+    let values: HashMap<String, String> =
+        [("x".to_string(), "val".to_string())].into_iter().collect();
+    let input = "before\n%{~ if const.x != \"\" ~}\nincluded\n%{~ endif ~}\nafter\n";
     let result = interpolate_consts(input, &values).unwrap();
     assert_eq!(result, "before\nincluded\nafter\n");
 }
@@ -537,9 +498,8 @@ fn const_directive_whitespace_strip() {
     ne_custom   = { "make",  "!=", "true",  "yes\n" },
 )]
 fn const_directive_comparison(value: &str, op: &str, literal: &str, expected: &str) {
-    let values: HashMap<String, String> = [("x".to_string(), value.to_string())]
-        .into_iter()
-        .collect();
+    let values: HashMap<String, String> =
+        [("x".to_string(), value.to_string())].into_iter().collect();
     let input = format!("%{{ if const.x {op} \"{literal}\" }}\nyes\n%{{ endif }}\n");
     let result = interpolate_consts(&input, &values).unwrap();
     assert_eq!(result, expected);
@@ -637,4 +597,46 @@ fn parse_import_oj_wok_with_submit() {
     assert!(runbook.jobs.contains_key("bug"), "missing 'bug' job");
     assert!(runbook.jobs.contains_key("chore"), "missing 'chore' job");
     assert!(runbook.jobs.contains_key("epic"), "missing 'epic' job");
+}
+
+// =============================================================================
+// ConstDef equality tests
+// =============================================================================
+
+#[test]
+fn const_def_equal_same_default() {
+    let a = ConstDef {
+        default: Some("true".to_string()),
+    };
+    let b = ConstDef {
+        default: Some("true".to_string()),
+    };
+    assert_eq!(a, b);
+}
+
+#[test]
+fn const_def_not_equal_different_default() {
+    let a = ConstDef {
+        default: Some("true".to_string()),
+    };
+    let b = ConstDef {
+        default: Some("false".to_string()),
+    };
+    assert_ne!(a, b);
+}
+
+#[test]
+fn const_def_not_equal_none_vs_some() {
+    let a = ConstDef { default: None };
+    let b = ConstDef {
+        default: Some("true".to_string()),
+    };
+    assert_ne!(a, b);
+}
+
+#[test]
+fn const_def_equal_both_none() {
+    let a = ConstDef { default: None };
+    let b = ConstDef { default: None };
+    assert_eq!(a, b);
 }

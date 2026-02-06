@@ -28,7 +28,7 @@ use std::sync::LazyLock;
 /// const "prefix" {}                    # required, no default
 /// const "check" { default = "true" }   # optional, has default
 /// ```
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct ConstDef {
     #[serde(default)]
     pub default: Option<String>,
@@ -107,37 +107,30 @@ impl std::fmt::Display for ImportWarning {
 // Const interpolation
 // =============================================================================
 
-/// Regex for `%{ if const.name }` directives.
+/// Regex for `%{ if const.name == "x" }` directives.
 ///
 /// Supports:
-/// - `%{ if const.name }`        — truthy (non-empty)
-/// - `%{ if !const.name }`       — falsy (empty or missing)
 /// - `%{ if const.name == "x" }` — equality
 /// - `%{ if const.name != "x" }` — inequality
 #[allow(clippy::expect_used)]
 static IF_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"%\{~?\s*if\s+(!?)const\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*(==|!=)\s*"([^"]*)")?\s*~?\}"#,
-    )
-    .expect("constant regex pattern is valid")
+    Regex::new(r#"%\{~?\s*if\s+const\.([a-zA-Z_][a-zA-Z0-9_]*)\s*(==|!=)\s*"([^"]*)"\s*~?\}"#)
+        .expect("constant regex pattern is valid")
 });
 
 /// Regex for `%{ else }` directives.
 #[allow(clippy::expect_used)]
-static ELSE_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"%\{~?\s*else\s*~?\}").expect("constant regex pattern is valid")
-});
+static ELSE_DIRECTIVE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"%\{~?\s*else\s*~?\}").expect("constant regex pattern is valid"));
 
 /// Regex for `%{ endif }` directives.
 #[allow(clippy::expect_used)]
-static ENDIF_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"%\{~?\s*endif\s*~?\}").expect("constant regex pattern is valid")
-});
+static ENDIF_DIRECTIVE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"%\{~?\s*endif\s*~?\}").expect("constant regex pattern is valid"));
 
-/// Process `%{ if const.name }` / `%{ else }` / `%{ endif }` directives.
+/// Process `%{ if const.name == "x" }` / `%{ else }` / `%{ endif }` directives.
 ///
 /// Evaluates conditionals based on const values. Supports:
-/// - Truthiness: `%{ if const.name }` / `%{ if !const.name }`
 /// - Comparison: `%{ if const.name == "value" }` / `%{ if const.name != "value" }`
 /// - `%{ else }` branches and nesting
 fn process_const_directives(
@@ -150,19 +143,16 @@ fn process_const_directives(
 
     for line in content.split('\n') {
         if let Some(caps) = IF_DIRECTIVE.captures(line) {
-            let negated = &caps[1] == "!";
-            let name = &caps[2];
+            let name = &caps[1];
+            let op = &caps[2];
+            let literal = &caps[3];
             let value = values.get(name).map(|v| v.as_str()).unwrap_or("");
-            let condition = match (caps.get(3), caps.get(4)) {
-                // Comparison: const.name == "x" or const.name != "x"
-                (Some(op), Some(literal)) => {
-                    let matches = value == literal.as_str();
-                    if op.as_str() == "==" { matches } else { !matches }
-                }
-                // Truthiness: non-empty = true
-                _ => {
-                    let truthy = !value.is_empty();
-                    if negated { !truthy } else { truthy }
+            let condition = {
+                let matches = value == literal;
+                if op == "==" {
+                    matches
+                } else {
+                    !matches
                 }
             };
             // Only active if parent is active (or we're at top level)
@@ -620,23 +610,26 @@ pub fn parse_with_imports(
         for (filename, content) in library_files {
             // Strip directives before parsing to avoid shell validation errors
             // on template content (const defs are never inside conditional blocks)
-            let stripped =
-                process_const_directives(content, &empty_values).map_err(|msg| {
-                    ParseError::InvalidFormat {
-                        location: format!("import \"{}/{}\"", source, filename),
-                        message: msg,
-                    }
-                })?;
+            let stripped = process_const_directives(content, &empty_values).map_err(|msg| {
+                ParseError::InvalidFormat {
+                    location: format!("import \"{}/{}\"", source, filename),
+                    message: msg,
+                }
+            })?;
             let file_meta = crate::parser::parse_runbook_no_xref(&stripped, Format::Hcl)?;
             for (name, def) in file_meta.consts {
-                if let Some(_existing) = all_const_defs.insert(name.clone(), def) {
-                    return Err(ParseError::InvalidFormat {
-                        location: format!("import \"{}\"", source),
-                        message: format!(
-                            "duplicate const '{}' in library file '{}'",
-                            name, filename
-                        ),
-                    });
+                if let Some(existing) = all_const_defs.get(&name) {
+                    if *existing != def {
+                        return Err(ParseError::InvalidFormat {
+                            location: format!("import \"{}\"", source),
+                            message: format!(
+                                "conflicting const '{}' in library file '{}'",
+                                name, filename
+                            ),
+                        });
+                    }
+                } else {
+                    all_const_defs.insert(name, def);
                 }
             }
         }
@@ -649,13 +642,12 @@ pub fn parse_with_imports(
         // Parse each file, interpolate consts, and merge into a single library runbook
         let mut lib_runbook = Runbook::default();
         for (filename, content) in library_files {
-            let interpolated =
-                interpolate_consts(content, &const_values).map_err(|msg| {
-                    ParseError::InvalidFormat {
-                        location: format!("import \"{}/{}\"", source, filename),
-                        message: msg,
-                    }
-                })?;
+            let interpolated = interpolate_consts(content, &const_values).map_err(|msg| {
+                ParseError::InvalidFormat {
+                    location: format!("import \"{}/{}\"", source, filename),
+                    message: msg,
+                }
+            })?;
             let mut file_runbook =
                 crate::parser::parse_runbook_with_format(&interpolated, Format::Hcl)?;
             file_runbook.consts.clear();

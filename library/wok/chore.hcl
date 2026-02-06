@@ -1,3 +1,14 @@
+# Wok-based issue queues for bugs, chores, and epics.
+#
+# Consts:
+#   prefix - wok issue prefix (required)
+#   check  - verification command (default: "true")
+#   submit - post-push command (default: none)
+
+const "prefix" {}
+const "check"  { default = "true" }
+const "submit" { default = "" }
+
 # File a wok chore and dispatch it to a worker.
 #
 # Examples:
@@ -60,7 +71,7 @@ job "chore" {
         branch="${workspace.branch}" title="${local.title}"
         git push origin "$branch"
         wok done ${var.task.id}
-        %{ if const.submit }
+        %{ if const.submit != "" }
         ${raw(const.submit)}
         %{ endif }
       elif wok show ${var.task.id} -o json | grep -q '"status":"done"'; then
@@ -85,23 +96,20 @@ agent "chores" {
   run      = "claude --model opus --dangerously-skip-permissions --disallowed-tools ExitPlanMode,EnterPlanMode"
   on_dead = { action = "gate", run = "${raw(const.check)}" }
 
-%{ if const.check != "true" }
   on_idle {
     action  = "nudge"
     message = <<-MSG
+%{ if const.check != "true" }
       Keep working. Complete the task, write tests, verify with:
       ```
       ${raw(const.check)}
       ```
       Then commit your changes.
+%{ else }
+      Keep working. Complete the task, write tests, then commit your changes.
+%{ endif }
     MSG
   }
-%{ else }
-  on_idle {
-    action  = "nudge"
-    message = "Keep working. Complete the task, write tests, then commit your changes."
-  }
-%{ endif }
 
   session "tmux" {
     color = "blue"

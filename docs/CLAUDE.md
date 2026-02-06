@@ -10,6 +10,7 @@ docs/
 │
 ├── interface/                # User-facing
 │   ├── CLI.md                # Commands and environment variables
+│   ├── DECISIONS.md          # Human-in-the-loop decisions
 │   ├── EVENTS.md             # Event types and subscriptions
 │   └── DESKTOP.md            # Desktop notifications and integration
 │

@@ -73,8 +73,14 @@ command "build" {
 
 Invoked: `oj run build auth "Add authentication"`
 
+Command fields:
+- **args**: Argument specification (see [Argument Syntax](#argument-syntax) below)
+- **defaults**: Default values for arguments
+- **run**: What to execute (see below)
+
 The `run` field specifies what to execute:
 - Job: `run = { job = "build" }`
+- Agent: `run = { agent = "planner" }` (optionally `run = { agent = "planner", attach = true }` to auto-attach to the tmux session)
 - Shell: `run = "echo hello"`
 
 Commands also support a `defaults` map for default argument values:
@@ -214,6 +220,7 @@ The step `run` field specifies what to execute:
 Step transitions use structured references:
 - `on_done = { step = "next" }` -- next step on success
 - `on_fail = { step = "recover" }` -- step to go to on failure
+- `on_cancel = { step = "cleanup" }` -- step to route to when job is cancelled during this step
 
 If `on_done` is omitted, the job completes when the step succeeds. Steps without `on_fail` propagate failures up to the job level.
 
@@ -250,21 +257,26 @@ Agent fields:
 - **prompt_file**: Path to file containing prompt template (alternative to `prompt`)
 - **env**: Map of environment variables to set
 - **cwd**: Working directory (supports template interpolation)
-- **prime**: Shell commands to run at session start for context injection (string or array)
+- **prime**: Shell commands to run at session start for context injection (string, array, or per-source map — see [Prime](#prime-context-injection) below)
 - **on_idle**: What to do when agent is waiting for input after a 60-second grace period (default: `"escalate"`)
 - **on_dead**: What to do when agent process exits (default: `"escalate"`)
+- **on_prompt**: What to do when agent shows a permission/approval prompt (default: `"escalate"`)
 - **on_stop**: What to do when agent tries to exit via Stop hook (default: `"signal"` for job, `"escalate"` for standalone)
 - **on_error**: What to do on API errors (default: `"escalate"`)
+- **max_concurrency**: Maximum concurrent instances of this agent (default: unlimited)
+- **notify**: Desktop notification templates for agent lifecycle (`on_start`, `on_done`, `on_fail`)
+- **session**: Adapter-specific session configuration (see [Session Configuration](#session-configuration) below)
 
 Valid actions per trigger:
 - **on_idle**: `nudge`, `done`, `fail`, `escalate`, `gate`
-- **on_dead**: `done`, `recover`, `fail`, `escalate`, `gate`
+- **on_dead**: `done`, `resume`, `fail`, `escalate`, `gate`
+- **on_prompt**: `done`, `fail`, `escalate`, `gate`
 - **on_stop**: `signal`, `idle`, `escalate`
-- **on_error**: `fail`, `escalate`, `gate`
+- **on_error**: `fail`, `resume`, `escalate`, `gate`
 
 Action options:
-- **message**: Text for nudge (sent to session) or recover (modifies prompt)
-- **append**: For recover -- `true` appends message to prompt, `false` (default) replaces it
+- **message**: Text for nudge (sent to session) or resume (modifies prompt)
+- **append**: For resume -- `true` appends message to prompt, `false` (default) replaces it
 - **run**: For gate -- shell command to run; exit 0 advances, non-zero escalates
 - **attempts**: How many times to fire (default: 1; use `"forever"` for unlimited)
 - **cooldown**: Delay between attempts (e.g., `"30s"`, `"5m"`)
@@ -311,6 +323,21 @@ agent "bugfixer" {
 }
 ```
 
+**Per-source form** — different scripts for different session lifecycle events:
+
+```hcl
+agent "worker" {
+  prime = {
+    startup = "echo 'Fresh session'; git status"
+    resume  = "echo 'Resumed session'; git diff --stat"
+    clear   = "echo 'Context cleared'; wok show ${var.issue}"
+    compact = "echo 'Context compacted'; wok show ${var.issue}"
+  }
+}
+```
+
+Valid sources: `startup`, `resume`, `clear`, `compact`. Each source value can be a script string or array of commands.
+
 Template variables (`${var.*}`, `${workspace}`, etc.) are interpolated before
 the script is written. The prime script runs via a Claude Code `SessionStart`
 hook, so its output appears as initial context in the agent's conversation.
@@ -334,7 +361,29 @@ The parser validates `agent.*.run` at parse time by extracting the first command
 Additional parse-time checks:
 - **`--session-id` rejection**: The system adds `--session-id` automatically; including it in the run command is an error.
 - **Positional argument rejection**: When `prompt` or `prompt_file` is configured, positional arguments in the run command are rejected (since the system appends the prompt).
-- **Action-trigger compatibility**: Each action is validated against its trigger context (e.g. `recover` is invalid for `on_idle`; `nudge` is invalid for `on_dead`).
+- **Action-trigger compatibility**: Each action is validated against its trigger context (e.g. `resume` is invalid for `on_idle`; `nudge` is invalid for `on_dead`).
+
+### Session Configuration
+
+The `session` block configures adapter-specific session settings. Currently supports tmux:
+
+```hcl
+agent "worker" {
+  session "tmux" {
+    color = "blue"
+    title = "Worker: ${var.name}"
+    status {
+      left  = "job:${var.name}"
+      right = "queue:bugs"
+    }
+  }
+}
+```
+
+- **color**: Status bar color (`red`, `green`, `blue`, `cyan`, `magenta`, `yellow`, `white`)
+- **title**: Window title template
+- **status.left**: Left status bar template
+- **status.right**: Right status bar template
 
 ## Queue
 
@@ -395,6 +444,7 @@ queue "bugs" {
 
 - **list**: Shell command that returns a JSON array of items
 - **take**: Shell command to claim an item (supports `${item.*}` interpolation)
+- **poll**: Poll interval (e.g., `"30s"`, `"5m"`) — when set, workers periodically check the queue at this interval
 
 ## Worker
 
@@ -453,7 +503,7 @@ Agent lifecycle actions handle different states:
 | `nudge` | Send message prompting agent to continue |
 | `done` | Treat as success, advance job |
 | `fail` | Mark job as failed |
-| `recover` | Re-spawn agent with modified prompt |
+| `resume` | Re-spawn agent with `--resume`, preserving conversation history |
 | `escalate` | Alert for human intervention |
 | `gate` | Run a shell command; advance if exit 0, escalate otherwise |
 

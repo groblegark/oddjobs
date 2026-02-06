@@ -113,6 +113,15 @@ Applied via `MaterializedState::apply_event()` to update in-memory state. All ev
 
 Queue events track the lifecycle of items in persisted queues. `queue:pushed` triggers a `worker:wake` for any worker watching the queue. The full item lifecycle is event-sourced: pushed → taken → completed/failed/dead. When a queue has retry configuration, failed items are automatically retried after a cooldown period. Items that exhaust their retry attempts transition to `dead` via `queue:item_dead`. Dead or failed items can be manually resurrected via `queue:item_retry`.
 
+### Decision lifecycle
+
+| Type tag | Variant | Fields |
+|----------|---------|--------|
+| `decision:created` | DecisionCreated | `id`, `job_id`, `agent_id?`, `owner`, `source`, `context`, `options[]`, `created_at_ms`, `namespace` |
+| `decision:resolved` | DecisionResolved | `id`, `chosen?`, `message?`, `resolved_at_ms`, `namespace` |
+
+`decision:created` puts the owning job's step into `Waiting(decision_id)`. `decision:resolved` updates the decision record and emits a mapped action event (`job:resume`, `job:cancel`, `step:completed`, or `session:input`). See [DECISIONS.md](DECISIONS.md) for sources, option mapping, and lifecycle.
+
 ## Action Events
 
 Action events trigger runtime operations. They are emitted **externally by the CLI or agents** and handled by the runtime. They do not mutate `MaterializedState`:

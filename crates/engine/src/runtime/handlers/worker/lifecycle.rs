@@ -107,9 +107,12 @@ where
             ),
         );
 
-        // Reconcile: release queue items whose jobs are already terminal.
+        // Reconcile: release active jobs that already reached terminal state.
         // This handles the case where the daemon crashed after a job completed
-        // but before the QueueCompleted/QueueFailed event was persisted.
+        // but before the worker slot was freed. Runs for all queue types.
+        self.reconcile_active_jobs(worker_name).await?;
+
+        // Reconcile persisted queue items: track untracked jobs and fail orphaned items.
         if queue_type == QueueType::Persisted {
             self.reconcile_queue_items(worker_name, namespace, &runbook)
                 .await?;
@@ -223,22 +226,14 @@ where
         Ok(vec![])
     }
 
-    /// Reconcile queue items after daemon recovery.
+    /// Reconcile active jobs after daemon recovery.
     ///
-    /// Handles three cases:
-    /// 1. Active jobs that already reached terminal state — calls
-    ///    `check_worker_job_complete` to emit the missing queue events.
-    /// 2. Active queue items with a running job not tracked by worker —
-    ///    adds the job to worker's active list.
-    /// 3. Active queue items with no corresponding job (pruned/lost) —
-    ///    fails them with retry-or-dead logic.
-    async fn reconcile_queue_items(
-        &self,
-        worker_name: &str,
-        namespace: &str,
-        runbook: &oj_runbook::Runbook,
-    ) -> Result<(), RuntimeError> {
-        // 1. Release queue items whose jobs are already terminal
+    /// Checks if any jobs in the worker's active set have already reached
+    /// terminal state, and calls `check_worker_job_complete` to emit the
+    /// missing queue events and free the worker slot.
+    ///
+    /// Runs for ALL queue types (external and persisted).
+    async fn reconcile_active_jobs(&self, worker_name: &str) -> Result<(), RuntimeError> {
         let active_pids: Vec<JobId> = {
             let workers = self.worker_states.lock();
             workers
@@ -264,12 +259,28 @@ where
                 worker = worker_name,
                 job = pid.as_str(),
                 step = terminal_step.as_str(),
-                "reconciling terminal job for queue item"
+                "reconciling terminal job for worker slot"
             );
             let _ = self.check_worker_job_complete(&pid, &terminal_step).await;
         }
 
-        // 2. Find and track active queue items with running jobs not in worker's active list
+        Ok(())
+    }
+
+    /// Reconcile queue items after daemon recovery.
+    ///
+    /// Handles two cases:
+    /// 1. Active queue items with a running job not tracked by worker —
+    ///    adds the job to worker's active list.
+    /// 2. Active queue items with no corresponding job (pruned/lost) —
+    ///    fails them with retry-or-dead logic.
+    async fn reconcile_queue_items(
+        &self,
+        worker_name: &str,
+        namespace: &str,
+        runbook: &oj_runbook::Runbook,
+    ) -> Result<(), RuntimeError> {
+        // 1. Find and track active queue items with running jobs not in worker's active list
         let queue_name = {
             let workers = self.worker_states.lock();
             workers
@@ -350,7 +361,7 @@ where
                 .await?;
         }
 
-        // 3. Fail active queue items with no corresponding job
+        // 2. Fail active queue items with no corresponding job
         // Re-fetch mapped_item_ids after adding untracked jobs
         let mapped_item_ids: HashSet<String> = {
             let workers = self.worker_states.lock();

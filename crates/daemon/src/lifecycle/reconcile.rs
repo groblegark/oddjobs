@@ -284,7 +284,14 @@ pub(crate) async fn reconcile_state(ctx: &ReconcileCtx) {
 
         // Determine the tmux session ID
         let Some(session_id) = &job.session_id else {
-            warn!(job_id = %job.id, "no session_id, skipping");
+            warn!(job_id = %job.id, "no session_id, marking failed");
+            let _ = ctx
+                .event_tx
+                .send(Event::JobAdvanced {
+                    id: JobId::new(job.id.clone()),
+                    step: "failed".to_string(),
+                })
+                .await;
             continue;
         };
 
@@ -344,8 +351,15 @@ pub(crate) async fn reconcile_state(ctx: &ReconcileCtx) {
                 let Some(ref aid) = agent_id_str else {
                     warn!(
                         job_id = %job.id,
-                        "no agent_id in step_history, cannot route exit event"
+                        "no agent_id in step_history, marking failed"
                     );
+                    let _ = ctx
+                        .event_tx
+                        .send(Event::JobAdvanced {
+                            id: JobId::new(job.id.clone()),
+                            step: "failed".to_string(),
+                        })
+                        .await;
                     continue;
                 };
                 info!(
@@ -372,8 +386,15 @@ pub(crate) async fn reconcile_state(ctx: &ReconcileCtx) {
             let Some(ref aid) = agent_id_str else {
                 warn!(
                     job_id = %job.id,
-                    "no agent_id in step_history, cannot route gone event"
+                    "no agent_id in step_history, marking failed"
                 );
+                let _ = ctx
+                    .event_tx
+                    .send(Event::JobAdvanced {
+                        id: JobId::new(job.id.clone()),
+                        step: "failed".to_string(),
+                    })
+                    .await;
                 continue;
             };
             info!(

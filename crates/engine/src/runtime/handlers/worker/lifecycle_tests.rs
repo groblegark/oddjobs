@@ -1117,3 +1117,83 @@ async fn reconcile_respects_namespace_scoping() {
         "orphaned namespaced item should go Dead"
     );
 }
+
+// ============================================================================
+// reconcile_active_jobs tests (runs for all queue types)
+// ============================================================================
+
+#[tokio::test]
+async fn reconcile_external_queue_terminal_job_releases_slot() {
+    // External queue workers should also reconcile terminal jobs in their
+    // active set after daemon restart. Previously only persisted queues
+    // ran this reconciliation, so external queue workers accumulated
+    // zombie jobs that consumed no slots but were never cleaned up.
+    let ctx = setup_with_runbook(EXTERNAL_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, EXTERNAL_RUNBOOK);
+
+    // Pre-populate state as if daemon restarted with an active external queue job
+    // that already reached terminal state (done).
+    ctx.runtime.lock_state_mut(|state| {
+        state.apply_event(&Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash.clone(),
+            queue_name: "bugs".to_string(),
+            concurrency: 2,
+            namespace: String::new(),
+        });
+        // Simulate a dispatched job with an item.id var
+        state.apply_event(&Event::WorkerItemDispatched {
+            worker_name: "fixer".to_string(),
+            item_id: "ext-item-done".to_string(),
+            job_id: JobId::new("pipe-done"),
+            namespace: String::new(),
+        });
+        // Job created and already at terminal step
+        state.apply_event(&Event::JobCreated {
+            id: JobId::new("pipe-done"),
+            kind: "build".to_string(),
+            name: "terminal-job".to_string(),
+            runbook_hash: hash.clone(),
+            cwd: ctx.project_root.clone(),
+            vars: {
+                let mut m = HashMap::new();
+                m.insert("item.id".to_string(), "ext-item-done".to_string());
+                m
+            },
+            initial_step: "init".to_string(),
+            created_at_epoch_ms: 1000,
+            namespace: String::new(),
+            cron_name: None,
+        });
+        state.apply_event(&Event::JobAdvanced {
+            id: JobId::new("pipe-done"),
+            step: "done".to_string(),
+        });
+    });
+
+    // Restart the worker — reconcile_active_jobs should detect the terminal job
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash,
+            queue_name: "bugs".to_string(),
+            concurrency: 2,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // After reconciliation, the terminal job should be removed from active_jobs
+    let workers = ctx.runtime.worker_states.lock();
+    let state = workers.get("fixer").unwrap();
+    assert!(
+        !state.active_jobs.contains(&JobId::new("pipe-done")),
+        "terminal job should be removed from active_jobs after reconciliation"
+    );
+    assert!(
+        !state.item_job_map.contains_key(&JobId::new("pipe-done")),
+        "terminal job should be removed from item_job_map after reconciliation"
+    );
+}

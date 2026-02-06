@@ -559,6 +559,7 @@ This research builds on:
 
 - **od-vq6** (Integration Hardening) -- 6 tactical fixes for immediate safety
 - **od-ki9** (Convergence Deduplication) -- 10 tasks to eliminate duplication
+- **od-k3o** (BD Bus Maturation) -- 9 tasks to mature bd bus for OJ integration
 
 The proposals here are *strategic* -- they define the target architecture that the
 tactical work is moving toward:
@@ -566,8 +567,36 @@ tactical work is moving toward:
 ```
 od-vq6 (safety fixes)     → Prevent immediate harm
 od-ki9 (deduplication)     → Remove redundancy
+od-k3o (bus maturation)    → Build the integration surface
 od-ki9 deep integration    → Define target architecture  ← THIS DOC
 ```
+
+### od-k3o: BD Bus Maturation for OJ Integration
+
+**Epic:** od-k3o | **Priority:** P1 | **Children:** 9 tasks
+
+The bus assessment (2026-02-06) found a two-tier implementation: jasper and
+refinery/rig have full bus support (RPC handlers, concrete handlers, daemon
+registration, 19 tests). All other beads have protocol stubs only.
+
+| # | Task | Priority | What |
+|---|------|----------|------|
+| od-k3o.1 | Enable NATS JetStream by default | P1 | Remove BD_NATS_ENABLED gate, connect NATS to dispatch |
+| od-k3o.2 | Handler persistence | P2 | Survive daemon restarts |
+| od-k3o.3 | Cross-bead rollout | P2 | server_bus.go + handlers in all beads |
+| od-k3o.4 | Custom handler registration API | P1 | `bd bus register` for external process handlers |
+| od-k3o.5 | Unit + integration tests | P1 | NATS, persistence, blocking, concurrency, benchmarks |
+| od-k3o.6 | OJ-specific event types | P2 | OjJobCreated, OjStepAdvanced, etc. in type registry |
+| od-k3o.7 | OJ bus emit implementation | P2 | Effect::BusEmit or subprocess calls in OJ runtime |
+| od-k3o.8 | Default OJ event handlers | P2 | Bead sync on job complete/fail/escalate |
+| od-k3o.9 | Latency benchmarks | P3 | <50ms target for emit-to-handler |
+
+**Execution order:** k3o.1 + k3o.4 + k3o.5 first (bus infrastructure), then
+k3o.6 + k3o.7 + k3o.8 (OJ integration), then k3o.2 + k3o.3 + k3o.9 (hardening).
+
+**Predecessor:** bd-66fp "Event Bus Rollout" epic (CLOSED, assigned to
+beads/polecats/onyx). Work described in bd-66fp phases 1-3 appears complete
+in jasper/refinery but not rolled out. Open convoy: hq-cv-5vrii.
 
 ---
 

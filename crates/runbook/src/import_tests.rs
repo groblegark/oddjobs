@@ -13,7 +13,7 @@ fn interpolate_const_value() {
     let values: HashMap<String, String> = [("prefix".to_string(), "oj".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values);
+    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values).unwrap();
     assert_eq!(result, "wok ready -p oj -o json");
 }
 
@@ -22,7 +22,7 @@ fn interpolate_const_shell_escapes() {
     let values: HashMap<String, String> = [("prefix".to_string(), "my$project".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values);
+    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values).unwrap();
     assert_eq!(result, "wok ready -p my\\$project -o json");
 }
 
@@ -31,7 +31,7 @@ fn interpolate_raw_const() {
     let values: HashMap<String, String> = [("check".to_string(), "make check".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("run = \"${raw(const.check)}\"", &values);
+    let result = interpolate_consts("run = \"${raw(const.check)}\"", &values).unwrap();
     assert_eq!(result, "run = \"make check\"");
 }
 
@@ -40,14 +40,14 @@ fn interpolate_raw_const_not_escaped() {
     let values: HashMap<String, String> = [("check".to_string(), "echo $HOME".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("${raw(const.check)}", &values);
+    let result = interpolate_consts("${raw(const.check)}", &values).unwrap();
     assert_eq!(result, "echo $HOME");
 }
 
 #[test]
 fn interpolate_unknown_const_left_alone() {
     let values: HashMap<String, String> = HashMap::new();
-    let result = interpolate_consts("${const.unknown}", &values);
+    let result = interpolate_consts("${const.unknown}", &values).unwrap();
     assert_eq!(result, "${const.unknown}");
 }
 
@@ -229,7 +229,6 @@ fn merge_with_alias_prefixes_names() {
 fn parse_import_oj_wok() {
     let content = r#"import "oj/wok" {
   const "prefix" { value = "oj" }
-  const "submit" { value = "echo done" }
 }
 "#;
     let (runbook, warnings) = parse_with_imports(content, Format::Hcl).unwrap();
@@ -290,7 +289,6 @@ fn parse_import_oj_wok_with_alias() {
     let content = r#"import "oj/wok" {
   alias = "wok"
   const "prefix" { value = "oj" }
-  const "submit" { value = "echo done" }
 }
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
@@ -356,7 +354,6 @@ fn parse_import_with_custom_check() {
     let content = r#"import "oj/wok" {
   const "prefix" { value = "oj" }
   const "check" { value = "make check" }
-  const "submit" { value = "echo done" }
 }
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
@@ -410,9 +407,17 @@ fn available_libraries_have_descriptions() {
 #[test]
 fn available_libraries_parse_successfully() {
     let libs = available_libraries();
+    let empty_values = HashMap::new();
     for lib in &libs {
         for (filename, content) in lib.files {
-            crate::parser::parse_runbook_no_xref(content, Format::Hcl).unwrap_or_else(|e| {
+            // Strip const directives before parsing (templates may contain %{ if } blocks)
+            let processed = interpolate_consts(content, &empty_values).unwrap_or_else(|e| {
+                panic!(
+                    "failed to process directives in library '{}' file '{}': {}",
+                    lib.source, filename, e
+                );
+            });
+            crate::parser::parse_runbook_no_xref(&processed, Format::Hcl).unwrap_or_else(|e| {
                 panic!(
                     "failed to parse library '{}' file '{}': {}",
                     lib.source, filename, e
@@ -432,4 +437,187 @@ command "test" {
     let (runbook, warnings) = parse_with_imports(content, Format::Hcl).unwrap();
     assert!(warnings.is_empty());
     assert!(runbook.commands.contains_key("test"));
+}
+
+// =============================================================================
+// const directive tests
+// =============================================================================
+
+#[yare::parameterized(
+    truthy  = { "oj run merge", "before\noj run merge\nafter\n" },
+    falsy   = { "",             "before\nafter\n" },
+)]
+fn const_directive_if(value: &str, expected: &str) {
+    let values: HashMap<String, String> = [("submit".to_string(), value.to_string())]
+        .into_iter()
+        .collect();
+    let input = "before\n%{ if const.submit }\n${raw(const.submit)}\n%{ endif }\nafter\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn const_directive_if_missing() {
+    let values: HashMap<String, String> = HashMap::new();
+    let input = "before\n%{ if const.submit }\nincluded\n%{ endif }\nafter\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, "before\nafter\n");
+}
+
+#[yare::parameterized(
+    falsy  = { "",    "no\n" },
+    truthy = { "cmd", "yes\n" },
+)]
+fn const_directive_if_else(value: &str, expected: &str) {
+    let values: HashMap<String, String> = [("submit".to_string(), value.to_string())]
+        .into_iter()
+        .collect();
+    let input = "%{ if const.submit }\nyes\n%{ else }\nno\n%{ endif }\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[yare::parameterized(
+    falsy  = { "",    "skipped\n" },
+    truthy = { "cmd", "" },
+)]
+fn const_directive_negation(value: &str, expected: &str) {
+    let values: HashMap<String, String> = [("submit".to_string(), value.to_string())]
+        .into_iter()
+        .collect();
+    let input = "%{ if !const.submit }\nskipped\n%{ endif }\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[yare::parameterized(
+    both_true   = { "yes", "also", "outer\ninner\n" },
+    outer_false = { "",    "yes",  "" },
+)]
+fn const_directive_nested(outer: &str, inner: &str, expected: &str) {
+    let values: HashMap<String, String> = [
+        ("outer".to_string(), outer.to_string()),
+        ("inner".to_string(), inner.to_string()),
+    ]
+    .into_iter()
+    .collect();
+    let input = "%{ if const.outer }\nouter\n%{ if const.inner }\ninner\n%{ endif }\n%{ endif }\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[yare::parameterized(
+    unmatched_endif = { "before\n%{ endif }\nafter\n", "endif without matching if" },
+    unclosed_if     = { "%{ if const.x }\nhello\n",    "unclosed if directive" },
+)]
+fn const_directive_error(input: &str, expected_err: &str) {
+    let values: HashMap<String, String> = [("x".to_string(), "y".to_string())]
+        .into_iter()
+        .collect();
+    let result = interpolate_consts(input, &values);
+    assert_eq!(result.unwrap_err(), expected_err);
+}
+
+#[test]
+fn const_directive_whitespace_strip() {
+    let values: HashMap<String, String> = [("x".to_string(), "val".to_string())]
+        .into_iter()
+        .collect();
+    let input = "before\n%{~ if const.x ~}\nincluded\n%{~ endif ~}\nafter\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, "before\nincluded\nafter\n");
+}
+
+// =============================================================================
+// imported command description tests
+// =============================================================================
+
+#[test]
+fn imported_commands_get_descriptions_from_doc_comments() {
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+
+    // Each imported command should have a description from its library doc comment
+    let fix = runbook.commands.get("fix").unwrap();
+    assert_eq!(
+        fix.description.as_deref(),
+        Some("File a wok bug and dispatch it to a fix worker."),
+    );
+
+    let chore = runbook.commands.get("chore").unwrap();
+    assert_eq!(
+        chore.description.as_deref(),
+        Some("File a wok chore and dispatch it to a worker."),
+    );
+
+    let epic = runbook.commands.get("epic").unwrap();
+    assert!(
+        epic.description.is_some(),
+        "epic command should have a description"
+    );
+
+    let idea = runbook.commands.get("idea").unwrap();
+    assert_eq!(
+        idea.description.as_deref(),
+        Some("Create a new wok epic with 'plan:needed' only."),
+    );
+}
+
+#[test]
+fn imported_commands_with_alias_get_descriptions() {
+    let content = r#"import "oj/git" {
+  alias = "git"
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+
+    let merge = runbook.commands.get("git:merge").unwrap();
+    assert_eq!(
+        merge.description.as_deref(),
+        Some("Queue a branch for the local merge queue."),
+    );
+}
+
+#[test]
+fn explicit_description_not_overridden_by_import() {
+    // Commands with explicit description fields should keep them
+    let content = r#"import "oj/git" {}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+    let merge = runbook.commands.get("merge").unwrap();
+    // Should have the doc comment description, not None
+    assert!(
+        merge.description.is_some(),
+        "merge should have description from doc comment"
+    );
+}
+
+#[test]
+fn parse_import_oj_wok_without_submit() {
+    // submit defaults to empty, conditional blocks should be stripped
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+    // Should still parse successfully with all entities
+    assert!(runbook.jobs.contains_key("bug"), "missing 'bug' job");
+    assert!(runbook.jobs.contains_key("chore"), "missing 'chore' job");
+    assert!(runbook.jobs.contains_key("epic"), "missing 'epic' job");
+}
+
+#[test]
+fn parse_import_oj_wok_with_submit() {
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+  const "submit" { value = "oj run merge \"$branch\" \"$title\"" }
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+    assert!(runbook.jobs.contains_key("bug"), "missing 'bug' job");
+    assert!(runbook.jobs.contains_key("chore"), "missing 'chore' job");
+    assert!(runbook.jobs.contains_key("epic"), "missing 'epic' job");
 }

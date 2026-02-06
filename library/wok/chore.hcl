@@ -60,7 +60,9 @@ job "chore" {
         branch="${workspace.branch}" title="${local.title}"
         git push origin "$branch"
         wok done ${var.task.id}
+        %{ if const.submit }
         ${raw(const.submit)}
+        %{ endif }
       elif wok show ${var.task.id} -o json | grep -q '"status":"done"'; then
         echo "Issue already resolved, no changes needed"
       else

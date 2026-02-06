@@ -187,7 +187,9 @@ job "epic" {
         branch="${workspace.branch}" title="${local.title}"
         git push origin "$branch"
         wok done ${var.epic.id}
+        %{ if const.submit }
         ${raw(const.submit)}
+        %{ endif }
       else
         echo "No changes" >&2
         exit 1

@@ -3,11 +3,11 @@
 # Consts:
 #   prefix - wok issue prefix (required)
 #   check  - verification command (default: "true")
-#   submit - post-push command (default: queue to oj/git merge queue)
+#   submit - post-push command (default: none)
 
 const "prefix" {}
 const "check"  { default = "true" }
-const "submit" {}
+const "submit" { default = "" }
 
 # File a wok bug and dispatch it to a fix worker.
 #
@@ -70,7 +70,9 @@ job "bug" {
         branch="${workspace.branch}" title="${local.title}"
         git push origin "$branch"
         wok done ${var.bug.id}
+        %{ if const.submit }
         ${raw(const.submit)}
+        %{ endif }
       elif wok show ${var.bug.id} -o json | grep -q '"status":"done"'; then
         echo "Issue already resolved, no changes needed"
       else

@@ -107,6 +107,89 @@ impl std::fmt::Display for ImportWarning {
 // Const interpolation
 // =============================================================================
 
+/// Regex for `%{ if const.name }` directives.
+#[allow(clippy::expect_used)]
+static IF_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"%\{~?\s*if\s+(!?)const\.([a-zA-Z_][a-zA-Z0-9_]*)\s*~?\}")
+        .expect("constant regex pattern is valid")
+});
+
+/// Regex for `%{ else }` directives.
+#[allow(clippy::expect_used)]
+static ELSE_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"%\{~?\s*else\s*~?\}").expect("constant regex pattern is valid")
+});
+
+/// Regex for `%{ endif }` directives.
+#[allow(clippy::expect_used)]
+static ENDIF_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"%\{~?\s*endif\s*~?\}").expect("constant regex pattern is valid")
+});
+
+/// Process `%{ if const.name }` / `%{ else }` / `%{ endif }` directives.
+///
+/// Evaluates conditionals based on const truthiness (non-empty value).
+/// Supports `!` negation, `%{ else }` branches, and nesting.
+fn process_const_directives(
+    content: &str,
+    values: &HashMap<String, String>,
+) -> Result<String, String> {
+    let mut kept_lines: Vec<&str> = Vec::new();
+    // Stack of (active, else_seen) — active means we're emitting lines
+    let mut stack: Vec<(bool, bool)> = Vec::new();
+
+    for line in content.split('\n') {
+        if let Some(caps) = IF_DIRECTIVE.captures(line) {
+            let negated = &caps[1] == "!";
+            let name = &caps[2];
+            let truthy = values
+                .get(name)
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            let condition = if negated { !truthy } else { truthy };
+            // Only active if parent is active (or we're at top level)
+            let parent_active = stack.last().is_none_or(|&(a, _)| a);
+            stack.push((parent_active && condition, false));
+            continue;
+        }
+
+        if ELSE_DIRECTIVE.is_match(line) {
+            let len = stack.len();
+            if len == 0 {
+                return Err("else without matching if".to_string());
+            }
+            if stack[len - 1].1 {
+                return Err("duplicate else".to_string());
+            }
+            stack[len - 1].1 = true;
+            let parent_active = if len > 1 { stack[len - 2].0 } else { true };
+            // Flip: if parent is active, toggle current; if parent inactive, stay inactive
+            stack[len - 1].0 = parent_active && !stack[len - 1].0;
+            continue;
+        }
+
+        if ENDIF_DIRECTIVE.is_match(line) {
+            if stack.is_empty() {
+                return Err("endif without matching if".to_string());
+            }
+            stack.pop();
+            continue;
+        }
+
+        // Keep line if all levels are active
+        let active = stack.last().is_none_or(|&(a, _)| a);
+        if active {
+            kept_lines.push(line);
+        }
+    }
+
+    if !stack.is_empty() {
+        return Err("unclosed if directive".to_string());
+    }
+
+    Ok(kept_lines.join("\n"))
+}
+
 /// Regex for `${raw(const.name)}` patterns.
 #[allow(clippy::expect_used)]
 static RAW_CONST_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
@@ -122,12 +205,17 @@ static CONST_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Interpolate const values into library content.
 ///
-/// - `${const.name}` → shell-escaped value (safe for data)
-/// - `${raw(const.name)}` → raw value (for command templates)
-pub fn interpolate_consts(content: &str, values: &HashMap<String, String>) -> String {
-    // First, replace ${raw(const.name)} with raw values
+/// 1. Evaluate `%{ if/else/endif }` directives — strip or keep text blocks
+/// 2. Substitute `${raw(const.name)}` and `${const.name}` in remaining text
+pub fn interpolate_consts(
+    content: &str,
+    values: &HashMap<String, String>,
+) -> Result<String, String> {
+    let content = process_const_directives(content, values)?;
+
+    // Replace ${raw(const.name)} with raw values
     let result = RAW_CONST_PATTERN
-        .replace_all(content, |caps: &regex::Captures| {
+        .replace_all(&content, |caps: &regex::Captures| {
             let name = &caps[1];
             values
                 .get(name)
@@ -136,8 +224,8 @@ pub fn interpolate_consts(content: &str, values: &HashMap<String, String>) -> St
         })
         .to_string();
 
-    // Then, replace ${const.name} with shell-escaped values
-    CONST_PATTERN
+    // Replace ${const.name} with shell-escaped values
+    Ok(CONST_PATTERN
         .replace_all(&result, |caps: &regex::Captures| {
             let name = &caps[1];
             match values.get(name) {
@@ -145,7 +233,7 @@ pub fn interpolate_consts(content: &str, values: &HashMap<String, String>) -> St
                 None => caps[0].to_string(),
             }
         })
-        .to_string()
+        .to_string())
 }
 
 /// Validate const values against const definitions.
@@ -510,8 +598,18 @@ pub fn parse_with_imports(
 
         // Collect const definitions from all files in the library
         let mut all_const_defs: HashMap<String, ConstDef> = HashMap::new();
+        let empty_values = HashMap::new();
         for (filename, content) in library_files {
-            let file_meta = crate::parser::parse_runbook_no_xref(content, Format::Hcl)?;
+            // Strip directives before parsing to avoid shell validation errors
+            // on template content (const defs are never inside conditional blocks)
+            let stripped =
+                process_const_directives(content, &empty_values).map_err(|msg| {
+                    ParseError::InvalidFormat {
+                        location: format!("import \"{}/{}\"", source, filename),
+                        message: msg,
+                    }
+                })?;
+            let file_meta = crate::parser::parse_runbook_no_xref(&stripped, Format::Hcl)?;
             for (name, def) in file_meta.consts {
                 if let Some(_existing) = all_const_defs.insert(name.clone(), def) {
                     return Err(ParseError::InvalidFormat {
@@ -533,11 +631,38 @@ pub fn parse_with_imports(
         // Parse each file, interpolate consts, and merge into a single library runbook
         let mut lib_runbook = Runbook::default();
         for (filename, content) in library_files {
-            let interpolated = interpolate_consts(content, &const_values);
+            let interpolated =
+                interpolate_consts(content, &const_values).map_err(|msg| {
+                    ParseError::InvalidFormat {
+                        location: format!("import \"{}/{}\"", source, filename),
+                        message: msg,
+                    }
+                })?;
             let mut file_runbook =
                 crate::parser::parse_runbook_with_format(&interpolated, Format::Hcl)?;
             file_runbook.consts.clear();
             file_runbook.imports.clear();
+
+            // Populate command descriptions from library source doc comments
+            let block_comments = crate::find::extract_block_comments(content);
+            let file_comment = extract_file_comment(content);
+            for (name, cmd) in file_runbook.commands.iter_mut() {
+                if cmd.description.is_none() {
+                    let comment = block_comments.get(name).or(file_comment.as_ref());
+                    if let Some(comment) = comment {
+                        let desc_line = comment
+                            .short
+                            .lines()
+                            .nth(1)
+                            .or_else(|| comment.short.lines().next())
+                            .unwrap_or("");
+                        if !desc_line.is_empty() {
+                            cmd.description = Some(desc_line.to_string());
+                        }
+                    }
+                }
+            }
+
             let file_source = format!("{}/{}", source, filename);
             merge_runbook(&mut lib_runbook, file_runbook, None, &file_source)?;
         }

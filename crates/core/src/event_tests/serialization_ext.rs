@@ -316,16 +316,8 @@ fn event_decision_created_roundtrip() {
         source: DecisionSource::Gate,
         context: "Gate check failed".to_string(),
         options: vec![
-            DecisionOption {
-                label: "Approve".to_string(),
-                description: None,
-                recommended: true,
-            },
-            DecisionOption {
-                label: "Reject".to_string(),
-                description: Some("Stop job".to_string()),
-                recommended: false,
-            },
+            DecisionOption::new("Approve").recommended(),
+            DecisionOption::new("Reject").description("Stop job"),
         ],
         created_at_ms: 2_000_000,
         namespace: "myns".to_string(),

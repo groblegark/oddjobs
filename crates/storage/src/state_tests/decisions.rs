@@ -12,16 +12,8 @@ fn decision_created_event(id: &str, job_id: &str) -> Event {
         source: oj_core::DecisionSource::Gate,
         context: "Gate check failed".to_string(),
         options: vec![
-            oj_core::DecisionOption {
-                label: "Approve".to_string(),
-                description: None,
-                recommended: true,
-            },
-            oj_core::DecisionOption {
-                label: "Reject".to_string(),
-                description: Some("Stop the job".to_string()),
-                recommended: false,
-            },
+            oj_core::DecisionOption::new("Approve").recommended(),
+            oj_core::DecisionOption::new("Reject").description("Stop the job"),
         ],
         created_at_ms: 2_000_000,
         namespace: "testns".to_string(),

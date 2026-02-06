@@ -11,17 +11,10 @@ fn reconcile_context_counts_non_terminal_jobs() {
 
     // Add a running job (non-terminal)
     let mut running = oj_core::Job::new(
-        JobConfig {
-            id: "pipe-running".to_string(),
-            name: "test".to_string(),
-            kind: "test".to_string(),
-            vars: HashMap::new(),
-            runbook_hash: "hash".to_string(),
-            cwd: PathBuf::from("/tmp"),
-            initial_step: "step".to_string(),
-            namespace: String::new(),
-            cron_name: None,
-        },
+        JobConfig::builder("pipe-running", "test", "step")
+            .runbook_hash("hash")
+            .cwd("/tmp")
+            .build(),
         &SystemClock,
     );
     running.step_status = StepStatus::Running;
@@ -29,17 +22,10 @@ fn reconcile_context_counts_non_terminal_jobs() {
 
     // Add a completed job (terminal)
     let mut done = oj_core::Job::new(
-        JobConfig {
-            id: "pipe-done".to_string(),
-            name: "test".to_string(),
-            kind: "test".to_string(),
-            vars: HashMap::new(),
-            runbook_hash: "hash".to_string(),
-            cwd: PathBuf::from("/tmp"),
-            initial_step: "done".to_string(),
-            namespace: String::new(),
-            cron_name: None,
-        },
+        JobConfig::builder("pipe-done", "test", "done")
+            .runbook_hash("hash")
+            .cwd("/tmp")
+            .build(),
         &SystemClock,
     );
     done.step_status = StepStatus::Completed;
@@ -47,17 +33,10 @@ fn reconcile_context_counts_non_terminal_jobs() {
 
     // Add a failed job (terminal)
     let mut failed = oj_core::Job::new(
-        JobConfig {
-            id: "pipe-failed".to_string(),
-            name: "test".to_string(),
-            kind: "test".to_string(),
-            vars: HashMap::new(),
-            runbook_hash: "hash".to_string(),
-            cwd: PathBuf::from("/tmp"),
-            initial_step: "failed".to_string(),
-            namespace: String::new(),
-            cron_name: None,
-        },
+        JobConfig::builder("pipe-failed", "test", "failed")
+            .runbook_hash("hash")
+            .cwd("/tmp")
+            .build(),
         &SystemClock,
     );
     failed.step_status = StepStatus::Failed;

@@ -44,21 +44,9 @@ fn build_resume_message_with_both() {
 
 fn make_question_options() -> Vec<DecisionOption> {
     vec![
-        DecisionOption {
-            label: "Option A".to_string(),
-            description: Some("First option".to_string()),
-            recommended: false,
-        },
-        DecisionOption {
-            label: "Option B".to_string(),
-            description: Some("Second option".to_string()),
-            recommended: false,
-        },
-        DecisionOption {
-            label: "Cancel".to_string(),
-            description: Some("Cancel the job".to_string()),
-            recommended: false,
-        },
+        DecisionOption::new("Option A").description("First option"),
+        DecisionOption::new("Option B").description("Second option"),
+        DecisionOption::new("Cancel").description("Cancel the job"),
     ]
 }
 
@@ -517,31 +505,11 @@ fn resolve_question_non_cancel_is_answer() {
 fn resolve_question_option_3_is_not_cancel_when_more_options() {
     // 4 user options + Cancel = 5 total; option 3 should be Answer, not Cancel
     let options = vec![
-        DecisionOption {
-            label: "A".to_string(),
-            description: None,
-            recommended: false,
-        },
-        DecisionOption {
-            label: "B".to_string(),
-            description: None,
-            recommended: false,
-        },
-        DecisionOption {
-            label: "C".to_string(),
-            description: None,
-            recommended: false,
-        },
-        DecisionOption {
-            label: "D".to_string(),
-            description: None,
-            recommended: false,
-        },
-        DecisionOption {
-            label: "Cancel".to_string(),
-            description: None,
-            recommended: false,
-        },
+        DecisionOption::new("A"),
+        DecisionOption::new("B"),
+        DecisionOption::new("C"),
+        DecisionOption::new("D"),
+        DecisionOption::new("Cancel"),
     ];
     assert_eq!(
         resolve_decision_action(&DecisionSource::Question, Some(3), &options),

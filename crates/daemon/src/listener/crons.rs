@@ -25,14 +25,14 @@ use super::ListenCtx;
 /// overwrites any existing in-memory state, so repeated starts are safe and also
 /// serve to update the interval if the runbook changed.
 pub(super) fn handle_cron_start(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     cron_name: &str,
     all: bool,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     if all {
-        return handle_cron_start_all(project_root, namespace, ctx);
+        return handle_cron_start_all(ctx, project_root, namespace);
     }
 
     // Load runbook to validate cron exists.
@@ -121,9 +121,9 @@ pub(super) fn handle_cron_start(
 
 /// Handle starting all crons defined in runbooks.
 fn handle_cron_start_all(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     let runbook_dir = project_root.join(".oj/runbooks");
     let names = oj_runbook::collect_all_crons(&runbook_dir)
@@ -133,7 +133,7 @@ fn handle_cron_start_all(
 
     let (started, skipped) = super::collect_start_results(
         names,
-        |name| handle_cron_start(project_root, namespace, name, false, ctx),
+        |name| handle_cron_start(ctx, project_root, namespace, name, false),
         |resp| match resp {
             Response::CronStarted { cron_name } => Some(cron_name.clone()),
             _ => None,
@@ -145,9 +145,9 @@ fn handle_cron_start_all(
 
 /// Handle a CronStop request.
 pub(super) fn handle_cron_stop(
+    ctx: &ListenCtx,
     cron_name: &str,
     namespace: &str,
-    ctx: &ListenCtx,
     project_root: Option<&Path>,
 ) -> Result<Response, ConnectionError> {
     // Check if cron exists in state
@@ -189,10 +189,10 @@ pub(super) fn handle_cron_stop(
 
 /// Handle a CronOnce request — run the cron's job once immediately.
 pub(super) async fn handle_cron_once(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     cron_name: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Load runbook to validate cron exists.
     let (runbook, effective_root) = match super::load_runbook_with_fallback(
@@ -308,10 +308,10 @@ pub(super) async fn handle_cron_once(
 
 /// Handle a CronRestart request: stop (if running), reload runbook, start.
 pub(super) fn handle_cron_restart(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     cron_name: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Stop cron if it exists in state
     if super::scoped_exists(&ctx.state, namespace, cron_name, |s, k| {
@@ -327,7 +327,7 @@ pub(super) fn handle_cron_restart(
     }
 
     // Start with fresh runbook
-    handle_cron_start(project_root, namespace, cron_name, false, ctx)
+    handle_cron_start(ctx, project_root, namespace, cron_name, false)
 }
 
 #[cfg(test)]

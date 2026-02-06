@@ -9,29 +9,11 @@ use tempfile::tempdir;
 
 use oj_storage::{MaterializedState, Wal};
 
-use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
 use super::{
     handle_worker_restart, handle_worker_start, handle_worker_stop, resolve_effective_project_root,
 };
-
-/// Helper: create an EventBus backed by a temp WAL, returning the bus and WAL path.
-fn test_event_bus(dir: &std::path::Path) -> (EventBus, PathBuf) {
-    let wal_path = dir.join("test.wal");
-    let wal = Wal::open(&wal_path, 0).unwrap();
-    let (event_bus, _reader) = EventBus::new(wal);
-    (event_bus, wal_path)
-}
-
-/// Helper: create an EventBus and return the WAL arc for reading emitted events.
-fn test_event_bus_with_wal(dir: &std::path::Path) -> (EventBus, Arc<Mutex<Wal>>) {
-    let wal_path = dir.join("test.wal");
-    let wal = Wal::open(&wal_path, 0).unwrap();
-    let (event_bus, reader) = EventBus::new(wal);
-    let wal = reader.wal();
-    (event_bus, wal)
-}
 
 /// Collect all events from the WAL.
 fn drain_events(wal: &Arc<Mutex<Wal>>) -> Vec<oj_core::Event> {
@@ -47,21 +29,13 @@ fn drain_events(wal: &Arc<Mutex<Wal>>) -> Vec<oj_core::Event> {
 #[test]
 fn start_does_full_start_even_after_restart() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = super::super::test_ctx(dir.path());
 
     // No runbook on disk, so start should fail with runbook-not-found.
     // This proves it always does a full start (loads runbook) regardless
     // of any stale WAL state.
-    let result = handle_worker_start(
-        std::path::Path::new("/fake"),
-        "",
-        "fix",
-        false,
-        &event_bus,
-        &state,
-    )
-    .unwrap();
+    let result =
+        handle_worker_start(&ctx, std::path::Path::new("/fake"), "", "fix", false).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("no runbook found")),
@@ -73,8 +47,7 @@ fn start_does_full_start_even_after_restart() {
 #[test]
 fn start_suggests_similar_worker_name() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = super::super::test_ctx(dir.path());
 
     // Create a project with a worker named "processor"
     let project = tempdir().unwrap();
@@ -102,8 +75,7 @@ job "handle" {
     )
     .unwrap();
 
-    let result =
-        handle_worker_start(project.path(), "", "processer", false, &event_bus, &state).unwrap();
+    let result = handle_worker_start(&ctx, project.path(), "", "processer", false).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("did you mean: processor?")),
@@ -115,10 +87,9 @@ job "handle" {
 #[test]
 fn stop_unknown_worker_returns_error() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = super::super::test_ctx(dir.path());
 
-    let result = handle_worker_stop("nonexistent", "", &event_bus, &state, None).unwrap();
+    let result = handle_worker_stop(&ctx, "nonexistent", "", None).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("unknown worker")),
@@ -130,25 +101,26 @@ fn stop_unknown_worker_returns_error() {
 #[test]
 fn stop_suggests_similar_worker_from_state() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
+    let ctx = super::super::test_ctx(dir.path());
 
-    let mut initial_state = MaterializedState::default();
-    initial_state.workers.insert(
-        "processor".to_string(),
-        oj_storage::WorkerRecord {
-            name: "processor".to_string(),
-            project_root: PathBuf::from("/fake"),
-            runbook_hash: "fake-hash".to_string(),
-            status: "running".to_string(),
-            active_job_ids: vec![],
-            queue_name: "tasks".to_string(),
-            concurrency: 1,
-            namespace: String::new(),
-        },
-    );
-    let state = Arc::new(Mutex::new(initial_state));
+    {
+        let mut state = ctx.state.lock();
+        state.workers.insert(
+            "processor".to_string(),
+            oj_storage::WorkerRecord {
+                name: "processor".to_string(),
+                project_root: PathBuf::from("/fake"),
+                runbook_hash: "fake-hash".to_string(),
+                status: "running".to_string(),
+                active_job_ids: vec![],
+                queue_name: "tasks".to_string(),
+                concurrency: 1,
+                namespace: String::new(),
+            },
+        );
+    }
 
-    let result = handle_worker_stop("processer", "", &event_bus, &state, None).unwrap();
+    let result = handle_worker_stop(&ctx, "processer", "", None).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("did you mean: processor?")),
@@ -160,25 +132,26 @@ fn stop_suggests_similar_worker_from_state() {
 #[test]
 fn stop_suggests_cross_namespace_worker() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
+    let ctx = super::super::test_ctx(dir.path());
 
-    let mut initial_state = MaterializedState::default();
-    initial_state.workers.insert(
-        "other-project/fix".to_string(),
-        oj_storage::WorkerRecord {
-            name: "fix".to_string(),
-            project_root: PathBuf::from("/other"),
-            runbook_hash: "fake-hash".to_string(),
-            status: "running".to_string(),
-            active_job_ids: vec![],
-            queue_name: "issues".to_string(),
-            concurrency: 1,
-            namespace: "other-project".to_string(),
-        },
-    );
-    let state = Arc::new(Mutex::new(initial_state));
+    {
+        let mut state = ctx.state.lock();
+        state.workers.insert(
+            "other-project/fix".to_string(),
+            oj_storage::WorkerRecord {
+                name: "fix".to_string(),
+                project_root: PathBuf::from("/other"),
+                runbook_hash: "fake-hash".to_string(),
+                status: "running".to_string(),
+                active_job_ids: vec![],
+                queue_name: "issues".to_string(),
+                concurrency: 1,
+                namespace: "other-project".to_string(),
+            },
+        );
+    }
 
-    let result = handle_worker_stop("fix", "my-project", &event_bus, &state, None).unwrap();
+    let result = handle_worker_stop(&ctx, "fix", "my-project", None).unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("--project other-project")),
@@ -190,12 +163,9 @@ fn stop_suggests_cross_namespace_worker() {
 #[test]
 fn restart_without_runbook_returns_error() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = super::super::test_ctx(dir.path());
 
-    let result =
-        handle_worker_restart(std::path::Path::new("/fake"), "", "fix", &event_bus, &state)
-            .unwrap();
+    let result = handle_worker_restart(&ctx, std::path::Path::new("/fake"), "", "fix").unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("no runbook found")),
@@ -207,35 +177,30 @@ fn restart_without_runbook_returns_error() {
 #[test]
 fn restart_stops_existing_then_starts() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
+    let ctx = super::super::test_ctx(dir.path());
 
     // Put a running worker in state so the restart path emits a stop event
-    let mut initial_state = MaterializedState::default();
-    initial_state.workers.insert(
-        "processor".to_string(),
-        oj_storage::WorkerRecord {
-            name: "processor".to_string(),
-            project_root: PathBuf::from("/fake"),
-            runbook_hash: "fake-hash".to_string(),
-            status: "running".to_string(),
-            active_job_ids: vec![],
-            queue_name: "tasks".to_string(),
-            concurrency: 1,
-            namespace: String::new(),
-        },
-    );
-    let state = Arc::new(Mutex::new(initial_state));
+    {
+        let mut state = ctx.state.lock();
+        state.workers.insert(
+            "processor".to_string(),
+            oj_storage::WorkerRecord {
+                name: "processor".to_string(),
+                project_root: PathBuf::from("/fake"),
+                runbook_hash: "fake-hash".to_string(),
+                status: "running".to_string(),
+                active_job_ids: vec![],
+                queue_name: "tasks".to_string(),
+                concurrency: 1,
+                namespace: String::new(),
+            },
+        );
+    }
 
     // Restart with no runbook on disk — the stop event is emitted but start
     // fails because the runbook is missing.  This proves the stop path ran.
-    let result = handle_worker_restart(
-        std::path::Path::new("/fake"),
-        "",
-        "processor",
-        &event_bus,
-        &state,
-    )
-    .unwrap();
+    let result =
+        handle_worker_restart(&ctx, std::path::Path::new("/fake"), "", "processor").unwrap();
 
     assert!(
         matches!(result, Response::Error { ref message } if message.contains("no runbook found")),
@@ -247,7 +212,7 @@ fn restart_stops_existing_then_starts() {
 #[test]
 fn restart_with_valid_runbook_returns_started() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
+    let ctx = super::super::test_ctx(dir.path());
 
     // Create a project with a worker
     let project = tempdir().unwrap();
@@ -276,24 +241,24 @@ job "handle" {
     .unwrap();
 
     // Put existing worker in state
-    let mut initial_state = MaterializedState::default();
-    initial_state.workers.insert(
-        "processor".to_string(),
-        oj_storage::WorkerRecord {
-            name: "processor".to_string(),
-            project_root: project.path().to_path_buf(),
-            runbook_hash: "old-hash".to_string(),
-            status: "running".to_string(),
-            active_job_ids: vec![],
-            queue_name: "tasks".to_string(),
-            concurrency: 1,
-            namespace: String::new(),
-        },
-    );
-    let state = Arc::new(Mutex::new(initial_state));
+    {
+        let mut state = ctx.state.lock();
+        state.workers.insert(
+            "processor".to_string(),
+            oj_storage::WorkerRecord {
+                name: "processor".to_string(),
+                project_root: project.path().to_path_buf(),
+                runbook_hash: "old-hash".to_string(),
+                status: "running".to_string(),
+                active_job_ids: vec![],
+                queue_name: "tasks".to_string(),
+                concurrency: 1,
+                namespace: String::new(),
+            },
+        );
+    }
 
-    let result =
-        handle_worker_restart(project.path(), "", "processor", &event_bus, &state).unwrap();
+    let result = handle_worker_restart(&ctx, project.path(), "", "processor").unwrap();
 
     assert!(
         matches!(result, Response::WorkerStarted { ref worker_name } if worker_name == "processor"),
@@ -375,7 +340,7 @@ fn resolve_effective_project_root_uses_provided_root_when_namespace_matches() {
 #[test]
 fn start_uses_known_root_when_namespace_differs_from_project_root() {
     let dir = tempdir().unwrap();
-    let (event_bus, _wal_path) = test_event_bus(dir.path());
+    let ctx = super::super::test_ctx(dir.path());
 
     // Create two projects: project_a (wrong one) and project_b (correct one with "wok" namespace)
     let project_a = tempdir().unwrap();
@@ -416,26 +381,26 @@ job "handle-merge" {
     .unwrap();
 
     // Set up state with known project root for "wok" namespace
-    let mut initial_state = MaterializedState::default();
-    initial_state.workers.insert(
-        "wok/other-worker".to_string(),
-        oj_storage::WorkerRecord {
-            name: "other-worker".to_string(),
-            project_root: project_b.path().to_path_buf(),
-            runbook_hash: "hash".to_string(),
-            status: "stopped".to_string(),
-            active_job_ids: vec![],
-            queue_name: "other".to_string(),
-            concurrency: 1,
-            namespace: "wok".to_string(),
-        },
-    );
-    let state = Arc::new(Mutex::new(initial_state));
+    {
+        let mut state = ctx.state.lock();
+        state.workers.insert(
+            "wok/other-worker".to_string(),
+            oj_storage::WorkerRecord {
+                name: "other-worker".to_string(),
+                project_root: project_b.path().to_path_buf(),
+                runbook_hash: "hash".to_string(),
+                status: "stopped".to_string(),
+                active_job_ids: vec![],
+                queue_name: "other".to_string(),
+                concurrency: 1,
+                namespace: "wok".to_string(),
+            },
+        );
+    }
 
     // Start worker with project_a's path but namespace "wok"
     // This simulates `oj --project wok worker start merge` from a different directory
-    let result =
-        handle_worker_start(project_a.path(), "wok", "merge", false, &event_bus, &state).unwrap();
+    let result = handle_worker_start(&ctx, project_a.path(), "wok", "merge", false).unwrap();
 
     // Should succeed by using project_b's root (the known root for "wok")
     assert!(
@@ -448,7 +413,7 @@ job "handle-merge" {
 #[test]
 fn start_already_running_worker_emits_wake_instead_of_started() {
     let dir = tempdir().unwrap();
-    let (event_bus, wal) = test_event_bus_with_wal(dir.path());
+    let (ctx, wal) = super::super::test_ctx_with_wal(dir.path());
 
     // Create a project with a worker
     let project = tempdir().unwrap();
@@ -478,25 +443,25 @@ job "build" {
     .unwrap();
 
     // Put a running worker in state
-    let mut initial_state = MaterializedState::default();
-    initial_state.workers.insert(
-        "fixer".to_string(),
-        oj_storage::WorkerRecord {
-            name: "fixer".to_string(),
-            project_root: project.path().to_path_buf(),
-            runbook_hash: "old-hash".to_string(),
-            status: "running".to_string(),
-            active_job_ids: vec![],
-            queue_name: "bugs".to_string(),
-            concurrency: 3,
-            namespace: String::new(),
-        },
-    );
-    let state = Arc::new(Mutex::new(initial_state));
+    {
+        let mut state = ctx.state.lock();
+        state.workers.insert(
+            "fixer".to_string(),
+            oj_storage::WorkerRecord {
+                name: "fixer".to_string(),
+                project_root: project.path().to_path_buf(),
+                runbook_hash: "old-hash".to_string(),
+                status: "running".to_string(),
+                active_job_ids: vec![],
+                queue_name: "bugs".to_string(),
+                concurrency: 3,
+                namespace: String::new(),
+            },
+        );
+    }
 
     // Call start on the already-running worker
-    let result =
-        handle_worker_start(project.path(), "", "fixer", false, &event_bus, &state).unwrap();
+    let result = handle_worker_start(&ctx, project.path(), "", "fixer", false).unwrap();
 
     // Response should still be WorkerStarted (preserving CLI contract)
     assert!(

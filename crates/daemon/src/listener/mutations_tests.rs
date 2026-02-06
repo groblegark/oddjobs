@@ -3,73 +3,39 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use parking_lot::Mutex;
 use tempfile::tempdir;
 
-use oj_core::{
-    AgentRun, AgentRunStatus, Event, Job, StepOutcome, StepRecord, StepStatus, WorkspaceStatus,
-};
+use oj_core::{AgentRunStatus, Event, Job, StepOutcome, StepRecord, StepStatus, WorkspaceStatus};
 use oj_engine::breadcrumb::Breadcrumb;
-use oj_storage::{MaterializedState, Wal, Workspace, WorkspaceType};
+use oj_storage::{MaterializedState, Workspace, WorkspaceType};
 
-use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
+use super::super::test_ctx;
 use super::{
     handle_agent_prune, handle_agent_send, handle_job_cancel, handle_job_prune, handle_job_resume,
     handle_job_resume_all, handle_session_kill, workspace_prune_inner, PruneFlags,
 };
 
-fn test_event_bus(dir: &std::path::Path) -> EventBus {
-    let wal_path = dir.join("test.wal");
-    let wal = Wal::open(&wal_path, 0).unwrap();
-    let (event_bus, _reader) = EventBus::new(wal);
-    event_bus
-}
-
-fn empty_state() -> Arc<Mutex<MaterializedState>> {
-    Arc::new(Mutex::new(MaterializedState::default()))
-}
-
-fn empty_orphans() -> Arc<Mutex<Vec<Breadcrumb>>> {
-    Arc::new(Mutex::new(Vec::new()))
-}
-
 fn make_job(id: &str, step: &str) -> Job {
-    Job {
-        id: id.to_string(),
-        name: "test-job".to_string(),
-        kind: "test".to_string(),
-        namespace: "proj".to_string(),
-        step: step.to_string(),
-        step_status: StepStatus::Running,
-        step_started_at: Instant::now(),
-        step_history: vec![StepRecord {
+    Job::builder()
+        .id(id)
+        .kind("test")
+        .namespace("proj")
+        .step(step)
+        .runbook_hash("abc123")
+        .cwd("/tmp/project")
+        .step_history(vec![StepRecord {
             name: step.to_string(),
             started_at_ms: 1000,
             finished_at_ms: None,
             outcome: StepOutcome::Running,
             agent_id: None,
             agent_name: None,
-        }],
-        vars: HashMap::new(),
-        runbook_hash: "abc123".to_string(),
-        cwd: std::path::PathBuf::from("/tmp/project"),
-        workspace_id: None,
-        workspace_path: None,
-        session_id: None,
-        created_at: Instant::now(),
-        error: None,
-        action_tracker: Default::default(),
-        cancelling: false,
-        total_retries: 0,
-        step_visits: HashMap::new(),
-        cron_name: None,
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    }
+        }])
+        .build()
 }
 
 fn make_breadcrumb(job_id: &str) -> Breadcrumb {
@@ -103,21 +69,17 @@ fn load_runbook_into_state(state: &Arc<Mutex<MaterializedState>>, hash: &str) {
 #[test]
 fn resume_existing_job_emits_event() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let ctx = test_ctx(dir.path());
 
     // Insert a job in state
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs
             .insert("pipe-1".to_string(), make_job("pipe-1", "work"));
     }
 
     let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
+        &ctx,
         "pipe-1".to_string(),
         Some("try again".to_string()),
         HashMap::new(),
@@ -130,19 +92,9 @@ fn resume_existing_job_emits_event() {
 #[test]
 fn resume_nonexistent_job_returns_error() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let ctx = test_ctx(dir.path());
 
-    let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
-        "nonexistent".to_string(),
-        None,
-        HashMap::new(),
-        false,
-    );
+    let result = handle_job_resume(&ctx, "nonexistent".to_string(), None, HashMap::new(), false);
 
     match result {
         Ok(Response::Error { message }) => {
@@ -159,23 +111,14 @@ fn resume_nonexistent_job_returns_error() {
 #[test]
 fn resume_orphan_without_runbook_hash_returns_error() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Create an orphan with empty runbook_hash (old breadcrumb format)
     let mut bc = make_breadcrumb("orphan-1");
     bc.runbook_hash = String::new();
-    let orphans = Arc::new(Mutex::new(vec![bc]));
+    *ctx.orphans.lock() = vec![bc];
 
-    let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
-        "orphan-1".to_string(),
-        None,
-        HashMap::new(),
-        false,
-    );
+    let result = handle_job_resume(&ctx, "orphan-1".to_string(), None, HashMap::new(), false);
 
     match result {
         Ok(Response::Error { message }) => {
@@ -192,21 +135,12 @@ fn resume_orphan_without_runbook_hash_returns_error() {
 #[test]
 fn resume_orphan_without_runbook_in_state_returns_error() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Create an orphan with a runbook_hash, but no matching runbook in state
-    let orphans = Arc::new(Mutex::new(vec![make_breadcrumb("orphan-2")]));
+    *ctx.orphans.lock() = vec![make_breadcrumb("orphan-2")];
 
-    let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
-        "orphan-2".to_string(),
-        None,
-        HashMap::new(),
-        false,
-    );
+    let result = handle_job_resume(&ctx, "orphan-2".to_string(), None, HashMap::new(), false);
 
     match result {
         Ok(Response::Error { message }) => {
@@ -223,18 +157,15 @@ fn resume_orphan_without_runbook_in_state_returns_error() {
 #[test]
 fn resume_orphan_with_runbook_reconstructs_and_resumes() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Add a runbook to state via event application
-    load_runbook_into_state(&state, "hash456");
+    load_runbook_into_state(&ctx.state, "hash456");
 
-    let orphans = Arc::new(Mutex::new(vec![make_breadcrumb("orphan-3")]));
+    *ctx.orphans.lock() = vec![make_breadcrumb("orphan-3")];
 
     let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
+        &ctx,
         "orphan-3".to_string(),
         Some("fix it".to_string()),
         HashMap::new(),
@@ -245,25 +176,20 @@ fn resume_orphan_with_runbook_reconstructs_and_resumes() {
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 
     // Orphan should be removed from registry
-    assert!(orphans.lock().is_empty(), "orphan should be removed");
+    assert!(ctx.orphans.lock().is_empty(), "orphan should be removed");
 }
 
 #[test]
 fn resume_orphan_by_prefix() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
-    load_runbook_into_state(&state, "hash456");
+    load_runbook_into_state(&ctx.state, "hash456");
 
-    let orphans = Arc::new(Mutex::new(vec![make_breadcrumb(
-        "orphan-long-uuid-string-12345",
-    )]));
+    *ctx.orphans.lock() = vec![make_breadcrumb("orphan-long-uuid-string-12345")];
 
     let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
+        &ctx,
         "orphan-long".to_string(),
         Some("try again".to_string()),
         HashMap::new(),
@@ -271,16 +197,15 @@ fn resume_orphan_by_prefix() {
     );
 
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
-    assert!(orphans.lock().is_empty());
+    assert!(ctx.orphans.lock().is_empty());
 }
 
 #[tokio::test]
 async fn session_kill_nonexistent_returns_error() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
-    let result = handle_session_kill(&state, &event_bus, "nonexistent-session").await;
+    let result = handle_session_kill(&ctx, "nonexistent-session").await;
 
     match result {
         Ok(Response::Error { message }) => {
@@ -297,12 +222,11 @@ async fn session_kill_nonexistent_returns_error() {
 #[tokio::test]
 async fn session_kill_existing_returns_ok() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Insert a session into state
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.sessions.insert(
             "oj-test-session".to_string(),
             oj_storage::Session {
@@ -312,7 +236,7 @@ async fn session_kill_existing_returns_ok() {
         );
     }
 
-    let result = handle_session_kill(&state, &event_bus, "oj-test-session").await;
+    let result = handle_session_kill(&ctx, "oj-test-session").await;
 
     // Should succeed (tmux kill-session will fail since no real tmux session,
     // but that's fine - we still emit the event)
@@ -320,52 +244,34 @@ async fn session_kill_existing_returns_ok() {
 }
 
 fn make_job_with_agent(id: &str, step: &str, agent_id: &str) -> Job {
-    Job {
-        id: id.to_string(),
-        name: "test-job".to_string(),
-        kind: "test".to_string(),
-        namespace: "proj".to_string(),
-        step: step.to_string(),
-        step_status: StepStatus::Running,
-        step_started_at: Instant::now(),
-        step_history: vec![StepRecord {
+    Job::builder()
+        .id(id)
+        .kind("test")
+        .namespace("proj")
+        .step(step)
+        .runbook_hash("abc123")
+        .cwd("/tmp/project")
+        .step_history(vec![StepRecord {
             name: "work".to_string(),
             started_at_ms: 1000,
             finished_at_ms: Some(2000),
             outcome: StepOutcome::Completed,
             agent_id: Some(agent_id.to_string()),
             agent_name: Some("test-agent".to_string()),
-        }],
-        vars: HashMap::new(),
-        runbook_hash: "abc123".to_string(),
-        cwd: std::path::PathBuf::from("/tmp/project"),
-        workspace_id: None,
-        workspace_path: None,
-        session_id: None,
-        created_at: Instant::now(),
-        error: None,
-        action_tracker: Default::default(),
-        cancelling: false,
-        total_retries: 0,
-        step_visits: HashMap::new(),
-        cron_name: None,
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    }
+        }])
+        .build()
 }
 
 #[test]
 fn agent_prune_all_removes_terminal_jobs_from_state() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(ctx.logs_path.join("agent")).unwrap();
 
     // Insert a terminal job with an agent
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-done".to_string(),
             make_job_with_agent("pipe-done", "done", "agent-1"),
@@ -382,7 +288,7 @@ fn agent_prune_all_removes_terminal_jobs_from_state() {
         dry_run: false,
         namespace: None,
     };
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, &flags);
+    let result = handle_agent_prune(&ctx, &flags);
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -396,7 +302,7 @@ fn agent_prune_all_removes_terminal_jobs_from_state() {
 
     // After processing events, the terminal job should be removed from state
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         // Apply the JobDeleted event that was emitted
         let event = Event::JobDeleted {
             id: oj_core::JobId::new("pipe-done".to_string()),
@@ -417,14 +323,12 @@ fn agent_prune_all_removes_terminal_jobs_from_state() {
 #[test]
 fn agent_prune_dry_run_does_not_delete() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(ctx.logs_path.join("agent")).unwrap();
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-failed".to_string(),
             make_job_with_agent("pipe-failed", "failed", "agent-3"),
@@ -436,7 +340,7 @@ fn agent_prune_dry_run_does_not_delete() {
         dry_run: true,
         namespace: None,
     };
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, &flags);
+    let result = handle_agent_prune(&ctx, &flags);
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -447,7 +351,7 @@ fn agent_prune_dry_run_does_not_delete() {
     }
 
     // Job should still be in state after dry run
-    let s = state.lock();
+    let s = ctx.state.lock();
     assert!(
         s.jobs.contains_key("pipe-failed"),
         "job should remain after dry run"
@@ -457,14 +361,12 @@ fn agent_prune_dry_run_does_not_delete() {
 #[test]
 fn agent_prune_skips_non_terminal_jobs() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(ctx.logs_path.join("agent")).unwrap();
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-active".to_string(),
             make_job_with_agent("pipe-active", "build", "agent-4"),
@@ -476,7 +378,7 @@ fn agent_prune_skips_non_terminal_jobs() {
         dry_run: false,
         namespace: None,
     };
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, &flags);
+    let result = handle_agent_prune(&ctx, &flags);
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -486,46 +388,37 @@ fn agent_prune_skips_non_terminal_jobs() {
         other => panic!("expected AgentsPruned, got: {:?}", other),
     }
 
-    let s = state.lock();
+    let s = ctx.state.lock();
     assert!(
         s.jobs.contains_key("pipe-active"),
         "active job should remain"
     );
 }
 
-fn make_agent_run(id: &str, status: AgentRunStatus) -> AgentRun {
-    AgentRun {
-        id: id.to_string(),
-        agent_name: "test-agent".to_string(),
-        command_name: "test-cmd".to_string(),
-        namespace: "proj".to_string(),
-        cwd: std::path::PathBuf::from("/tmp/project"),
-        runbook_hash: "hash123".to_string(),
-        status,
-        agent_id: Some(format!("{}-agent-uuid", id)),
-        session_id: Some(format!("oj-{}", id)),
-        error: None,
-        created_at_ms: 1000,
-        updated_at_ms: 2000,
-        action_tracker: Default::default(),
-        vars: HashMap::new(),
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    }
+fn make_agent_run(id: &str, status: AgentRunStatus) -> oj_core::AgentRun {
+    oj_core::AgentRun::builder()
+        .id(id)
+        .agent_name("test-agent")
+        .command_name("test-cmd")
+        .namespace("proj")
+        .cwd("/tmp/project")
+        .runbook_hash("hash123")
+        .status(status)
+        .agent_id(format!("{}-agent-uuid", id))
+        .session_id(format!("oj-{}", id))
+        .build()
 }
 
 #[test]
 fn agent_prune_all_removes_terminal_standalone_agent_runs() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(ctx.logs_path.join("agent")).unwrap();
 
     // Insert terminal and non-terminal standalone agent runs
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.agent_runs.insert(
             "ar-completed".to_string(),
             make_agent_run("ar-completed", AgentRunStatus::Completed),
@@ -545,7 +438,7 @@ fn agent_prune_all_removes_terminal_standalone_agent_runs() {
         dry_run: false,
         namespace: None,
     };
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, &flags);
+    let result = handle_agent_prune(&ctx, &flags);
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -565,7 +458,7 @@ fn agent_prune_all_removes_terminal_standalone_agent_runs() {
 
     // Apply the AgentRunDeleted events to state and verify
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.apply_event(&Event::AgentRunDeleted {
             id: oj_core::AgentRunId::new("ar-completed"),
         });
@@ -591,14 +484,12 @@ fn agent_prune_all_removes_terminal_standalone_agent_runs() {
 #[test]
 fn agent_prune_dry_run_does_not_delete_standalone_agent_runs() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(ctx.logs_path.join("agent")).unwrap();
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.agent_runs.insert(
             "ar-done".to_string(),
             make_agent_run("ar-done", AgentRunStatus::Completed),
@@ -610,7 +501,7 @@ fn agent_prune_dry_run_does_not_delete_standalone_agent_runs() {
         dry_run: true,
         namespace: None,
     };
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, &flags);
+    let result = handle_agent_prune(&ctx, &flags);
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -626,7 +517,7 @@ fn agent_prune_dry_run_does_not_delete_standalone_agent_runs() {
     }
 
     // Verify agent run was NOT deleted (dry run - no events emitted)
-    let s = state.lock();
+    let s = ctx.state.lock();
     assert!(
         s.agent_runs.contains_key("ar-done"),
         "dry run should not delete"
@@ -636,14 +527,12 @@ fn agent_prune_dry_run_does_not_delete_standalone_agent_runs() {
 #[test]
 fn agent_prune_all_handles_mixed_job_and_standalone_agents() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(logs_path.join("agent")).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(ctx.logs_path.join("agent")).unwrap();
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         // Terminal job with agent
         s.jobs.insert(
             "pipe-done".to_string(),
@@ -661,7 +550,7 @@ fn agent_prune_all_handles_mixed_job_and_standalone_agents() {
         dry_run: false,
         namespace: None,
     };
-    let result = handle_agent_prune(&state, &event_bus, &logs_path, &flags);
+    let result = handle_agent_prune(&ctx, &flags);
 
     match result {
         Ok(Response::AgentsPruned { pruned, skipped }) => {
@@ -684,7 +573,7 @@ fn agent_prune_all_handles_mixed_job_and_standalone_agents() {
 
     // Apply the emitted events and verify state
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.apply_event(&Event::JobDeleted {
             id: oj_core::JobId::new("pipe-done".to_string()),
         });
@@ -759,16 +648,15 @@ fn cleanup_agent_files_removes_log_and_dir() {
 #[test]
 fn cancel_single_running_job() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs
             .insert("pipe-1".to_string(), make_job("pipe-1", "work"));
     }
 
-    let result = handle_job_cancel(&state, &event_bus, vec!["pipe-1".to_string()]);
+    let result = handle_job_cancel(&ctx, vec!["pipe-1".to_string()]);
 
     match result {
         Ok(Response::JobsCancelled {
@@ -787,10 +675,9 @@ fn cancel_single_running_job() {
 #[test]
 fn cancel_nonexistent_job_returns_not_found() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
-    let result = handle_job_cancel(&state, &event_bus, vec!["no-such-pipe".to_string()]);
+    let result = handle_job_cancel(&ctx, vec!["no-such-pipe".to_string()]);
 
     match result {
         Ok(Response::JobsCancelled {
@@ -809,11 +696,10 @@ fn cancel_nonexistent_job_returns_not_found() {
 #[test]
 fn cancel_already_terminal_job() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs
             .insert("pipe-done".to_string(), make_job("pipe-done", "done"));
         s.jobs
@@ -825,8 +711,7 @@ fn cancel_already_terminal_job() {
     }
 
     let result = handle_job_cancel(
-        &state,
-        &event_bus,
+        &ctx,
         vec![
             "pipe-done".to_string(),
             "pipe-failed".to_string(),
@@ -854,11 +739,10 @@ fn cancel_already_terminal_job() {
 #[test]
 fn cancel_multiple_jobs_mixed_results() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         // Running job — should be cancelled
         s.jobs
             .insert("pipe-a".to_string(), make_job("pipe-a", "build"));
@@ -872,8 +756,7 @@ fn cancel_multiple_jobs_mixed_results() {
     }
 
     let result = handle_job_cancel(
-        &state,
-        &event_bus,
+        &ctx,
         vec![
             "pipe-a".to_string(),
             "pipe-b".to_string(),
@@ -899,10 +782,9 @@ fn cancel_multiple_jobs_mixed_results() {
 #[test]
 fn cancel_empty_ids_returns_empty_response() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
-    let result = handle_job_cancel(&state, &event_bus, vec![]);
+    let result = handle_job_cancel(&ctx, vec![]);
 
     match result {
         Ok(Response::JobsCancelled {
@@ -969,14 +851,12 @@ fn load_runbook_json_into_state(
 #[test]
 fn resume_agent_step_without_message_returns_error() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let ctx = test_ctx(dir.path());
 
     // Create a runbook with an agent step
     let runbook_hash = "agent-runbook-hash";
     load_runbook_json_into_state(
-        &state,
+        &ctx.state,
         runbook_hash,
         make_agent_runbook_json("test", "work"),
     );
@@ -985,15 +865,13 @@ fn resume_agent_step_without_message_returns_error() {
     let mut job = make_job("pipe-agent", "work");
     job.runbook_hash = runbook_hash.to_string();
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert("pipe-agent".to_string(), job);
     }
 
     // Try to resume without a message
     let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
+        &ctx,
         "pipe-agent".to_string(),
         None, // No message provided
         HashMap::new(),
@@ -1015,14 +893,12 @@ fn resume_agent_step_without_message_returns_error() {
 #[test]
 fn resume_agent_step_with_message_succeeds() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let ctx = test_ctx(dir.path());
 
     // Create a runbook with an agent step
     let runbook_hash = "agent-runbook-hash";
     load_runbook_json_into_state(
-        &state,
+        &ctx.state,
         runbook_hash,
         make_agent_runbook_json("test", "work"),
     );
@@ -1031,15 +907,13 @@ fn resume_agent_step_with_message_succeeds() {
     let mut job = make_job("pipe-agent-2", "work");
     job.runbook_hash = runbook_hash.to_string();
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert("pipe-agent-2".to_string(), job);
     }
 
     // Resume with a message should succeed
     let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
+        &ctx,
         "pipe-agent-2".to_string(),
         Some("I fixed the issue".to_string()),
         HashMap::new(),
@@ -1052,14 +926,12 @@ fn resume_agent_step_with_message_succeeds() {
 #[test]
 fn resume_shell_step_without_message_succeeds() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let ctx = test_ctx(dir.path());
 
     // Create a runbook with a shell step
     let runbook_hash = "shell-runbook-hash";
     load_runbook_json_into_state(
-        &state,
+        &ctx.state,
         runbook_hash,
         make_shell_runbook_json("test", "build"),
     );
@@ -1068,20 +940,12 @@ fn resume_shell_step_without_message_succeeds() {
     let mut job = make_job("pipe-shell", "build");
     job.runbook_hash = runbook_hash.to_string();
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert("pipe-shell".to_string(), job);
     }
 
     // Resume without a message should succeed for shell steps
-    let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
-        "pipe-shell".to_string(),
-        None,
-        HashMap::new(),
-        false,
-    );
+    let result = handle_job_resume(&ctx, "pipe-shell".to_string(), None, HashMap::new(), false);
 
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 }
@@ -1089,14 +953,12 @@ fn resume_shell_step_without_message_succeeds() {
 #[test]
 fn resume_failed_job_without_message_succeeds() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let ctx = test_ctx(dir.path());
 
     // Create a runbook with an agent step
     let runbook_hash = "agent-runbook-hash";
     load_runbook_json_into_state(
-        &state,
+        &ctx.state,
         runbook_hash,
         make_agent_runbook_json("test", "work"),
     );
@@ -1108,16 +970,14 @@ fn resume_failed_job_without_message_succeeds() {
     let mut job = make_job("pipe-failed-agent", "failed");
     job.runbook_hash = runbook_hash.to_string();
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert("pipe-failed-agent".to_string(), job);
     }
 
     // Resume without message should be allowed for "failed" state
     // (the engine will reset to the actual failed step and validate there)
     let result = handle_job_resume(
-        &state,
-        &orphans,
-        &event_bus,
+        &ctx,
         "pipe-failed-agent".to_string(),
         None,
         HashMap::new(),
@@ -1137,15 +997,14 @@ fn make_job_agent_in_history(
     agent_step: &str,
     agent_id: &str,
 ) -> Job {
-    Job {
-        id: id.to_string(),
-        name: "test-job".to_string(),
-        kind: "test".to_string(),
-        namespace: "proj".to_string(),
-        step: current_step.to_string(),
-        step_status: StepStatus::Running,
-        step_started_at: Instant::now(),
-        step_history: vec![
+    Job::builder()
+        .id(id)
+        .kind("test")
+        .namespace("proj")
+        .step(current_step)
+        .runbook_hash("abc123")
+        .cwd("/tmp/project")
+        .step_history(vec![
             StepRecord {
                 name: agent_step.to_string(),
                 started_at_ms: 1000,
@@ -1162,83 +1021,53 @@ fn make_job_agent_in_history(
                 agent_id: None,
                 agent_name: None,
             },
-        ],
-        vars: HashMap::new(),
-        runbook_hash: "abc123".to_string(),
-        cwd: std::path::PathBuf::from("/tmp/project"),
-        workspace_id: None,
-        workspace_path: None,
-        session_id: None,
-        created_at: Instant::now(),
-        error: None,
-        action_tracker: oj_core::action_tracker::ActionTracker::default(),
-        cancelling: false,
-        total_retries: 0,
-        step_visits: HashMap::new(),
-        cron_name: None,
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    }
+        ])
+        .build()
 }
 
 #[tokio::test]
 async fn agent_send_finds_agent_in_last_step() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-1".to_string(),
             make_job_with_agent("pipe-1", "work", "agent-abc"),
         );
     }
 
-    let result = handle_agent_send(
-        &state,
-        &event_bus,
-        "agent-abc".to_string(),
-        "hello".to_string(),
-    )
-    .await;
+    let result = handle_agent_send(&ctx, "agent-abc".to_string(), "hello".to_string()).await;
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 }
 
 #[tokio::test]
 async fn agent_send_finds_agent_in_earlier_step() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Agent step is NOT the last step — job has advanced to "review"
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-1".to_string(),
             make_job_agent_in_history("pipe-1", "review", "work", "agent-xyz"),
         );
     }
 
-    let result = handle_agent_send(
-        &state,
-        &event_bus,
-        "agent-xyz".to_string(),
-        "hello".to_string(),
-    )
-    .await;
+    let result = handle_agent_send(&ctx, "agent-xyz".to_string(), "hello".to_string()).await;
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 }
 
 #[tokio::test]
 async fn agent_send_via_job_id_finds_agent_in_earlier_step() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Job has advanced past the agent step
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-abc123".to_string(),
             make_job_agent_in_history("pipe-abc123", "review", "work", "agent-inner"),
@@ -1246,96 +1075,63 @@ async fn agent_send_via_job_id_finds_agent_in_earlier_step() {
     }
 
     // Look up by job ID — should search all history and find the agent
-    let result = handle_agent_send(
-        &state,
-        &event_bus,
-        "pipe-abc123".to_string(),
-        "hello".to_string(),
-    )
-    .await;
+    let result = handle_agent_send(&ctx, "pipe-abc123".to_string(), "hello".to_string()).await;
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 }
 
 #[tokio::test]
 async fn agent_send_prefix_match_across_all_history() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Agent ID in a non-last step, matched by prefix
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-1".to_string(),
             make_job_agent_in_history("pipe-1", "review", "work", "agent-long-uuid-string-12345"),
         );
     }
 
-    let result = handle_agent_send(
-        &state,
-        &event_bus,
-        "agent-long".to_string(),
-        "hello".to_string(),
-    )
-    .await;
+    let result = handle_agent_send(&ctx, "agent-long".to_string(), "hello".to_string()).await;
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 }
 
 #[tokio::test]
 async fn agent_send_finds_standalone_agent_run() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Insert a standalone agent run (no job)
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.agent_runs.insert(
             "run-1".to_string(),
-            oj_core::AgentRun {
-                id: "run-1".to_string(),
-                agent_name: "my-agent".to_string(),
-                command_name: "oj agent run".to_string(),
-                namespace: "proj".to_string(),
-                cwd: std::path::PathBuf::from("/tmp"),
-                runbook_hash: "hash".to_string(),
-                status: oj_core::AgentRunStatus::Running,
-                agent_id: Some("standalone-agent-42".to_string()),
-                session_id: Some("oj-standalone-42".to_string()),
-                error: None,
-                created_at_ms: 1000,
-                updated_at_ms: 2000,
-                action_tracker: oj_core::action_tracker::ActionTracker::default(),
-                vars: HashMap::new(),
-                idle_grace_log_size: None,
-                last_nudge_at: None,
-            },
+            oj_core::AgentRun::builder()
+                .id("run-1")
+                .agent_name("my-agent")
+                .command_name("oj agent run")
+                .namespace("proj")
+                .cwd("/tmp")
+                .runbook_hash("hash")
+                .agent_id("standalone-agent-42")
+                .session_id("oj-standalone-42")
+                .build(),
         );
     }
 
-    let result = handle_agent_send(
-        &state,
-        &event_bus,
-        "standalone-agent-42".to_string(),
-        "hello".to_string(),
-    )
-    .await;
+    let result =
+        handle_agent_send(&ctx, "standalone-agent-42".to_string(), "hello".to_string()).await;
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 }
 
 #[tokio::test]
 async fn agent_send_not_found_returns_error() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
-    let result = handle_agent_send(
-        &state,
-        &event_bus,
-        "nonexistent-agent".to_string(),
-        "hello".to_string(),
-    )
-    .await;
+    let result =
+        handle_agent_send(&ctx, "nonexistent-agent".to_string(), "hello".to_string()).await;
 
     match result {
         Ok(Response::Error { message }) => {
@@ -1352,13 +1148,12 @@ async fn agent_send_not_found_returns_error() {
 #[tokio::test]
 async fn agent_send_prefers_latest_step_history_entry() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     // Job with two agent steps — should prefer the latest (second) one
     // when looking up by job ID
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         let mut job = make_job("pipe-multi", "done");
         job.step_history = vec![
             StepRecord {
@@ -1390,13 +1185,7 @@ async fn agent_send_prefers_latest_step_history_entry() {
     }
 
     // Look up by job ID — should resolve to the latest agent (agent-new)
-    let result = handle_agent_send(
-        &state,
-        &event_bus,
-        "pipe-multi".to_string(),
-        "hello".to_string(),
-    )
-    .await;
+    let result = handle_agent_send(&ctx, "pipe-multi".to_string(), "hello".to_string()).await;
     assert!(matches!(result, Ok(Response::Ok)), "got: {:?}", result);
 }
 
@@ -1411,16 +1200,13 @@ fn make_job_ns(id: &str, step: &str, namespace: &str) -> Job {
 #[test]
 fn job_prune_all_without_namespace_prunes_across_all_projects() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(&logs_path).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(&ctx.logs_path).unwrap();
 
     // Insert terminal jobs from different namespaces
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-a".to_string(),
             make_job_ns("pipe-a", "done", "proj-alpha"),
@@ -1445,9 +1231,7 @@ fn job_prune_all_without_namespace_prunes_across_all_projects() {
         dry_run: false,
         namespace: None, // No namespace filter
     };
-    let result = handle_job_prune(
-        &state, &event_bus, &logs_path, &orphans, &flags, false, false,
-    );
+    let result = handle_job_prune(&ctx, &flags, false, false);
 
     match result {
         Ok(Response::JobsPruned { pruned, skipped }) => {
@@ -1469,16 +1253,13 @@ fn job_prune_all_without_namespace_prunes_across_all_projects() {
 #[test]
 fn job_prune_all_with_namespace_only_prunes_matching_project() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(&logs_path).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(&ctx.logs_path).unwrap();
 
     // Insert terminal jobs from different namespaces
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.jobs.insert(
             "pipe-a".to_string(),
             make_job_ns("pipe-a", "done", "proj-alpha"),
@@ -1498,9 +1279,7 @@ fn job_prune_all_with_namespace_only_prunes_matching_project() {
         dry_run: false,
         namespace: Some("proj-alpha"), // Only prune proj-alpha
     };
-    let result = handle_job_prune(
-        &state, &event_bus, &logs_path, &orphans, &flags, false, false,
-    );
+    let result = handle_job_prune(&ctx, &flags, false, false);
 
     match result {
         Ok(Response::JobsPruned { pruned, skipped }) => {
@@ -1519,15 +1298,12 @@ fn job_prune_all_with_namespace_only_prunes_matching_project() {
 #[test]
 fn job_prune_skips_non_terminal_steps() {
     let dir = tempdir().unwrap();
-    let logs_path = dir.path().join("logs");
-    std::fs::create_dir_all(&logs_path).unwrap();
-
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
-    let orphans = empty_orphans();
+    let mut ctx = test_ctx(dir.path());
+    ctx.logs_path = dir.path().join("logs");
+    std::fs::create_dir_all(&ctx.logs_path).unwrap();
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         // Non-terminal steps should never be pruned
         s.jobs.insert(
             "pipe-running".to_string(),
@@ -1542,9 +1318,7 @@ fn job_prune_skips_non_terminal_steps() {
         dry_run: false,
         namespace: None,
     };
-    let result = handle_job_prune(
-        &state, &event_bus, &logs_path, &orphans, &flags, false, false,
-    );
+    let result = handle_job_prune(&ctx, &flags, false, false);
 
     match result {
         Ok(Response::JobsPruned { pruned, skipped }) => {
@@ -1572,8 +1346,7 @@ fn make_workspace(id: &str, path: std::path::PathBuf, owner: Option<&str>) -> Wo
 #[tokio::test]
 async fn workspace_prune_emits_deleted_events_for_fs_workspaces() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     let workspaces_dir = dir.path().join("workspaces");
     std::fs::create_dir_all(&workspaces_dir).unwrap();
@@ -1586,7 +1359,7 @@ async fn workspace_prune_emits_deleted_events_for_fs_workspaces() {
 
     // Add workspace entries to daemon state
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.workspaces.insert(
             "ws-test-1".to_string(),
             make_workspace("ws-test-1", ws1_path.clone(), None),
@@ -1602,7 +1375,7 @@ async fn workspace_prune_emits_deleted_events_for_fs_workspaces() {
         dry_run: false,
         namespace: None,
     };
-    let result = workspace_prune_inner(&state, &event_bus, &flags, &workspaces_dir).await;
+    let result = workspace_prune_inner(&ctx.state, &ctx.event_bus, &flags, &workspaces_dir).await;
 
     match result {
         Ok(Response::WorkspacesPruned { pruned, skipped }) => {
@@ -1621,7 +1394,7 @@ async fn workspace_prune_emits_deleted_events_for_fs_workspaces() {
 
     // Verify WorkspaceDeleted events were emitted by applying them to state
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.apply_event(&Event::WorkspaceDeleted {
             id: oj_core::WorkspaceId::new("ws-test-1"),
         });
@@ -1636,15 +1409,14 @@ async fn workspace_prune_emits_deleted_events_for_fs_workspaces() {
 #[tokio::test]
 async fn workspace_prune_removes_orphaned_state_entries() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     let workspaces_dir = dir.path().join("workspaces");
     std::fs::create_dir_all(&workspaces_dir).unwrap();
 
     // Add workspace entries to state that have NO corresponding filesystem directory
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.workspaces.insert(
             "ws-orphan-1".to_string(),
             make_workspace("ws-orphan-1", workspaces_dir.join("ws-orphan-1"), None),
@@ -1660,7 +1432,7 @@ async fn workspace_prune_removes_orphaned_state_entries() {
         dry_run: false,
         namespace: None,
     };
-    let result = workspace_prune_inner(&state, &event_bus, &flags, &workspaces_dir).await;
+    let result = workspace_prune_inner(&ctx.state, &ctx.event_bus, &flags, &workspaces_dir).await;
 
     match result {
         Ok(Response::WorkspacesPruned { pruned, skipped }) => {
@@ -1677,8 +1449,7 @@ async fn workspace_prune_removes_orphaned_state_entries() {
 #[tokio::test]
 async fn workspace_prune_dry_run_does_not_delete() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     let workspaces_dir = dir.path().join("workspaces");
     std::fs::create_dir_all(&workspaces_dir).unwrap();
@@ -1687,7 +1458,7 @@ async fn workspace_prune_dry_run_does_not_delete() {
     std::fs::create_dir_all(&ws_path).unwrap();
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.workspaces.insert(
             "ws-keep".to_string(),
             make_workspace("ws-keep", ws_path.clone(), None),
@@ -1699,7 +1470,7 @@ async fn workspace_prune_dry_run_does_not_delete() {
         dry_run: true,
         namespace: None,
     };
-    let result = workspace_prune_inner(&state, &event_bus, &flags, &workspaces_dir).await;
+    let result = workspace_prune_inner(&ctx.state, &ctx.event_bus, &flags, &workspaces_dir).await;
 
     match result {
         Ok(Response::WorkspacesPruned { pruned, skipped }) => {
@@ -1716,7 +1487,7 @@ async fn workspace_prune_dry_run_does_not_delete() {
     );
 
     // State should be unchanged after dry run
-    let s = state.lock();
+    let s = ctx.state.lock();
     assert!(
         s.workspaces.contains_key("ws-keep"),
         "workspace should remain in state after dry run"
@@ -1726,8 +1497,7 @@ async fn workspace_prune_dry_run_does_not_delete() {
 #[tokio::test]
 async fn workspace_prune_includes_orphaned_owner_workspaces_with_namespace() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     let workspaces_dir = dir.path().join("workspaces");
     std::fs::create_dir_all(&workspaces_dir).unwrap();
@@ -1735,7 +1505,7 @@ async fn workspace_prune_includes_orphaned_owner_workspaces_with_namespace() {
     // Workspace with an owner whose job no longer exists in state
     // (owner is unresolvable → should be included in namespace-filtered prune)
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         s.workspaces.insert(
             "ws-orphan-owner".to_string(),
             make_workspace(
@@ -1764,7 +1534,7 @@ async fn workspace_prune_includes_orphaned_owner_workspaces_with_namespace() {
         dry_run: false,
         namespace: Some("myproject"),
     };
-    let result = workspace_prune_inner(&state, &event_bus, &flags, &workspaces_dir).await;
+    let result = workspace_prune_inner(&ctx.state, &ctx.event_bus, &flags, &workspaces_dir).await;
 
     match result {
         Ok(Response::WorkspacesPruned { pruned, .. }) => {
@@ -1790,17 +1560,16 @@ async fn workspace_prune_includes_orphaned_owner_workspaces_with_namespace() {
 #[test]
 fn resume_all_resumes_waiting_jobs() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         let mut job = make_job("job-1", "work");
         job.step_status = StepStatus::Waiting(None);
         s.jobs.insert("job-1".to_string(), job);
     }
 
-    let result = handle_job_resume_all(&state, &event_bus, false);
+    let result = handle_job_resume_all(&ctx, false);
     match result {
         Ok(Response::JobsResumed { resumed, skipped }) => {
             assert_eq!(resumed, vec!["job-1"]);
@@ -1813,17 +1582,16 @@ fn resume_all_resumes_waiting_jobs() {
 #[test]
 fn resume_all_resumes_failed_jobs() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         let mut job = make_job("job-1", "work");
         job.step_status = StepStatus::Failed;
         s.jobs.insert("job-1".to_string(), job);
     }
 
-    let result = handle_job_resume_all(&state, &event_bus, false);
+    let result = handle_job_resume_all(&ctx, false);
     match result {
         Ok(Response::JobsResumed { resumed, skipped }) => {
             assert_eq!(resumed, vec!["job-1"]);
@@ -1836,16 +1604,15 @@ fn resume_all_resumes_failed_jobs() {
 #[test]
 fn resume_all_skips_running_jobs_without_kill() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         let job = make_job("job-1", "work"); // step_status = Running by default
         s.jobs.insert("job-1".to_string(), job);
     }
 
-    let result = handle_job_resume_all(&state, &event_bus, false);
+    let result = handle_job_resume_all(&ctx, false);
     match result {
         Ok(Response::JobsResumed { resumed, skipped }) => {
             assert!(resumed.is_empty());
@@ -1860,16 +1627,15 @@ fn resume_all_skips_running_jobs_without_kill() {
 #[test]
 fn resume_all_with_kill_resumes_running_jobs() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         let job = make_job("job-1", "work"); // step_status = Running
         s.jobs.insert("job-1".to_string(), job);
     }
 
-    let result = handle_job_resume_all(&state, &event_bus, true);
+    let result = handle_job_resume_all(&ctx, true);
     match result {
         Ok(Response::JobsResumed { resumed, skipped }) => {
             assert_eq!(resumed, vec!["job-1"]);
@@ -1882,11 +1648,10 @@ fn resume_all_with_kill_resumes_running_jobs() {
 #[test]
 fn resume_all_skips_terminal_jobs() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
     {
-        let mut s = state.lock();
+        let mut s = ctx.state.lock();
         // Terminal job (done)
         let done_job = make_job("job-done", "done");
         s.jobs.insert("job-done".to_string(), done_job);
@@ -1897,7 +1662,7 @@ fn resume_all_skips_terminal_jobs() {
         s.jobs.insert("job-wait".to_string(), waiting_job);
     }
 
-    let result = handle_job_resume_all(&state, &event_bus, false);
+    let result = handle_job_resume_all(&ctx, false);
     match result {
         Ok(Response::JobsResumed { resumed, skipped }) => {
             assert_eq!(resumed, vec!["job-wait"]);
@@ -1910,10 +1675,9 @@ fn resume_all_skips_terminal_jobs() {
 #[test]
 fn resume_all_returns_empty_when_no_jobs() {
     let dir = tempdir().unwrap();
-    let event_bus = test_event_bus(dir.path());
-    let state = empty_state();
+    let ctx = test_ctx(dir.path());
 
-    let result = handle_job_resume_all(&state, &event_bus, false);
+    let result = handle_job_resume_all(&ctx, false);
     match result {
         Ok(Response::JobsResumed { resumed, skipped }) => {
             assert!(resumed.is_empty());

@@ -124,6 +124,123 @@ impl AgentRun {
     }
 }
 
+/// Builder for `AgentRun` with test defaults.
+#[cfg(any(test, feature = "test-support"))]
+pub struct AgentRunBuilder {
+    id: String,
+    agent_name: String,
+    command_name: String,
+    namespace: String,
+    cwd: PathBuf,
+    runbook_hash: String,
+    status: AgentRunStatus,
+    agent_id: Option<String>,
+    session_id: Option<String>,
+    error: Option<String>,
+    created_at_ms: u64,
+    updated_at_ms: u64,
+    action_tracker: ActionTracker,
+    vars: HashMap<String, String>,
+    idle_grace_log_size: Option<u64>,
+    last_nudge_at: Option<u64>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Default for AgentRunBuilder {
+    fn default() -> Self {
+        Self {
+            id: "run-1".to_string(),
+            agent_name: "worker".to_string(),
+            command_name: "agent_cmd".to_string(),
+            namespace: String::new(),
+            cwd: PathBuf::from("/tmp/test"),
+            runbook_hash: "testhash".to_string(),
+            status: AgentRunStatus::Running,
+            agent_id: Some("agent-uuid-1".to_string()),
+            session_id: Some("sess-1".to_string()),
+            error: None,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            action_tracker: ActionTracker::default(),
+            vars: HashMap::new(),
+            idle_grace_log_size: None,
+            last_nudge_at: None,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl AgentRunBuilder {
+    pub fn id(mut self, v: impl Into<String>) -> Self {
+        self.id = v.into();
+        self
+    }
+    pub fn agent_name(mut self, v: impl Into<String>) -> Self {
+        self.agent_name = v.into();
+        self
+    }
+    pub fn command_name(mut self, v: impl Into<String>) -> Self {
+        self.command_name = v.into();
+        self
+    }
+    pub fn namespace(mut self, v: impl Into<String>) -> Self {
+        self.namespace = v.into();
+        self
+    }
+    pub fn cwd(mut self, v: impl Into<PathBuf>) -> Self {
+        self.cwd = v.into();
+        self
+    }
+    pub fn runbook_hash(mut self, v: impl Into<String>) -> Self {
+        self.runbook_hash = v.into();
+        self
+    }
+    pub fn status(mut self, v: AgentRunStatus) -> Self {
+        self.status = v;
+        self
+    }
+    pub fn agent_id(mut self, v: impl Into<String>) -> Self {
+        self.agent_id = Some(v.into());
+        self
+    }
+    pub fn session_id(mut self, v: impl Into<String>) -> Self {
+        self.session_id = Some(v.into());
+        self
+    }
+    pub fn error(mut self, v: impl Into<String>) -> Self {
+        self.error = Some(v.into());
+        self
+    }
+    pub fn build(self) -> AgentRun {
+        AgentRun {
+            id: self.id,
+            agent_name: self.agent_name,
+            command_name: self.command_name,
+            namespace: self.namespace,
+            cwd: self.cwd,
+            runbook_hash: self.runbook_hash,
+            status: self.status,
+            agent_id: self.agent_id,
+            session_id: self.session_id,
+            error: self.error,
+            created_at_ms: self.created_at_ms,
+            updated_at_ms: self.updated_at_ms,
+            action_tracker: self.action_tracker,
+            vars: self.vars,
+            idle_grace_log_size: self.idle_grace_log_size,
+            last_nudge_at: self.last_nudge_at,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl AgentRun {
+    /// Create a builder with test defaults.
+    pub fn builder() -> AgentRunBuilder {
+        AgentRunBuilder::default()
+    }
+}
+
 #[cfg(test)]
 #[path = "agent_run_tests.rs"]
 mod tests;

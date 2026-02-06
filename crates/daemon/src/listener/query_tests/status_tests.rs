@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) 2026 Alfred Jean LLC
 
-use std::collections::HashMap;
 use std::time::Instant;
 
 use tempfile::tempdir;
 
-use oj_core::{AgentRun, AgentRunStatus, StepOutcome, StepStatus, StepStatusKind};
+use oj_core::{AgentRun, StepOutcome, StepStatus, StepStatusKind};
 use oj_storage::QueueItemStatus;
 
 use super::{
@@ -357,24 +356,16 @@ fn status_overview_includes_active_agents() {
         let mut s = state.lock();
         s.agent_runs.insert(
             "ar-1".to_string(),
-            AgentRun {
-                id: "ar-1".to_string(),
-                agent_name: "coder".to_string(),
-                command_name: "fix/login".to_string(),
-                namespace: "oddjobs".to_string(),
-                cwd: temp.path().to_path_buf(),
-                runbook_hash: "hash123".to_string(),
-                status: AgentRunStatus::Running,
-                agent_id: Some("claude-abc".to_string()),
-                session_id: Some("tmux-session".to_string()),
-                error: None,
-                created_at_ms: 1000,
-                updated_at_ms: 2000,
-                action_tracker: Default::default(),
-                vars: HashMap::new(),
-                idle_grace_log_size: None,
-                last_nudge_at: None,
-            },
+            AgentRun::builder()
+                .id("ar-1")
+                .agent_name("coder")
+                .command_name("fix/login")
+                .namespace("oddjobs")
+                .cwd(temp.path())
+                .runbook_hash("hash123")
+                .agent_id("claude-abc")
+                .session_id("tmux-session")
+                .build(),
         );
     }
 

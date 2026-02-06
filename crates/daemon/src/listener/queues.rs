@@ -23,11 +23,11 @@ use super::ListenCtx;
 
 /// Handle a QueuePush request.
 pub(super) fn handle_queue_push(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
     data: serde_json::Value,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Load runbook containing the queue.
     let (runbook, effective_root) = match super::load_runbook_with_fallback(
@@ -62,7 +62,7 @@ pub(super) fn handle_queue_push(
 
     // External queues: wake workers to re-run the list command (no data needed)
     if queue_def.queue_type != QueueType::Persisted {
-        wake_attached_workers(project_root, namespace, queue_name, &runbook, ctx)?;
+        wake_attached_workers(ctx, project_root, namespace, queue_name, &runbook)?;
 
         return Ok(Response::Ok);
     }
@@ -122,7 +122,7 @@ pub(super) fn handle_queue_push(
                 drop(st);
 
                 // Still wake workers so they can pick up pending work
-                wake_attached_workers(project_root, namespace, queue_name, &runbook, ctx)?;
+                wake_attached_workers(ctx, project_root, namespace, queue_name, &runbook)?;
 
                 return Ok(Response::QueuePushed {
                     queue_name: queue_name.to_string(),
@@ -152,7 +152,7 @@ pub(super) fn handle_queue_push(
     emit(&ctx.event_bus, event)?;
 
     // Wake workers attached to this queue (auto-starting stopped workers)
-    wake_attached_workers(project_root, namespace, queue_name, &runbook, ctx)?;
+    wake_attached_workers(ctx, project_root, namespace, queue_name, &runbook)?;
 
     Ok(Response::QueuePushed {
         queue_name: queue_name.to_string(),
@@ -167,11 +167,11 @@ pub(super) fn handle_queue_push(
 /// same events `handle_worker_start()` produces), effectively auto-starting
 /// the worker on queue push.
 fn wake_attached_workers(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
     runbook: &oj_runbook::Runbook,
-    ctx: &ListenCtx,
 ) -> Result<(), ConnectionError> {
     // Find workers in the runbook that source from this queue
     let worker_names: Vec<&str> = runbook
@@ -288,11 +288,11 @@ fn resolve_queue_item_id(
 
 /// Handle a QueueDrop request.
 pub(super) fn handle_queue_drop(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
     item_id: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Load runbook containing the queue.
     let (runbook, _effective_root) = match super::load_runbook_with_fallback(
@@ -360,11 +360,11 @@ pub(super) struct RetryFilter<'a> {
 
 /// Handle a QueueRetry request (single or bulk).
 pub(super) fn handle_queue_retry(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
     filter: RetryFilter<'_>,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     let RetryFilter {
         item_ids,
@@ -490,7 +490,7 @@ pub(super) fn handle_queue_retry(
         emit(&ctx.event_bus, event)?;
 
         // Wake workers attached to this queue
-        wake_attached_workers(project_root, namespace, queue_name, &runbook, ctx)?;
+        wake_attached_workers(ctx, project_root, namespace, queue_name, &runbook)?;
 
         return Ok(Response::QueueRetried {
             queue_name: queue_name.to_string(),
@@ -545,7 +545,7 @@ pub(super) fn handle_queue_retry(
 
     // Wake workers if any items were retried
     if !retried.is_empty() {
-        wake_attached_workers(project_root, namespace, queue_name, &runbook, ctx)?;
+        wake_attached_workers(ctx, project_root, namespace, queue_name, &runbook)?;
     }
 
     Ok(Response::QueueItemsRetried {
@@ -560,10 +560,10 @@ pub(super) fn handle_queue_retry(
 ///
 /// Removes all pending items from a persisted queue and returns them.
 pub(super) fn handle_queue_drain(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Load runbook containing the queue.
     let (runbook, _effective_root) = match super::load_runbook_with_fallback(
@@ -644,11 +644,11 @@ pub(super) fn handle_queue_drain(
 
 /// Handle a QueueFail request — force-fail an active item.
 pub(super) fn handle_queue_fail(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
     item_id: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Load runbook containing the queue.
     let (_runbook, _effective_root) = match super::load_runbook_with_fallback(
@@ -729,11 +729,11 @@ pub(super) fn handle_queue_fail(
 
 /// Handle a QueueDone request — force-complete an active item.
 pub(super) fn handle_queue_done(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
     item_id: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Load runbook containing the queue.
     let (_runbook, _effective_root) = match super::load_runbook_with_fallback(
@@ -817,12 +817,12 @@ pub(super) fn handle_queue_done(
 /// items older than 12 hours are pruned. The `all` flag removes all terminal
 /// items regardless of age.
 pub(super) fn handle_queue_prune(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     queue_name: &str,
     all: bool,
     dry_run: bool,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Load runbook containing the queue.
     let (runbook, _effective_root) = match super::load_runbook_with_fallback(

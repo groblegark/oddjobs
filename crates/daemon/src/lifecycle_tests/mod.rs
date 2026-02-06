@@ -96,17 +96,11 @@ async fn setup_daemon_with_job_and_reader() -> (DaemonState, EventReader, PathBu
 
     // Pre-populate state with job + stored runbook
     let mut state = MaterializedState::default();
-    let config = JobConfig {
-        id: "pipe-1".to_string(),
-        name: "test-job".to_string(),
-        kind: "test".to_string(),
-        vars: HashMap::new(),
-        runbook_hash: hash.clone(),
-        cwd: dir_path.clone(),
-        initial_step: "only-step".to_string(),
-        namespace: String::new(),
-        cron_name: None,
-    };
+    let config = JobConfig::builder("pipe-1", "test", "only-step")
+        .name("test-job")
+        .runbook_hash(hash.clone())
+        .cwd(dir_path.clone())
+        .build();
     let job = oj_core::Job::new(config, &SystemClock);
     state.jobs.insert("pipe-1".to_string(), job);
     state.apply_event(&Event::RunbookLoaded {
@@ -207,38 +201,67 @@ fn setup_reconcile_runtime(dir_path: &Path) -> (Arc<DaemonRuntime>, TracedSessio
     (runtime, session_adapter)
 }
 
+/// Run reconciliation on a state snapshot and collect all emitted events.
+async fn run_reconcile(
+    runtime: &Arc<DaemonRuntime>,
+    session_adapter: &TracedSession<TmuxAdapter>,
+    state: MaterializedState,
+) -> Vec<Event> {
+    let job_count = state.jobs.values().filter(|j| !j.is_terminal()).count();
+    let worker_count = state
+        .workers
+        .values()
+        .filter(|w| w.status == "running")
+        .count();
+    let cron_count = state
+        .crons
+        .values()
+        .filter(|c| c.status == "running")
+        .count();
+    let agent_run_count = state
+        .agent_runs
+        .values()
+        .filter(|ar| !ar.is_terminal())
+        .count();
+
+    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
+    let ctx = crate::lifecycle::ReconcileCtx {
+        runtime: Arc::clone(runtime),
+        state_snapshot: state,
+        session_adapter: session_adapter.clone(),
+        event_tx,
+        job_count,
+        worker_count,
+        cron_count,
+        agent_run_count,
+    };
+    crate::lifecycle::reconcile_state(&ctx).await;
+    drop(ctx);
+
+    let mut events = Vec::new();
+    while let Some(event) = event_rx.recv().await {
+        events.push(event);
+    }
+    events
+}
+
 /// Helper to create a job with an agent_id in step_history and a session_id.
 fn make_job_with_agent(id: &str, step: &str, agent_uuid: &str, session_id: &str) -> Job {
-    Job {
-        id: id.to_string(),
-        name: "test-job".to_string(),
-        kind: "test".to_string(),
-        namespace: "proj".to_string(),
-        step: step.to_string(),
-        step_status: StepStatus::Running,
-        step_started_at: std::time::Instant::now(),
-        step_history: vec![StepRecord {
+    Job::builder()
+        .id(id)
+        .kind("test")
+        .namespace("proj")
+        .step(step)
+        .runbook_hash("abc123")
+        .cwd("/tmp/project")
+        .session_id(session_id)
+        .step_history(vec![StepRecord {
             name: step.to_string(),
             started_at_ms: 1000,
             finished_at_ms: None,
             outcome: StepOutcome::Running,
             agent_id: Some(agent_uuid.to_string()),
             agent_name: Some("test-agent".to_string()),
-        }],
-        vars: HashMap::new(),
-        runbook_hash: "abc123".to_string(),
-        cwd: PathBuf::from("/tmp/project"),
-        workspace_id: None,
-        workspace_path: None,
-        session_id: Some(session_id.to_string()),
-        created_at: std::time::Instant::now(),
-        error: None,
-        action_tracker: Default::default(),
-        cancelling: false,
-        total_retries: 0,
-        step_visits: HashMap::new(),
-        cron_name: None,
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    }
+        }])
+        .build()
 }

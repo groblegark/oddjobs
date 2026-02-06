@@ -6,6 +6,7 @@
 use super::super::Runtime;
 use crate::error::RuntimeError;
 use crate::monitor::{self, MonitorState};
+use crate::ActionContext;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
     split_scoped_name, AgentId, AgentRunId, AgentRunStatus, AgentState, Clock, Effect, Event,
@@ -121,12 +122,14 @@ where
 
         self.execute_action_with_attempts(
             &job,
-            &agent_def,
-            &action_config,
-            trigger,
-            chain_pos,
-            None,
-            assistant_context.as_deref(),
+            &ActionContext {
+                agent_def: &agent_def,
+                action_config: &action_config,
+                trigger,
+                chain_pos,
+                question_data: None,
+                assistant_context: assistant_context.as_deref(),
+            },
         )
         .await
     }
@@ -639,12 +642,14 @@ where
 
         self.execute_standalone_action_with_attempts(
             &agent_run,
-            &agent_def,
-            &action_config,
-            trigger,
-            chain_pos,
-            None,
-            assistant_context.as_deref(),
+            &ActionContext {
+                agent_def: &agent_def,
+                action_config: &action_config,
+                trigger,
+                chain_pos,
+                question_data: None,
+                assistant_context: assistant_context.as_deref(),
+            },
         )
         .await
     }

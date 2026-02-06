@@ -271,79 +271,32 @@ impl EscalationDecisionBuilder {
     fn build_options(&self) -> Vec<DecisionOption> {
         match &self.trigger {
             EscalationTrigger::Idle { .. } => vec![
-                DecisionOption {
-                    label: "Nudge".to_string(),
-                    description: Some("Send a message prompting the agent to continue".to_string()),
-                    recommended: true,
-                },
-                DecisionOption {
-                    label: "Done".to_string(),
-                    description: Some("Mark as complete".to_string()),
-                    recommended: false,
-                },
-                DecisionOption {
-                    label: "Cancel".to_string(),
-                    description: Some("Cancel and fail".to_string()),
-                    recommended: false,
-                },
-                DecisionOption {
-                    label: "Dismiss".to_string(),
-                    description: Some(
-                        "Dismiss this notification without taking action".to_string(),
-                    ),
-                    recommended: false,
-                },
+                DecisionOption::new("Nudge")
+                    .description("Send a message prompting the agent to continue")
+                    .recommended(),
+                DecisionOption::new("Done").description("Mark as complete"),
+                DecisionOption::new("Cancel").description("Cancel and fail"),
+                DecisionOption::new("Dismiss")
+                    .description("Dismiss this notification without taking action"),
             ],
             EscalationTrigger::Dead { .. } | EscalationTrigger::Error { .. } => vec![
-                DecisionOption {
-                    label: "Retry".to_string(),
-                    description: Some("Restart the agent with --resume to continue".to_string()),
-                    recommended: true,
-                },
-                DecisionOption {
-                    label: "Skip".to_string(),
-                    description: Some("Skip and mark as complete".to_string()),
-                    recommended: false,
-                },
-                DecisionOption {
-                    label: "Cancel".to_string(),
-                    description: Some("Cancel and fail".to_string()),
-                    recommended: false,
-                },
+                DecisionOption::new("Retry")
+                    .description("Restart the agent with --resume to continue")
+                    .recommended(),
+                DecisionOption::new("Skip").description("Skip and mark as complete"),
+                DecisionOption::new("Cancel").description("Cancel and fail"),
             ],
             EscalationTrigger::GateFailed { .. } => vec![
-                DecisionOption {
-                    label: "Retry".to_string(),
-                    description: Some("Re-run the gate command".to_string()),
-                    recommended: true,
-                },
-                DecisionOption {
-                    label: "Skip".to_string(),
-                    description: Some("Skip the gate and continue".to_string()),
-                    recommended: false,
-                },
-                DecisionOption {
-                    label: "Cancel".to_string(),
-                    description: Some("Cancel and fail".to_string()),
-                    recommended: false,
-                },
+                DecisionOption::new("Retry")
+                    .description("Re-run the gate command")
+                    .recommended(),
+                DecisionOption::new("Skip").description("Skip the gate and continue"),
+                DecisionOption::new("Cancel").description("Cancel and fail"),
             ],
             EscalationTrigger::Prompt { .. } => vec![
-                DecisionOption {
-                    label: "Approve".to_string(),
-                    description: Some("Approve the pending action".to_string()),
-                    recommended: false,
-                },
-                DecisionOption {
-                    label: "Deny".to_string(),
-                    description: Some("Deny the pending action".to_string()),
-                    recommended: false,
-                },
-                DecisionOption {
-                    label: "Cancel".to_string(),
-                    description: Some("Cancel and fail".to_string()),
-                    recommended: false,
-                },
+                DecisionOption::new("Approve").description("Approve the pending action"),
+                DecisionOption::new("Deny").description("Deny the pending action"),
+                DecisionOption::new("Cancel").description("Cancel and fail"),
             ],
             EscalationTrigger::Question {
                 ref question_data, ..
@@ -353,21 +306,17 @@ impl EscalationDecisionBuilder {
                 if let Some(qd) = question_data {
                     if let Some(entry) = qd.questions.first() {
                         for opt in &entry.options {
-                            options.push(DecisionOption {
-                                label: opt.label.clone(),
-                                description: opt.description.clone(),
-                                recommended: false,
-                            });
+                            let mut o = DecisionOption::new(opt.label.clone());
+                            if let Some(ref desc) = opt.description {
+                                o = o.description(desc.clone());
+                            }
+                            options.push(o);
                         }
                     }
                 }
 
                 // Always add Cancel as the last option
-                options.push(DecisionOption {
-                    label: "Cancel".to_string(),
-                    description: Some("Cancel and fail".to_string()),
-                    recommended: false,
-                });
+                options.push(DecisionOption::new("Cancel").description("Cancel and fail"));
 
                 options
             }

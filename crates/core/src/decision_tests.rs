@@ -22,11 +22,9 @@ fn decision_source_serde_roundtrip() {
 
 #[test]
 fn decision_option_serde_roundtrip() {
-    let opt = DecisionOption {
-        label: "Retry".to_string(),
-        description: Some("Try the step again".to_string()),
-        recommended: true,
-    };
+    let opt = DecisionOption::new("Retry")
+        .description("Try the step again")
+        .recommended();
     let json = serde_json::to_string(&opt).unwrap();
     let parsed: DecisionOption = serde_json::from_str(&json).unwrap();
     assert_eq!(opt, parsed);
@@ -34,11 +32,7 @@ fn decision_option_serde_roundtrip() {
 
 #[test]
 fn decision_option_minimal_serde() {
-    let opt = DecisionOption {
-        label: "Skip".to_string(),
-        description: None,
-        recommended: false,
-    };
+    let opt = DecisionOption::new("Skip");
     let json = serde_json::to_string(&opt).unwrap();
     // description should be omitted when None
     assert!(!json.contains("description"));
@@ -56,16 +50,8 @@ fn decision_serde_roundtrip() {
         source: DecisionSource::Gate,
         context: "Gate failed with exit code 1".to_string(),
         options: vec![
-            DecisionOption {
-                label: "Retry".to_string(),
-                description: None,
-                recommended: true,
-            },
-            DecisionOption {
-                label: "Skip".to_string(),
-                description: Some("Skip this step".to_string()),
-                recommended: false,
-            },
+            DecisionOption::new("Retry").recommended(),
+            DecisionOption::new("Skip").description("Skip this step"),
         ],
         chosen: None,
         message: None,

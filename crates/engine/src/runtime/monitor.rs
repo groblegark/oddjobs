@@ -7,13 +7,14 @@ use super::Runtime;
 use crate::decision_builder::{EscalationDecisionBuilder, EscalationTrigger};
 use crate::error::RuntimeError;
 use crate::monitor::{self, ActionEffects, MonitorState};
+use crate::ActionContext;
 use oj_adapters::agent::find_session_log;
 use oj_adapters::subprocess::{run_with_timeout, GATE_TIMEOUT};
 use oj_adapters::AgentReconnectConfig;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
-    AgentId, AgentSignalKind, Clock, Effect, Event, Job, JobId, OwnerId, PromptType, QuestionData,
-    SessionId, TimerId,
+    AgentId, AgentSignalKind, Clock, Effect, Event, Job, JobId, OwnerId, PromptType, SessionId,
+    TimerId,
 };
 use std::collections::HashMap;
 
@@ -308,12 +309,14 @@ where
                 return self
                     .execute_action_with_attempts(
                         job,
-                        agent_def,
-                        &error_action,
-                        message,
-                        0,
-                        None,
-                        assistant_context.as_deref(),
+                        &ActionContext {
+                            agent_def,
+                            action_config: &error_action,
+                            trigger: message,
+                            chain_pos: 0,
+                            question_data: None,
+                            assistant_context: assistant_context.as_deref(),
+                        },
                     )
                     .await;
             }
@@ -337,29 +340,25 @@ where
 
         self.execute_action_with_attempts(
             job,
-            agent_def,
-            action_config,
-            trigger,
-            0,
-            qd.as_ref(),
-            assistant_context.as_deref(),
+            &ActionContext {
+                agent_def,
+                action_config,
+                trigger,
+                chain_pos: 0,
+                question_data: qd.as_ref(),
+                assistant_context: assistant_context.as_deref(),
+            },
         )
         .await
     }
 
     /// Execute an action with attempt tracking and cooldown support
-    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn execute_action_with_attempts(
         &self,
         job: &Job,
-        agent_def: &oj_runbook::AgentDef,
-        action_config: &oj_runbook::ActionConfig,
-        trigger: &str,
-        chain_pos: usize,
-        question_data: Option<&QuestionData>,
-        assistant_context: Option<&str>,
+        ctx: &ActionContext<'_>,
     ) -> Result<Vec<Event>, RuntimeError> {
-        let attempts = action_config.attempts();
+        let attempts = ctx.action_config.attempts();
         let job_id = JobId::new(&job.id);
 
         // Increment attempt count and get new value
@@ -367,14 +366,14 @@ where
             state
                 .jobs
                 .get_mut(job_id.as_str())
-                .map(|p| p.increment_action_attempt(trigger, chain_pos))
+                .map(|p| p.increment_action_attempt(ctx.trigger, ctx.chain_pos))
                 .unwrap_or(1)
         });
 
         tracing::debug!(
             job_id = %job.id,
-            trigger,
-            chain_pos,
+            trigger = ctx.trigger,
+            chain_pos = ctx.chain_pos,
             attempt_num,
             max_attempts = ?attempts,
             "checking action attempts"
@@ -384,30 +383,30 @@ where
         if attempts.is_exhausted(attempt_num - 1) {
             tracing::info!(
                 job_id = %job.id,
-                trigger,
+                trigger = ctx.trigger,
                 attempts = attempt_num - 1,
                 "attempts exhausted, escalating"
             );
             self.logger.append(
                 &job.id,
                 &job.step,
-                &format!("{} attempts exhausted, escalating", trigger),
+                &format!("{} attempts exhausted, escalating", ctx.trigger),
             );
             // Escalate
             let escalate_config =
                 oj_runbook::ActionConfig::simple(oj_runbook::AgentAction::Escalate);
+            let exhausted_trigger = format!("{}_exhausted", ctx.trigger);
             return self
                 .execute_action_effects(
                     job,
-                    agent_def,
+                    ctx.agent_def,
                     monitor::build_action_effects(
+                        &ActionContext {
+                            action_config: &escalate_config,
+                            trigger: &exhausted_trigger,
+                            ..*ctx
+                        },
                         job,
-                        agent_def,
-                        &escalate_config,
-                        &format!("{}_exhausted", trigger),
-                        &job.vars,
-                        question_data,
-                        assistant_context,
                     )?,
                 )
                 .await;
@@ -415,18 +414,18 @@ where
 
         // Check if cooldown needed (not first attempt, cooldown configured)
         if attempt_num > 1 {
-            if let Some(cooldown_str) = action_config.cooldown() {
+            if let Some(cooldown_str) = ctx.action_config.cooldown() {
                 let duration = monitor::parse_duration(cooldown_str).map_err(|e| {
                     RuntimeError::InvalidRequest(format!(
                         "invalid cooldown '{}': {}",
                         cooldown_str, e
                     ))
                 })?;
-                let timer_id = TimerId::cooldown(&job_id, trigger, chain_pos);
+                let timer_id = TimerId::cooldown(&job_id, ctx.trigger, ctx.chain_pos);
 
                 tracing::info!(
                     job_id = %job.id,
-                    trigger,
+                    trigger = ctx.trigger,
                     attempt = attempt_num,
                     cooldown = ?duration,
                     "scheduling cooldown before retry"
@@ -436,7 +435,7 @@ where
                     &job.step,
                     &format!(
                         "{} attempt {} cooldown {:?}",
-                        trigger, attempt_num, duration
+                        ctx.trigger, attempt_num, duration
                     ),
                 );
 
@@ -453,20 +452,8 @@ where
         }
 
         // Execute the action
-        self.execute_action_effects(
-            job,
-            agent_def,
-            monitor::build_action_effects(
-                job,
-                agent_def,
-                action_config,
-                trigger,
-                &job.vars,
-                question_data,
-                assistant_context,
-            )?,
-        )
-        .await
+        self.execute_action_effects(job, ctx.agent_def, monitor::build_action_effects(ctx, job)?)
+            .await
     }
 
     /// Run a shell gate command for the `gate` on_dead action.

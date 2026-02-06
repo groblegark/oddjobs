@@ -59,6 +59,26 @@ pub struct Decision {
     pub namespace: String,
 }
 
+impl DecisionOption {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            description: None,
+            recommended: false,
+        }
+    }
+
+    pub fn description(mut self, desc: impl Into<String>) -> Self {
+        self.description = Some(desc.into());
+        self
+    }
+
+    pub fn recommended(mut self) -> Self {
+        self.recommended = true;
+        self
+    }
+}
+
 impl Decision {
     pub fn is_resolved(&self) -> bool {
         self.resolved_at_ms.is_some()

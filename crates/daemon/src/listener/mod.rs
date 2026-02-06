@@ -139,7 +139,7 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
             Ok(Response::Ok)
         }
 
-        Request::Query { query } => Ok(query::handle_query(query, ctx)),
+        Request::Query { query } => Ok(query::handle_query(ctx, query)),
 
         Request::Shutdown { kill } => {
             if kill {
@@ -279,7 +279,7 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
             namespace,
             worker_name,
             all,
-        } => workers::handle_worker_start(&project_root, &namespace, &worker_name, all, ctx),
+        } => workers::handle_worker_start(ctx, &project_root, &namespace, &worker_name, all),
 
         Request::WorkerWake {
             worker_name,
@@ -299,58 +299,58 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
             worker_name,
             namespace,
             project_root,
-        } => workers::handle_worker_stop(&worker_name, &namespace, project_root.as_deref(), ctx),
+        } => workers::handle_worker_stop(ctx, &worker_name, &namespace, project_root.as_deref()),
 
         Request::WorkerRestart {
             project_root,
             namespace,
             worker_name,
-        } => workers::handle_worker_restart(&project_root, &namespace, &worker_name, ctx),
+        } => workers::handle_worker_restart(ctx, &project_root, &namespace, &worker_name),
 
         Request::WorkerResize {
             worker_name,
             namespace,
             concurrency,
-        } => workers::handle_worker_resize(&worker_name, &namespace, concurrency, ctx),
+        } => workers::handle_worker_resize(ctx, &worker_name, &namespace, concurrency),
 
         Request::CronStart {
             project_root,
             namespace,
             cron_name,
             all,
-        } => crons::handle_cron_start(&project_root, &namespace, &cron_name, all, ctx),
+        } => crons::handle_cron_start(ctx, &project_root, &namespace, &cron_name, all),
 
         Request::CronStop {
             cron_name,
             namespace,
             project_root,
-        } => crons::handle_cron_stop(&cron_name, &namespace, ctx, project_root.as_deref()),
+        } => crons::handle_cron_stop(ctx, &cron_name, &namespace, project_root.as_deref()),
 
         Request::CronRestart {
             project_root,
             namespace,
             cron_name,
-        } => crons::handle_cron_restart(&project_root, &namespace, &cron_name, ctx),
+        } => crons::handle_cron_restart(ctx, &project_root, &namespace, &cron_name),
 
         Request::CronOnce {
             project_root,
             namespace,
             cron_name,
-        } => crons::handle_cron_once(&project_root, &namespace, &cron_name, ctx).await,
+        } => crons::handle_cron_once(ctx, &project_root, &namespace, &cron_name).await,
 
         Request::QueuePush {
             project_root,
             namespace,
             queue_name,
             data,
-        } => queues::handle_queue_push(&project_root, &namespace, &queue_name, data, ctx),
+        } => queues::handle_queue_push(ctx, &project_root, &namespace, &queue_name, data),
 
         Request::QueueDrop {
             project_root,
             namespace,
             queue_name,
             item_id,
-        } => queues::handle_queue_drop(&project_root, &namespace, &queue_name, &item_id, ctx),
+        } => queues::handle_queue_drop(ctx, &project_root, &namespace, &queue_name, &item_id),
 
         Request::QueueRetry {
             project_root,
@@ -360,6 +360,7 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
             all_dead,
             status,
         } => queues::handle_queue_retry(
+            ctx,
             &project_root,
             &namespace,
             &queue_name,
@@ -368,7 +369,6 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
                 all_dead,
                 status_filter: status.as_deref(),
             },
-            ctx,
         ),
 
         Request::QueueRetryBulk {
@@ -379,6 +379,7 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
             all_dead,
             status_filter,
         } => queues::handle_queue_retry(
+            ctx,
             &project_root,
             &namespace,
             &queue_name,
@@ -387,28 +388,27 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
                 all_dead,
                 status_filter: status_filter.as_deref(),
             },
-            ctx,
         ),
 
         Request::QueueDrain {
             project_root,
             namespace,
             queue_name,
-        } => queues::handle_queue_drain(&project_root, &namespace, &queue_name, ctx),
+        } => queues::handle_queue_drain(ctx, &project_root, &namespace, &queue_name),
 
         Request::QueueFail {
             project_root,
             namespace,
             queue_name,
             item_id,
-        } => queues::handle_queue_fail(&project_root, &namespace, &queue_name, &item_id, ctx),
+        } => queues::handle_queue_fail(ctx, &project_root, &namespace, &queue_name, &item_id),
 
         Request::QueueDone {
             project_root,
             namespace,
             queue_name,
             item_id,
-        } => queues::handle_queue_done(&project_root, &namespace, &queue_name, &item_id, ctx),
+        } => queues::handle_queue_done(ctx, &project_root, &namespace, &queue_name, &item_id),
 
         Request::QueuePrune {
             project_root,
@@ -416,13 +416,13 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
             queue_name,
             all,
             dry_run,
-        } => queues::handle_queue_prune(&project_root, &namespace, &queue_name, all, dry_run, ctx),
+        } => queues::handle_queue_prune(ctx, &project_root, &namespace, &queue_name, all, dry_run),
 
         Request::DecisionResolve {
             id,
             chosen,
             message,
-        } => decisions::handle_decision_resolve(&id, chosen, message, ctx),
+        } => decisions::handle_decision_resolve(ctx, &id, chosen, message),
 
         Request::AgentResume {
             agent_id,

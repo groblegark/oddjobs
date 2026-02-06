@@ -406,17 +406,17 @@ impl MaterializedState {
                 namespace,
                 cron_name,
             } => {
-                let config = JobConfig {
-                    id: id.to_string(),
-                    name: name.clone(),
-                    kind: kind.clone(),
-                    vars: vars.clone(),
-                    runbook_hash: runbook_hash.clone(),
-                    cwd: cwd.clone(),
-                    initial_step: initial_step.clone(),
-                    namespace: namespace.clone(),
-                    cron_name: cron_name.clone(),
-                };
+                let mut builder =
+                    JobConfig::builder(id.to_string(), kind.clone(), initial_step.clone())
+                        .name(name.clone())
+                        .vars(vars.clone())
+                        .runbook_hash(runbook_hash.clone())
+                        .cwd(cwd.clone())
+                        .namespace(namespace.clone());
+                if let Some(cn) = cron_name {
+                    builder = builder.cron_name(cn.clone());
+                }
+                let config = builder.build();
                 let job = Job::new_with_epoch_ms(config, *created_at_epoch_ms);
                 self.jobs.insert(id.to_string(), job);
             }

@@ -60,16 +60,7 @@ async fn reconcile_state_resumes_running_workers() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    // Collect all emitted events
-    drop(event_tx); // Close sender so recv() terminates
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should have emitted exactly one WorkerStarted for the running worker
     let worker_started_events: Vec<_> = events
@@ -120,14 +111,7 @@ async fn reconcile_job_dead_session_uses_step_history_agent_id() {
         make_job_with_agent("pipe-1", "build", agent_uuid, "oj-nonexistent-session"),
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should emit AgentGone with the UUID from step_history
     let gone_events: Vec<_> = events
@@ -168,14 +152,7 @@ async fn reconcile_job_no_agent_id_in_step_history_skips() {
     let mut test_state = MaterializedState::default();
     test_state.jobs.insert("pipe-2".to_string(), job);
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should not emit any agent events for this job
     let agent_events: Vec<_> = events
@@ -221,14 +198,7 @@ async fn reconcile_agent_run_dead_session_emits_gone_with_correct_id() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should emit AgentGone with the correct UUID
     let gone_events: Vec<_> = events
@@ -281,14 +251,7 @@ async fn reconcile_agent_run_no_agent_id_marks_failed_directly() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should emit AgentRunStatusChanged(Failed) directly
     let status_events: Vec<_> = events
@@ -355,14 +318,7 @@ async fn reconcile_agent_run_no_session_id_marks_failed() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     let status_events: Vec<_> = events
         .iter()

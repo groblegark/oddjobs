@@ -186,13 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             reconcile_ctx.agent_run_count
         );
         tokio::spawn(async move {
-            lifecycle::reconcile_state(
-                &reconcile_ctx.runtime,
-                &reconcile_ctx.state_snapshot,
-                &reconcile_ctx.session_adapter,
-                &reconcile_ctx.event_tx,
-            )
-            .await;
+            lifecycle::reconcile_state(&reconcile_ctx).await;
             info!("background reconciliation complete");
         });
     } else {

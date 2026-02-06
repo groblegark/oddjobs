@@ -29,14 +29,19 @@ pub mod workspace;
 // ActionTracker and AgentSignal available via action_tracker module or job re-export
 pub use agent::{AgentError, AgentId, AgentState};
 pub use agent_record::{AgentRecord, AgentRecordStatus};
+#[cfg(any(test, feature = "test-support"))]
+pub use agent_run::AgentRunBuilder;
 pub use agent_run::{AgentRun, AgentRunId, AgentRunStatus};
 pub use clock::{Clock, FakeClock, SystemClock};
 pub use decision::{Decision, DecisionId, DecisionOption, DecisionSource};
 pub use effect::Effect;
 pub use event::{AgentSignalKind, Event, PromptType, QuestionData, QuestionEntry, QuestionOption};
 pub use id::{IdGen, ShortId, UuidIdGen};
+#[cfg(any(test, feature = "test-support"))]
+pub use job::JobBuilder;
 pub use job::{
-    Job, JobConfig, JobId, StepOutcome, StepOutcomeKind, StepRecord, StepStatus, StepStatusKind,
+    Job, JobConfig, JobConfigBuilder, JobId, StepOutcome, StepOutcomeKind, StepRecord, StepStatus,
+    StepStatusKind,
 };
 pub use namespace::{namespace_to_option, scoped_name, split_scoped_name, Namespace};
 pub use owner::OwnerId;

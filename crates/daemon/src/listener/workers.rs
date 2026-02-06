@@ -27,14 +27,14 @@ use super::ListenCtx;
 ///
 /// For new or stopped workers, emits `WorkerStarted` as before.
 pub(super) fn handle_worker_start(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     worker_name: &str,
     all: bool,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     if all {
-        return handle_worker_start_all(project_root, namespace, ctx);
+        return handle_worker_start_all(ctx, project_root, namespace);
     }
 
     // Load runbook to validate worker exists.
@@ -135,9 +135,9 @@ pub(super) fn handle_worker_start(
 
 /// Handle starting all workers defined in runbooks.
 fn handle_worker_start_all(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Resolve the effective project root: prefer known root when namespace doesn't match
     let effective_root = resolve_effective_project_root(project_root, namespace, &ctx.state);
@@ -149,7 +149,7 @@ fn handle_worker_start_all(
 
     let (started, skipped) = super::collect_start_results(
         names,
-        |name| handle_worker_start(&effective_root, namespace, name, false, ctx),
+        |name| handle_worker_start(ctx, &effective_root, namespace, name, false),
         |resp| match resp {
             Response::WorkerStarted { worker_name } => Some(worker_name.clone()),
             _ => None,
@@ -183,10 +183,10 @@ fn resolve_effective_project_root(
 
 /// Handle a WorkerStop request.
 pub(super) fn handle_worker_stop(
+    ctx: &ListenCtx,
     worker_name: &str,
     namespace: &str,
     project_root: Option<&Path>,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Check if worker exists in state
     if let Err(resp) = super::require_scoped_resource(
@@ -221,10 +221,10 @@ pub(super) fn handle_worker_stop(
 
 /// Handle a WorkerRestart request: stop (if running), reload runbook, start.
 pub(super) fn handle_worker_restart(
+    ctx: &ListenCtx,
     project_root: &Path,
     namespace: &str,
     worker_name: &str,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Stop worker if it exists in state
     if super::scoped_exists(&ctx.state, namespace, worker_name, |s, k| {
@@ -240,15 +240,15 @@ pub(super) fn handle_worker_restart(
     }
 
     // Start with fresh runbook
-    handle_worker_start(project_root, namespace, worker_name, false, ctx)
+    handle_worker_start(ctx, project_root, namespace, worker_name, false)
 }
 
 /// Handle a WorkerResize request: update concurrency at runtime.
 pub(super) fn handle_worker_resize(
+    ctx: &ListenCtx,
     worker_name: &str,
     namespace: &str,
     concurrency: u32,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     // Validate concurrency > 0
     if concurrency == 0 {

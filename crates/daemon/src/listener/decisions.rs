@@ -15,10 +15,10 @@ use super::ConnectionError;
 use super::ListenCtx;
 
 pub(super) fn handle_decision_resolve(
+    ctx: &ListenCtx,
     id: &str,
     chosen: Option<usize>,
     message: Option<String>,
-    ctx: &ListenCtx,
 ) -> Result<Response, ConnectionError> {
     let state_guard = ctx.state.lock();
 

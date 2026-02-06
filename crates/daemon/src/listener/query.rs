@@ -32,7 +32,7 @@ use crate::protocol::{
 use super::ListenCtx;
 
 /// Handle query requests (read-only state access).
-pub(super) fn handle_query(query: Query, ctx: &ListenCtx) -> Response {
+pub(super) fn handle_query(ctx: &ListenCtx, query: Query) -> Response {
     match &query {
         Query::ListOrphans => return query_orphans::handle_list_orphans(&ctx.orphans),
         Query::DismissOrphan { id } => {

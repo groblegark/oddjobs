@@ -97,6 +97,66 @@ pub struct AgentSpawnConfig {
     pub owner: OwnerId,
 }
 
+impl AgentSpawnConfig {
+    pub fn new(
+        agent_id: AgentId,
+        command: impl Into<String>,
+        workspace_path: PathBuf,
+        owner: OwnerId,
+    ) -> Self {
+        Self {
+            agent_id,
+            command: command.into(),
+            workspace_path: workspace_path.clone(),
+            owner,
+            agent_name: String::new(),
+            env: Vec::new(),
+            cwd: None,
+            prompt: String::new(),
+            job_name: String::new(),
+            job_id: String::new(),
+            project_root: workspace_path,
+            session_config: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn agent_name(mut self, v: impl Into<String>) -> Self {
+        self.agent_name = v.into();
+        self
+    }
+    pub fn prompt(mut self, v: impl Into<String>) -> Self {
+        self.prompt = v.into();
+        self
+    }
+    pub fn job_name(mut self, v: impl Into<String>) -> Self {
+        self.job_name = v.into();
+        self
+    }
+    pub fn job_id(mut self, v: impl Into<String>) -> Self {
+        self.job_id = v.into();
+        self
+    }
+    pub fn env(mut self, v: Vec<(String, String)>) -> Self {
+        self.env = v;
+        self
+    }
+    pub fn cwd(mut self, v: PathBuf) -> Self {
+        self.cwd = Some(v);
+        self
+    }
+    pub fn project_root(mut self, v: PathBuf) -> Self {
+        self.project_root = v;
+        self
+    }
+    pub fn session_config(
+        mut self,
+        v: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.session_config = v;
+        self
+    }
+}
+
 /// Handle to a running agent
 #[derive(Debug, Clone)]
 pub struct AgentHandle {

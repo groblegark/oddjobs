@@ -17,6 +17,19 @@ use oj_storage::{MaterializedState, Wal};
 
 use crate::event_bus::EventBus;
 
+/// Helper: build a `ListenCtx` from an `EventBus` and shared state.
+fn make_ctx(event_bus: EventBus, state: Arc<Mutex<MaterializedState>>) -> super::super::ListenCtx {
+    super::super::ListenCtx {
+        event_bus,
+        state,
+        orphans: Arc::new(Mutex::new(Vec::new())),
+        metrics_health: Arc::new(Mutex::new(Default::default())),
+        logs_path: std::path::PathBuf::new(),
+        start_time: std::time::Instant::now(),
+        shutdown: Arc::new(tokio::sync::Notify::new()),
+    }
+}
+
 /// Helper: create an EventBus backed by a temp WAL, returning the bus, reader WAL arc, and path.
 fn test_event_bus(dir: &std::path::Path) -> (EventBus, Arc<Mutex<Wal>>, PathBuf) {
     let wal_path = dir.join("test.wal");

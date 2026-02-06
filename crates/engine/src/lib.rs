@@ -26,8 +26,12 @@ pub mod usage_metrics;
 mod vars;
 mod workspace;
 
+#[cfg(test)]
+pub(crate) mod test_helpers;
+
 pub use activity_logger::{JobLogger, QueueLogger, WorkerLogger};
 pub use agent_logger::AgentLogger;
 pub use error::RuntimeError;
+pub(crate) use monitor::ActionContext;
 pub use runtime::{Runtime, RuntimeConfig, RuntimeDeps};
 pub use usage_metrics::{MetricsHealth, UsageMetricsCollector};

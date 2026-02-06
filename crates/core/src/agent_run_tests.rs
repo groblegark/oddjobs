@@ -39,24 +39,14 @@ fn agent_run_status_display() {
 
 #[test]
 fn agent_run_action_attempts() {
-    let mut run = AgentRun {
-        id: "test".to_string(),
-        agent_name: "test-agent".to_string(),
-        command_name: "test-cmd".to_string(),
-        namespace: "test-ns".to_string(),
-        cwd: PathBuf::from("/tmp"),
-        runbook_hash: "abc123".to_string(),
-        status: AgentRunStatus::Running,
-        agent_id: None,
-        session_id: None,
-        error: None,
-        created_at_ms: 1000,
-        updated_at_ms: 1000,
-        action_tracker: ActionTracker::default(),
-        vars: HashMap::new(),
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    };
+    let mut run = AgentRun::builder()
+        .id("test")
+        .agent_name("test-agent")
+        .command_name("test-cmd")
+        .namespace("test-ns")
+        .cwd("/tmp")
+        .runbook_hash("abc123")
+        .build();
 
     assert_eq!(run.increment_action_attempt("idle", 0), 1);
     assert_eq!(run.increment_action_attempt("idle", 0), 2);
@@ -68,24 +58,16 @@ fn agent_run_action_attempts() {
 
 #[test]
 fn agent_run_serde_roundtrip() {
-    let run = AgentRun {
-        id: "test-id".to_string(),
-        agent_name: "greeter".to_string(),
-        command_name: "greet".to_string(),
-        namespace: "my-project".to_string(),
-        cwd: PathBuf::from("/home/user/project"),
-        runbook_hash: "deadbeef".to_string(),
-        status: AgentRunStatus::Running,
-        agent_id: Some("uuid-123".to_string()),
-        session_id: Some("sess-456".to_string()),
-        error: None,
-        created_at_ms: 1000,
-        updated_at_ms: 2000,
-        action_tracker: ActionTracker::default(),
-        vars: HashMap::from([("key".to_string(), "value".to_string())]),
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    };
+    let run = AgentRun::builder()
+        .id("test-id")
+        .agent_name("greeter")
+        .command_name("greet")
+        .namespace("my-project")
+        .cwd("/home/user/project")
+        .runbook_hash("deadbeef")
+        .agent_id("uuid-123")
+        .session_id("sess-456")
+        .build();
 
     let json = serde_json::to_string(&run).unwrap();
     let deserialized: AgentRun = serde_json::from_str(&json).unwrap();

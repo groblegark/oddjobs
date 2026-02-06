@@ -6,21 +6,14 @@ use crate::{MaterializedState, CURRENT_SNAPSHOT_VERSION};
 use oj_core::{Job, JobConfig, SystemClock};
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
 use tempfile::tempdir;
 
 fn test_config(id: &str, name: &str) -> JobConfig {
-    JobConfig {
-        id: id.to_string(),
-        name: name.to_string(),
-        kind: "feature".to_string(),
-        vars: HashMap::new(),
-        runbook_hash: "testhash".to_string(),
-        cwd: PathBuf::from("/test/project"),
-        initial_step: "init".to_string(),
-        namespace: String::new(),
-        cron_name: None,
-    }
+    JobConfig::builder(id, "feature", "init")
+        .name(name)
+        .runbook_hash("testhash")
+        .cwd("/test/project")
+        .build()
 }
 
 fn create_test_state() -> MaterializedState {

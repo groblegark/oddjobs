@@ -12,7 +12,9 @@ use oj_storage::MaterializedState;
 use crate::protocol::Response;
 
 use super::super::handle_queue_prune;
-use super::{drain_events, project_with_queue_only, push_and_mark_failed, test_event_bus};
+use super::{
+    drain_events, make_ctx, project_with_queue_only, push_and_mark_failed, test_event_bus,
+};
 
 /// Helper: push an item and mark it as Completed.
 fn push_and_mark_completed(
@@ -92,9 +94,10 @@ fn prune_completed_items_older_than_12h() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     push_and_mark_completed(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "old-item-1",
@@ -102,16 +105,7 @@ fn prune_completed_items_older_than_12h() {
         old_epoch_ms(),
     );
 
-    let result = handle_queue_prune(
-        project.path(),
-        "",
-        "tasks",
-        false,
-        false,
-        &event_bus,
-        &state,
-    )
-    .unwrap();
+    let result = handle_queue_prune(&ctx, project.path(), "", "tasks", false, false).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -140,9 +134,10 @@ fn prune_skips_recent_completed_items() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     push_and_mark_completed(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "recent-item-1",
@@ -150,16 +145,7 @@ fn prune_skips_recent_completed_items() {
         recent_epoch_ms(),
     );
 
-    let result = handle_queue_prune(
-        project.path(),
-        "",
-        "tasks",
-        false,
-        false,
-        &event_bus,
-        &state,
-    )
-    .unwrap();
+    let result = handle_queue_prune(&ctx, project.path(), "", "tasks", false, false).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -182,9 +168,10 @@ fn prune_all_flag_prunes_recent_items() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     push_and_mark_completed(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "recent-item-1",
@@ -192,8 +179,7 @@ fn prune_all_flag_prunes_recent_items() {
         recent_epoch_ms(),
     );
 
-    let result =
-        handle_queue_prune(project.path(), "", "tasks", true, false, &event_bus, &state).unwrap();
+    let result = handle_queue_prune(&ctx, project.path(), "", "tasks", true, false).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -217,9 +203,10 @@ fn prune_dead_items() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     push_and_mark_dead_at(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "dead-item-1",
@@ -227,16 +214,7 @@ fn prune_dead_items() {
         old_epoch_ms(),
     );
 
-    let result = handle_queue_prune(
-        project.path(),
-        "",
-        "tasks",
-        false,
-        false,
-        &event_bus,
-        &state,
-    )
-    .unwrap();
+    let result = handle_queue_prune(&ctx, project.path(), "", "tasks", false, false).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -265,9 +243,10 @@ fn prune_skips_active_pending_failed_items() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     // Pending item
-    state.lock().apply_event(&Event::QueuePushed {
+    ctx.state.lock().apply_event(&Event::QueuePushed {
         queue_name: "tasks".to_string(),
         item_id: "pending-1".to_string(),
         data: [("task".to_string(), "p".to_string())]
@@ -278,7 +257,7 @@ fn prune_skips_active_pending_failed_items() {
     });
 
     // Active item
-    state.lock().apply_event(&Event::QueuePushed {
+    ctx.state.lock().apply_event(&Event::QueuePushed {
         queue_name: "tasks".to_string(),
         item_id: "active-1".to_string(),
         data: [("task".to_string(), "a".to_string())]
@@ -287,7 +266,7 @@ fn prune_skips_active_pending_failed_items() {
         pushed_at_epoch_ms: old_epoch_ms(),
         namespace: String::new(),
     });
-    state.lock().apply_event(&Event::QueueTaken {
+    ctx.state.lock().apply_event(&Event::QueueTaken {
         queue_name: "tasks".to_string(),
         item_id: "active-1".to_string(),
         worker_name: "w1".to_string(),
@@ -296,7 +275,7 @@ fn prune_skips_active_pending_failed_items() {
 
     // Failed item
     push_and_mark_failed(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "failed-1",
@@ -304,8 +283,7 @@ fn prune_skips_active_pending_failed_items() {
         old_epoch_ms(),
     );
 
-    let result =
-        handle_queue_prune(project.path(), "", "tasks", true, false, &event_bus, &state).unwrap();
+    let result = handle_queue_prune(&ctx, project.path(), "", "tasks", true, false).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -328,9 +306,10 @@ fn prune_dry_run_does_not_emit_events() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     push_and_mark_completed(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "old-item-1",
@@ -338,8 +317,7 @@ fn prune_dry_run_does_not_emit_events() {
         old_epoch_ms(),
     );
 
-    let result =
-        handle_queue_prune(project.path(), "", "tasks", false, true, &event_bus, &state).unwrap();
+    let result = handle_queue_prune(&ctx, project.path(), "", "tasks", false, true).unwrap();
 
     match result {
         Response::QueuesPruned {
@@ -367,9 +345,9 @@ fn prune_empty_queue_returns_empty() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, state);
 
-    let result =
-        handle_queue_prune(project.path(), "", "tasks", true, false, &event_bus, &state).unwrap();
+    let result = handle_queue_prune(&ctx, project.path(), "", "tasks", true, false).unwrap();
 
     match result {
         Response::QueuesPruned {

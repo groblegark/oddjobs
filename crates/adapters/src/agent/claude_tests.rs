@@ -18,20 +18,18 @@ async fn spawn_rejects_nonexistent_cwd() {
     let project_dir = TempDir::new().unwrap();
     let workspace_dir = TempDir::new().unwrap();
 
-    let config = AgentSpawnConfig {
-        agent_id: AgentId::new("test-agent-1"),
-        agent_name: "claude".to_string(),
-        command: "claude code".to_string(),
-        env: vec![],
-        workspace_path: workspace_dir.path().to_path_buf(),
-        cwd: Some(PathBuf::from("/nonexistent/path")),
-        prompt: "Test prompt".to_string(),
-        job_name: "test-job".to_string(),
-        job_id: "pipe-1".to_string(),
-        project_root: project_dir.path().to_path_buf(),
-        session_config: HashMap::new(),
-        owner: OwnerId::Job(JobId::default()),
-    };
+    let config = AgentSpawnConfig::new(
+        AgentId::new("test-agent-1"),
+        "claude code",
+        workspace_dir.path().to_path_buf(),
+        OwnerId::Job(JobId::default()),
+    )
+    .agent_name("claude")
+    .cwd(PathBuf::from("/nonexistent/path"))
+    .prompt("Test prompt")
+    .job_name("test-job")
+    .job_id("pipe-1")
+    .project_root(project_dir.path().to_path_buf());
 
     let result = adapter.spawn(config, tx).await;
 

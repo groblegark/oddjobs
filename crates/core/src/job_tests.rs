@@ -38,33 +38,21 @@ fn job_id_serde() {
 }
 
 fn test_config(id: &str) -> JobConfig {
-    JobConfig {
-        id: id.to_string(),
-        name: "test".to_string(),
-        kind: "build".to_string(),
-        vars: HashMap::new(),
-        runbook_hash: "testhash".to_string(),
-        cwd: PathBuf::from("/test/project"),
-        initial_step: "init".to_string(),
-        namespace: String::new(),
-        cron_name: None,
-    }
+    JobConfig::builder(id, "build", "init")
+        .name("test")
+        .runbook_hash("testhash")
+        .cwd("/test/project")
+        .build()
 }
 
 #[test]
 fn job_creation() {
     let clock = FakeClock::new();
-    let config = JobConfig {
-        id: "pipe-1".to_string(),
-        name: "test-feature".to_string(),
-        kind: "build".to_string(),
-        vars: HashMap::new(),
-        runbook_hash: "testhash".to_string(),
-        cwd: PathBuf::from("/test/project"),
-        initial_step: "init".to_string(),
-        namespace: String::new(),
-        cron_name: None,
-    };
+    let config = JobConfig::builder("pipe-1", "build", "init")
+        .name("test-feature")
+        .runbook_hash("testhash")
+        .cwd("/test/project")
+        .build();
     let job = Job::new(config, &clock);
 
     assert_eq!(job.step, "init");

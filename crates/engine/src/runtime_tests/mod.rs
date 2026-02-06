@@ -5,6 +5,8 @@
 
 mod agent_run;
 mod cron;
+mod cron_agent;
+mod cron_concurrency;
 mod directives;
 mod errors;
 mod idempotency;
@@ -16,8 +18,14 @@ mod on_dead;
 mod resume;
 mod sessions;
 mod steps;
+mod steps_cycles;
+mod steps_lifecycle;
+mod steps_locals;
 mod timer_cleanup;
 mod worker;
+mod worker_concurrency;
+mod worker_external;
+mod worker_queue;
 
 use super::*;
 use crate::{RuntimeConfig, RuntimeDeps};
@@ -31,7 +39,7 @@ use tokio::sync::mpsc;
 type TestRuntime = Runtime<FakeSessionAdapter, FakeAgentAdapter, FakeNotifyAdapter, FakeClock>;
 
 /// Test context holding the runtime and project path
-struct TestContext {
+pub(super) struct TestContext {
     runtime: TestRuntime,
     clock: FakeClock,
     project_root: PathBuf,
@@ -186,6 +194,50 @@ async fn create_job_with_id(ctx: &TestContext, job_id: &str) -> String {
         .unwrap();
 
     job_id.to_string()
+}
+
+/// Helper: parse a runbook string, serialize, and return (json_value, sha256_hash).
+/// Used by cron and worker tests.
+pub(super) fn hash_runbook(content: &str) -> (serde_json::Value, String) {
+    let runbook = oj_runbook::parse_runbook(content).unwrap();
+    let runbook_json = serde_json::to_value(&runbook).unwrap();
+    let runbook_hash = {
+        use sha2::{Digest, Sha256};
+        let canonical = serde_json::to_string(&runbook_json).unwrap();
+        let digest = Sha256::digest(canonical.as_bytes());
+        format!("{:x}", digest)
+    };
+    (runbook_json, runbook_hash)
+}
+
+/// Collect all pending timer IDs from the scheduler by advancing time far
+/// into the future and draining fired timers.
+pub(super) fn pending_timer_ids(ctx: &TestContext) -> Vec<String> {
+    let scheduler = ctx.runtime.executor.scheduler();
+    let mut sched = scheduler.lock();
+    ctx.clock.advance(std::time::Duration::from_secs(7200));
+    let fired = sched.fired_timers(ctx.clock.now());
+    fired
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::TimerStart { id } => Some(id.as_str().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Helper: check that no job-scoped timer with the given prefix exists.
+pub(super) fn assert_no_timer_with_prefix(timer_ids: &[String], prefix: &str) {
+    let matching: Vec<&String> = timer_ids
+        .iter()
+        .filter(|id| id.starts_with(prefix))
+        .collect();
+    assert!(
+        matching.is_empty(),
+        "expected no timers starting with '{}', found: {:?}",
+        prefix,
+        matching
+    );
 }
 
 #[tokio::test]

@@ -127,7 +127,20 @@ infra.hcl poll `bd list`). The unification path is clear: add an event bridge
 that pushes on bead creation instead of polling, then retire OJ persisted queues
 in the GT context. See Appendix A2 for full analysis.
 
-**Effort:** Medium (2-3 weeks). Event bridge crate + infra.hcl updates.
+**Critical discovery: Beads already has an event bus.** The `bd bus` system provides:
+- Priority-based handler dispatch with blocking/injection
+- Embedded NATS JetStream (`BD_NATS_ENABLED=true`) for distributed pub/sub
+- `bd bus emit --hook=<type>` for event dispatch (RPC-first, local fallback)
+- Active rollout project at `beads/crew/bus_rollout/` with full docs
+
+This means we don't need a new event-bridge crate. OJ can emit lifecycle events
+via `bd bus emit`, and GT handlers subscribe through the existing NATS infrastructure.
+The event bus already supports hook types like `SessionStart`, `PreToolUse`, etc. --
+we'd extend this with OJ-specific types: `OjJobCreated`, `OjStepAdvanced`,
+`OjAgentIdle`, `OjJobCompleted`, `OjJobFailed`.
+
+**Revised effort:** Low-Medium (1-2 weeks). Define new event types + add `bd bus emit`
+calls to OJ's event handlers. No new infrastructure needed.
 
 ---
 
@@ -172,10 +185,21 @@ machine actions, not external callbacks. The `notify` system is desktop-only.
 
 See Appendix A1 for full analysis.
 
-**Key consideration:** Hooks must be non-blocking (OJ can't stall waiting for GT).
-Timeout + fallback-to-default is essential.
+**Beads event bus changes the picture:** With `bd bus` available, the simplest
+hook approach is: OJ emits lifecycle events via `bd bus emit`, GT registers
+handlers that respond. The bus already supports handler blocking (exit code 2
+= block the event) and content injection. This could serve as a lightweight
+hook mechanism without building a new OJ hook API:
 
-**Effort:** Low-Medium for approach #1-2. Medium-High for approach #4.
+- OJ emits `OjJobFailed` → GT handler decides retry/escalate → returns action
+- OJ emits `OjWorkerPollComplete` → GT handler reorders items → returns sorted list
+- Bus handlers run with priority ordering, so GT can intercept before OJ defaults
+
+**Key consideration:** Bus handlers must be non-blocking. The beads bus already
+handles errors gracefully (logs error, continues chain).
+
+**Effort:** Low-Medium. Define event types + handlers. No new OJ hook API needed
+if the bus is sufficient.
 
 ---
 
@@ -288,30 +312,33 @@ witness/deacon. Whether the label taxonomy works.
 
 ---
 
-### Phase 2: Beads-Backed Queues [AFTER PHASE 1]
+### Phase 2: Beads Bus Integration [AFTER PHASE 1]
 
-**Goal:** External queues that already poll beads become push-based via event bridge.
+**Goal:** OJ lifecycle events flow through the beads event bus. External queues
+become push-based via bus handlers instead of polling.
 
 **Deliverables:**
-- Event bridge watches `bd activity --follow`
-- When merge-request bead created → push to OJ `merge-requests` queue
-- When bug bead created with `ready` status → push to OJ `bugs` queue
+- OJ emits `bd bus emit --hook=OjJobCreated` (etc.) on state transitions
+- GT registers bus handlers for OJ events (NATS subscription)
+- When merge-request bead created → bus handler pushes to OJ queue
+- When bug bead created with `ready` status → bus handler pushes to OJ queue
 - OJ workers still poll as fallback (belt + suspenders)
 
 **Validation workflow:**
 ```
 1. bd create -t merge-request "Test MR" --status open
-2. Within 1 second: oj job list shows new merge job (event-driven)
+2. Bus handler fires → oj queue push merge-requests
+3. Within 1 second: oj job list shows new merge job (bus-driven)
    vs. within 30 seconds: (old polling behavior)
-3. Kill event bridge → workers fall back to polling (no data loss)
-4. Restart bridge → push resumes from WAL sequence
+4. Disable bus handler → workers fall back to polling (no data loss)
+5. Re-enable handler → push resumes
 ```
 
-**Assumption tested:** Event-driven dispatch is reliable and faster than polling.
-If `bd activity` is unreliable or lossy, we know to keep polling as primary.
+**Assumption tested:** Bus-driven dispatch is reliable and faster than polling.
+If NATS delivery is unreliable, we know to keep polling as primary.
 
 **What we learn:** Real-world latency improvement. Whether the fallback model works.
-Whether `bd activity --follow` handles reconnection gracefully.
+Whether NATS JetStream handles recovery gracefully.
 
 ---
 
@@ -507,6 +534,29 @@ at >100 items/sec (unlikely in GT context).
 - `QueueItem.failure_count` maps to bead metadata field
 - Retry logic moves from OJ timers to beads status transitions
 - `bd update --expect-status open` provides CAS atomicity for claiming
+
+### A3: Beads Event Bus (Existing Infrastructure)
+
+The beads system already has a mature event bus (`bd bus`) with:
+
+**Core:** `beads/*/internal/eventbus/bus.go` — priority-based handler dispatch
+**Types:** `beads/*/internal/eventbus/types.go` — hook event enum
+**CLI:** `bd bus emit`, `bd bus status`, `bd bus handlers`
+**NATS:** Embedded JetStream server (`BD_NATS_ENABLED=true`), stream `HOOK_EVENTS`,
+subjects `hooks.<type>`, file storage with 10k/100MB limits
+**RPC:** `OpBusEmit`, `OpBusStatus`, `OpBusHandlers` in daemon protocol
+**Activity:** `bd activity --follow` uses fsnotify + polling fallback, 50ms debounce
+**Rollout:** Active project at `beads/crew/bus_rollout/` with full docs and design research
+
+**Existing hook types:** SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,
+PostToolUseFailure, Stop, PreCompact, SubagentStart, SubagentStop, Notification,
+SessionEnd
+
+**Proposed OJ hook types:** OjJobCreated, OjStepAdvanced, OjAgentIdle,
+OjAgentEscalated, OjJobCompleted, OjJobFailed, OjWorkerPollComplete
+
+**Key capability:** Bus handlers can BLOCK events (exit code 2) and INJECT content.
+This enables GT to intercept OJ events and return decisions (retry, escalate, reorder).
 
 ---
 

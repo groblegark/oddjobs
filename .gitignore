@@ -10,3 +10,7 @@ tests/specs/bats/bats-support/
 tests/specs/bats/bats-assert/
 .v0.profile.rc
 CLAUDE.local.md
+
+# Gas Town runtime
+.runtime/
+.beads/

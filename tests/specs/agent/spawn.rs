@@ -341,7 +341,6 @@ on_idle = "done"
 /// `check_and_accept_trust_prompt` detects "Do you trust" and sends "y".
 /// Uses `-p` mode so the agent exits after one response and `on_dead = "done"`.
 #[test]
-#[ignore = "BLOCKED BY: claudeless trust prompt + watcher accept interaction needs validation (less-trust-e2e)"]
 fn agent_spawn_auto_accepts_trust_prompt() {
     let temp = Project::empty();
     temp.git_init();

@@ -1,7 +1,7 @@
 //! AskUserQuestion decision tests using claudeless simulator.
 //!
-//! **STATUS: BLOCKED** - These tests require PreToolUse hook support in claudeless.
-//! See: https://github.com/anthropics/claude-code/blob/main/docs/hooks.mdx#pretooluse
+//! **STATUS: PARTIALLY BLOCKED** - PreToolUse hooks now fire in claudeless, but idle
+//! grace timer races the hook notification for "wait" scenarios.
 //!
 //! Tests the Question decision flow when an agent calls the AskUserQuestion tool:
 //! - Decision source shows as "question" (not "approval")
@@ -9,14 +9,14 @@
 //! - Resolving with an option number resumes the job
 //! - Resolving with the Cancel option (last) cancels the job
 //!
-//! ## Why these tests are ignored
+//! ## Why most tests are still ignored
 //!
-//! Claudeless does not currently fire PreToolUse hooks before executing tools.
-//! Without PreToolUse hooks, oddjobs cannot detect AskUserQuestion calls to create
-//! Question decisions. The watcher sees the agent as "idle" and creates Idle
-//! decisions instead of Question decisions.
-//!
-//! Bug filed: claudeless issue for PreToolUse hook support
+//! The auto-answer scenario passes (`ask_user_question_creates_question_decision`)
+//! because the agent completes quickly before the idle grace timer fires. The "wait"
+//! scenarios fail because the idle grace timer (1s) expires before the PreToolUse
+//! hook's `oj agent hook pretooluse` command completes the IPC round-trip. The daemon
+//! creates an Idle decision, and by the time AgentPrompt arrives, the idempotency
+//! check (`step_status.is_waiting()`) skips it.
 
 use crate::prelude::*;
 
@@ -157,7 +157,6 @@ prompt = "Help me build this feature."
 /// Note: With auto_approve, the agent proceeds immediately after the hook fires,
 /// so we check that the decision was created (may already be resolved/stale).
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
 fn ask_user_question_creates_question_decision() {
     let temp = Project::empty();
     temp.git_init();
@@ -214,7 +213,7 @@ fn ask_user_question_creates_question_decision() {
 
 /// Tests that the decision context contains the actual question text.
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
+#[ignore = "blocked: idle grace timer races PreToolUse hook — AgentPrompt arrives after Idle decision"]
 fn question_decision_shows_question_text() {
     let temp = Project::empty();
     temp.git_init();
@@ -264,7 +263,7 @@ fn question_decision_shows_question_text() {
 
 /// Tests that decision options match the AskUserQuestion options.
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
+#[ignore = "blocked: idle grace timer races PreToolUse hook — AgentPrompt arrives after Idle decision"]
 fn question_decision_shows_options() {
     let temp = Project::empty();
     temp.git_init();
@@ -329,7 +328,7 @@ fn question_decision_shows_options() {
 /// Uses a scenario without auto-answer so the agent stays blocked at the
 /// question. When we resolve with Cancel, the job should be cancelled.
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
+#[ignore = "blocked: idle grace timer races PreToolUse hook — AgentPrompt arrives after Idle decision"]
 fn resolve_question_with_cancel_cancels_job() {
     let temp = Project::empty();
     temp.git_init();
@@ -387,7 +386,7 @@ fn resolve_question_with_cancel_cancels_job() {
 /// by the time we resolve. This test verifies the decision resolution
 /// mechanics work, not that the agent receives the message.
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
+#[ignore = "blocked: idle grace timer races PreToolUse hook — AgentPrompt arrives after Idle decision"]
 fn resolve_question_removes_from_pending_list() {
     let temp = Project::empty();
     temp.git_init();
@@ -435,7 +434,7 @@ fn resolve_question_removes_from_pending_list() {
 
 /// Tests that resolving with a freeform message is accepted.
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
+#[ignore = "blocked: idle grace timer races PreToolUse hook — AgentPrompt arrives after Idle decision"]
 fn resolve_question_with_freeform_message() {
     let temp = Project::empty();
     temp.git_init();
@@ -492,7 +491,7 @@ fn resolve_question_with_freeform_message() {
 
 /// Tests that `oj status` shows the question source for escalated jobs.
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
+#[ignore = "blocked: idle grace timer races PreToolUse hook — AgentPrompt arrives after Idle decision"]
 fn status_shows_question_source() {
     let temp = Project::empty();
     temp.git_init();
@@ -531,7 +530,7 @@ fn status_shows_question_source() {
 
 /// Tests that option descriptions are included in decision show output.
 #[test]
-#[ignore = "blocked: claudeless lacks PreToolUse hook support"]
+#[ignore = "blocked: idle grace timer races PreToolUse hook — AgentPrompt arrives after Idle decision"]
 fn question_decision_shows_option_descriptions() {
     let temp = Project::empty();
     temp.git_init();

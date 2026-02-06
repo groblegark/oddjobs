@@ -255,10 +255,18 @@ and that OJ agents reliably write structured output to beads (not just to local 
 | # | Proposal | Value | Effort | Status |
 |---|----------|-------|--------|--------|
 | 1 | **A: Beads as OJ State** | High | Medium | Ready to implement |
-| 2 | **B: Reactive Event Bus** | High | Medium-High | Research pending (queues) |
-| 3 | **C: GT Lifecycle Hooks** | Medium-High | TBD | Research pending (OJ hooks) |
+| 2 | **B: bd bus as OJ-GT Event Plane** | High | Low-Medium | Ready (infra exists) |
+| 3 | **C: GT Lifecycle Hooks via Bus** | Medium-High | Low-Medium | Ready (bus = hooks) |
 | 4 | D: Dynamic Runbooks | Medium | High | Deferred |
 | 5 | E: Shared Agent Context | Low | Medium | Not needed |
+
+**Key insight: Proposals A+B+C collapse into one integration surface.** OJ emits
+lifecycle events via `bd bus emit`, which simultaneously:
+- Updates bead state (Proposal A) -- via bus handler that calls `bd update`
+- Notifies GT in real-time (Proposal B) -- via NATS subscription
+- Enables GT to influence decisions (Proposal C) -- via handler blocking/injection
+
+This means we can implement all three as one coordinated effort using `bd bus`.
 
 ---
 
@@ -285,126 +293,219 @@ handles it correctly, verify merge goes through GT refinery not OJ merge.hcl.
 
 ---
 
-### Phase 1: Beads Bridge (Proposal A, minimal) [NEXT]
+### Phase 1: OJ Emits to bd bus [NEXT]
 
-**Goal:** OJ jobs become visible as beads. One-way sync: OJ → beads.
+**Goal:** OJ lifecycle events flow through the beads event bus. This is the
+foundation — once OJ speaks to `bd bus`, everything else layers on top.
 
-**Deliverables:**
-- On `JobCreated`: OJ runs `bd create` with `oj:job` label
-- On step transitions: OJ runs `bd update` with step label
-- On `JobCompleted`/`JobFailed`: OJ runs `bd close` or adds `oj:failed` label
-- New OJ config option: `beads_sync = true|false`
+**What we build in OJ:**
+
+Add a `BeadsBusEmitter` to OJ's runtime that calls `bd bus emit` on key events.
+This lives in the OJ executor alongside the existing Shell/Notify/Agent effects:
+
+```
+OJ Event fires
+  → Runtime handler produces effects (existing)
+  → NEW Effect::BusEmit { hook_type, payload }
+  → Executor runs: echo '<payload>' | bd bus emit --hook=<type>
+  → Bus dispatches to registered handlers (NATS + local)
+```
+
+**New OJ event types for the bus:**
+
+| Bus Hook Type | Fires When | Payload |
+|---|---|---|
+| `OjJobCreated` | Job starts | job_id, name, namespace, vars, runbook |
+| `OjStepAdvanced` | Step transitions | job_id, from_step, to_step |
+| `OjAgentSpawned` | Agent starts | job_id, agent_id, model, session_id |
+| `OjAgentIdle` | Agent idle > grace | job_id, agent_id, idle_duration |
+| `OjAgentEscalated` | Decision created | job_id, agent_id, decision_id |
+| `OjJobCompleted` | Job succeeds | job_id, duration, step_history |
+| `OjJobFailed` | Job fails | job_id, step, exit_code, stderr |
+| `OjWorkerPollComplete` | Queue polled | worker, queue, item_count, items[] |
+
+**OJ-side implementation (Rust):**
+
+```rust
+// New file: crates/adapters/src/bus.rs
+pub async fn emit_bus_event(hook_type: &str, payload: &serde_json::Value) -> Result<()> {
+    let json = serde_json::to_string(payload)?;
+    let mut child = Command::new("bd")
+        .args(["bus", "emit", "--hook", hook_type])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    child.stdin.take().unwrap().write_all(json.as_bytes()).await?;
+    let output = child.wait_with_output().await?;
+    // exit code 2 = handler blocked the event
+    Ok(())
+}
+```
+
+**Where to hook in OJ's runtime:**
+- `crates/engine/src/runtime/handlers/job_create.rs` → emit `OjJobCreated`
+- `crates/engine/src/runtime/handlers/lifecycle.rs` → emit `OjJobCompleted`/`OjJobFailed`
+- `crates/engine/src/runtime/handlers/agent.rs` → emit `OjAgentSpawned`/`OjAgentIdle`
+- `crates/engine/src/runtime/handlers/worker/dispatch.rs` → emit `OjWorkerPollComplete`
+
+**Beads-side: register default handlers:**
+
+```bash
+# Handler: sync OJ job state to beads
+bd bus register --hook OjJobCreated --priority 100 \
+  --run 'bd create "${.name}" -l oj:job -l "oj:ns:${.namespace}" -d "${.vars}" --json'
+
+bd bus register --hook OjStepAdvanced --priority 100 \
+  --run 'bd label "${.job_bead_id}" +oj:step:${.to_step} -oj:step:${.from_step}'
+
+bd bus register --hook OjJobCompleted --priority 100 \
+  --run 'bd close "${.job_bead_id}" --reason "OJ job completed"'
+
+bd bus register --hook OjJobFailed --priority 100 \
+  --run 'bd update "${.job_bead_id}" -l oj:failed --status blocked'
+```
 
 **Validation workflow:**
 ```
 1. oj run gt-sling --var issue=test-123 ...
-2. bd list -l oj:job           → see the job as a bead
-3. Watch step labels change     → oj:step:provision → oj:step:execute → ...
-4. Job completes                → bead auto-closes
-5. bd show <job-bead>          → full lifecycle visible
+2. bd list -l oj:job           → see the job as a bead (created by handler)
+3. Watch step labels change     → oj:step:provision → oj:step:execute
+4. Job completes                → bead auto-closes (handler fires)
+5. bd bus status                → see event flow metrics
 ```
 
-**Assumption tested:** `bd` CLI is fast enough for synchronous calls in OJ's event
-path. If too slow, we know to batch or async the writes.
+**Assumption tested:** `bd bus emit` latency is acceptable in OJ's hot path.
+If too slow, we async the emit (fire-and-forget) or batch.
 
-**What we learn:** How much latency `bd` adds. Whether bead state is useful to
-witness/deacon. Whether the label taxonomy works.
+**What we learn:** Bus round-trip latency. Handler reliability. Whether the
+event taxonomy is complete enough for GT's needs.
+
+**Effort:** Low-Medium. ~1 week OJ side (new effect + 6-8 emit sites), ~1 week
+beads side (register handlers, test NATS delivery).
 
 ---
 
-### Phase 2: Beads Bus Integration [AFTER PHASE 1]
+### Phase 2: GT Subscribes and Reacts [AFTER PHASE 1]
 
-**Goal:** OJ lifecycle events flow through the beads event bus. External queues
-become push-based via bus handlers instead of polling.
+**Goal:** GT consumes OJ bus events for real-time visibility and queue push.
 
 **Deliverables:**
-- OJ emits `bd bus emit --hook=OjJobCreated` (etc.) on state transitions
-- GT registers bus handlers for OJ events (NATS subscription)
-- When merge-request bead created → bus handler pushes to OJ queue
-- When bug bead created with `ready` status → bus handler pushes to OJ queue
-- OJ workers still poll as fallback (belt + suspenders)
+
+1. **GT feed integration:** Bus handler transforms OJ events → GT `.events.jsonl`
+   ```bash
+   # Handler: OJ events appear in GT feed
+   bd bus register --hook OjJobCreated --priority 50 \
+     --run 'gt event emit --type polecat_slung --actor "oj/${.namespace}" ...'
+   ```
+
+2. **Push-based queue dispatch:** Bead creation triggers OJ queue push via bus
+   ```bash
+   # Handler: new merge-request bead → push to OJ merge queue
+   bd bus register --hook BeadCreated --priority 100 \
+     --filter 'type=merge-request' \
+     --run 'oj queue push merge-requests --data "${.id}"'
+   ```
+
+3. **Witness reacts to OJ events:** Instead of polling witness-inbox
+   ```bash
+   # Handler: agent idle → witness nudges
+   bd bus register --hook OjAgentIdle --priority 50 \
+     --run 'gt witness nudge "${.agent_id}" --reason "idle ${.idle_duration}"'
+   ```
+
+4. OJ workers keep polling as fallback (belt + suspenders)
 
 **Validation workflow:**
 ```
 1. bd create -t merge-request "Test MR" --status open
-2. Bus handler fires → oj queue push merge-requests
-3. Within 1 second: oj job list shows new merge job (bus-driven)
-   vs. within 30 seconds: (old polling behavior)
-4. Disable bus handler → workers fall back to polling (no data loss)
-5. Re-enable handler → push resumes
+2. Bus fires BeadCreated → handler pushes to OJ queue
+3. Within 1s: oj job list shows merge job (bus-driven)
+4. gt feed → see "merge job started" event
+5. Disable handler → workers fall back to polling (no data loss)
 ```
 
 **Assumption tested:** Bus-driven dispatch is reliable and faster than polling.
-If NATS delivery is unreliable, we know to keep polling as primary.
 
-**What we learn:** Real-world latency improvement. Whether the fallback model works.
-Whether NATS JetStream handles recovery gracefully.
+**Effort:** Low. Mostly handler registration and testing. GT feed integration
+may need a small `gt event emit` CLI addition.
 
 ---
 
-### Phase 3: Bidirectional Events + GT Feed [AFTER PHASE 2]
+### Phase 3: GT Influences OJ Decisions via Bus [AFTER PHASE 2]
 
-**Goal:** OJ events appear in GT's feed. GT has real-time visibility into OJ work.
+**Goal:** GT uses bus handler blocking/injection to influence OJ behavior.
+
+The beads bus already supports **handler blocking** (exit code 2) and **content
+injection** (stdout returned to emitter). This is our hook mechanism.
 
 **Deliverables:**
-- Event bridge transforms OJ events → GT `.events.jsonl` format
-- GT feed shows: "polecat Toast started job bug-fix-123", "step advanced to test",
-  "agent idle for 3m", "job completed"
-- Witness patrol can react to OJ events instead of polling witness-inbox
+
+1. **Smart retry on failure:**
+   ```bash
+   # Handler: GT decides retry vs escalate
+   bd bus register --hook OjJobFailed --priority 200 \
+     --run 'gt decide-retry "${.job_bead_id}" --exit-code "${.exit_code}"'
+   # gt decide-retry returns: {"action":"retry"} or {"action":"escalate"}
+   # OJ reads response, acts accordingly
+   ```
+
+2. **Priority reordering:**
+   ```bash
+   # Handler: GT reorders queue items by dependency graph
+   bd bus register --hook OjWorkerPollComplete --priority 200 \
+     --run 'gt reorder-queue "${.items}" --by priority,dependency'
+   # Returns reordered items list; OJ dispatches in new order
+   ```
+
+3. **Dynamic concurrency:**
+   ```bash
+   # Handler: GT adjusts worker concurrency based on rig load
+   bd bus register --hook OjWorkerStarted --priority 200 \
+     --run 'gt recommend-concurrency "${.worker}" "${.namespace}"'
+   # Returns {"concurrency": 3}; OJ applies
+   ```
+
+**OJ-side requirement:** OJ's `BusEmit` effect must read handler response
+(stdout) and apply it. This requires extending the executor:
+
+```rust
+// In bus.rs:
+pub struct BusResponse {
+    pub blocked: bool,       // exit code 2
+    pub payload: Option<serde_json::Value>,  // stdout JSON
+}
+
+// OJ runtime checks response:
+if let Some(response) = bus_response.payload {
+    if response["action"] == "retry" {
+        return self.handle_job_resume(job_id, ...).await;
+    }
+}
+```
 
 **Validation workflow:**
 ```
-1. gt sling --engine=oj test-issue gastown
-2. gt feed                    → see OJ job milestones in real-time
-3. Simulate agent idle        → witness sees event, nudges agent
-4. Compare: old witness-inbox poll latency vs event-driven latency
+1. Register OjJobFailed handler → GT auto-retries on first failure
+2. Fail a job intentionally → GT decides "retry" → job resumes
+3. Fail again → GT decides "escalate" → decision bead created
+4. Kill GT handler → OJ falls back to default (fail the job)
 ```
 
-**Assumption tested:** Unified event stream is useful for operational visibility.
-If the feed is too noisy, we know to add filtering. If witness doesn't benefit
-from faster events, we know hooks (Phase 4) are the real need.
+**Assumption tested:** Handler round-trip is fast enough for synchronous decisions.
+If too slow, split into fire-and-forget events (Phase 2) vs blocking hooks (Phase 3).
 
-**What we learn:** Whether real-time OJ visibility changes operator behavior.
-What event granularity is useful vs noise.
+**Effort:** Medium. Requires OJ executor to read bus response + GT decision logic.
 
 ---
 
-### Phase 4: Lifecycle Hooks [AFTER PHASE 3]
-
-**Goal:** GT can influence OJ execution decisions at key points.
-
-**Deliverables:**
-- OJ exposes hook registration API (pending research on what already exists)
-- GT registers `on_job_failed` hook → decides retry/escalate based on bead state
-- GT registers `filter_items` hook → reorders queue items by dependency graph
-- Hooks are WAL-durable with timeout + fallback-to-default
-
-**Validation workflow:**
-```
-1. Register on_job_failed hook → GT auto-retries on first failure
-2. Intentionally fail a job    → verify GT decides "retry"
-3. Fail again                  → verify GT decides "escalate"
-4. Kill GT hook server         → verify OJ falls back to default behavior
-5. Register filter_items hook  → dispatch P0 bug before P2 chore
-6. Push 3 items simultaneously → verify ordering matches GT priority
-```
-
-**Assumption tested:** External hooks don't degrade OJ performance. GT's graph
-knowledge produces better decisions than OJ's defaults.
-
-**What we learn:** Hook latency overhead. Whether GT actually makes better retry
-decisions. Whether priority ordering matters in practice.
-
----
-
-### Phase 5: Full State Unification [LONG TERM]
+### Phase 4: Full State Unification [LONG TERM]
 
 **Goal:** Beads are the *authoritative* state for OJ jobs, not just a mirror.
 
 **Deliverables:**
 - OJ can reconstruct job state from beads on crash recovery
 - OJ WAL becomes optimization layer, beads is source of truth
-- Queue state lives in beads (persisted queues backed by beads)
+- Queue state lives in beads (persisted queues retired in GT context)
 - Single query layer for all work state: `bd list` covers everything
 
 **Validation workflow:**
@@ -417,29 +518,38 @@ decisions. Whether priority ordering matters in practice.
 ```
 
 **Assumption tested:** Beads/Dolt is performant enough to be OJ's primary state
-store. If recovery is too slow, beads stays as mirror (Phase 1) and WAL stays
-authoritative.
+store. If too slow, beads stays as mirror and WAL stays authoritative.
 
-**What we learn:** Whether Dolt's performance profile works for OJ's write
-patterns. Whether the mapping is complete enough for full state reconstruction.
+**Effort:** High. Full state mapping + recovery logic + testing.
 
 ---
 
 ### Migration Path Summary
 
 ```
-Phase 0: Safety     → OJ+GT coexist without data loss
-Phase 1: Mirror     → OJ jobs visible as beads (one-way sync)
-Phase 2: Push       → Event-driven queue dispatch (replace polling)
-Phase 3: Observe    → Unified event feed (GT sees OJ in real-time)
-Phase 4: Control    → GT hooks into OJ decisions (influence execution)
-Phase 5: Unify      → Beads is authoritative state (full fusion)
+Phase 0: Coexist    → OJ+GT clean boundaries (od-vq6)
+Phase 1: Emit       → OJ speaks to bd bus (foundation)
+Phase 2: React      → GT subscribes, push replaces polling
+Phase 3: Influence  → GT hooks into OJ decisions via bus blocking
+Phase 4: Unify      → Beads is authoritative state (full fusion)
 ```
 
-Each phase is independently valuable and shippable. If we stop at Phase 1, we
-still get operational visibility. If we stop at Phase 3, we have a responsive
-event-driven system. Phase 5 is the end goal but not required for the system to
-work.
+Phases 1-3 are all bus-based and build incrementally on the same infrastructure.
+Phase 1 is the critical path — once OJ emits to `bd bus`, phases 2 and 3 are
+just handler registration.
+
+**Dependencies:**
+- Phase 1 requires: `bd bus` matured enough for OJ event types + NATS enabled
+- Phase 2 requires: Phase 1 + GT feed integration
+- Phase 3 requires: Phase 1 + OJ reads bus response + GT decision logic
+- Phase 4 requires: Phase 1 proven stable at scale
+
+**Work needed on bd bus itself:**
+- Add OJ-specific hook types to the type registry
+- Ensure `bd bus emit` performance is <50ms (currently unknown)
+- Test NATS JetStream durability under OJ event volume (~50-100 events/job)
+- Handler registration persistence (survive daemon restart)
+- `bd bus register` CLI for declarative handler setup (may need building)
 
 ---
 

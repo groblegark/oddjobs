@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use oj_core::{AgentId, AgentState, Event};
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -143,6 +144,25 @@ impl FakeAgentAdapter {
     }
 }
 
+impl FakeAgentState {
+    fn register_agent(
+        &mut self,
+        agent_id: AgentId,
+        event_tx: mpsc::Sender<Event>,
+        workspace_path: PathBuf,
+    ) -> AgentHandle {
+        self.agents.insert(
+            agent_id.clone(),
+            FakeAgent {
+                state: AgentState::Working,
+                event_tx: Some(event_tx),
+                session_log_size: None,
+            },
+        );
+        AgentHandle::new(agent_id.clone(), agent_id.to_string(), workspace_path)
+    }
+}
+
 #[async_trait]
 impl AgentAdapter for FakeAgentAdapter {
     async fn spawn(
@@ -151,30 +171,14 @@ impl AgentAdapter for FakeAgentAdapter {
         event_tx: mpsc::Sender<Event>,
     ) -> Result<AgentHandle, AgentError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(AgentCall::Spawn {
             agent_id: config.agent_id.clone(),
             command: config.command.clone(),
         });
-
         if let Some(error) = inner.spawn_error.take() {
             return Err(error);
         }
-
-        inner.agents.insert(
-            config.agent_id.clone(),
-            FakeAgent {
-                state: AgentState::Working,
-                event_tx: Some(event_tx),
-                session_log_size: None,
-            },
-        );
-
-        Ok(AgentHandle::new(
-            config.agent_id.clone(),
-            config.agent_id.to_string(),
-            config.workspace_path,
-        ))
+        Ok(inner.register_agent(config.agent_id, event_tx, config.workspace_path))
     }
 
     async fn reconnect(
@@ -183,76 +187,51 @@ impl AgentAdapter for FakeAgentAdapter {
         event_tx: mpsc::Sender<Event>,
     ) -> Result<AgentHandle, AgentError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(AgentCall::Reconnect {
             agent_id: config.agent_id.clone(),
             session_id: config.session_id.clone(),
         });
-
         if let Some(error) = inner.spawn_error.take() {
             return Err(error);
         }
-
-        inner.agents.insert(
-            config.agent_id.clone(),
-            FakeAgent {
-                state: AgentState::Working,
-                event_tx: Some(event_tx),
-                session_log_size: None,
-            },
-        );
-
-        Ok(AgentHandle::new(
-            config.agent_id.clone(),
-            config.agent_id.to_string(),
-            config.workspace_path,
-        ))
+        Ok(inner.register_agent(config.agent_id, event_tx, config.workspace_path))
     }
 
     async fn send(&self, agent_id: &AgentId, input: &str) -> Result<(), AgentError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(AgentCall::Send {
             agent_id: agent_id.clone(),
             input: input.to_string(),
         });
-
         if let Some(error) = inner.send_error.take() {
             return Err(error);
         }
-
         if !inner.agents.contains_key(agent_id) {
             return Err(AgentError::NotFound(agent_id.to_string()));
         }
-
         Ok(())
     }
 
     async fn kill(&self, agent_id: &AgentId) -> Result<(), AgentError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(AgentCall::Kill {
             agent_id: agent_id.clone(),
         });
-
         if let Some(error) = inner.kill_error.take() {
             return Err(error);
         }
-
-        if inner.agents.remove(agent_id).is_none() {
-            return Err(AgentError::NotFound(agent_id.to_string()));
-        }
-
+        inner
+            .agents
+            .remove(agent_id)
+            .ok_or_else(|| AgentError::NotFound(agent_id.to_string()))?;
         Ok(())
     }
 
     async fn get_state(&self, agent_id: &AgentId) -> Result<AgentState, AgentError> {
         let mut inner = self.inner.lock();
-
         inner.calls.push(AgentCall::GetState {
             agent_id: agent_id.clone(),
         });
-
         inner
             .agents
             .get(agent_id)
@@ -261,8 +240,11 @@ impl AgentAdapter for FakeAgentAdapter {
     }
 
     async fn session_log_size(&self, agent_id: &AgentId) -> Option<u64> {
-        let inner = self.inner.lock();
-        inner.agents.get(agent_id).and_then(|a| a.session_log_size)
+        self.inner
+            .lock()
+            .agents
+            .get(agent_id)
+            .and_then(|a| a.session_log_size)
     }
 }
 

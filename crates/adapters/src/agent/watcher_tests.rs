@@ -4,6 +4,7 @@
 use super::*;
 use crate::session::{FakeSessionAdapter, SessionCall};
 use std::io::Write;
+use std::time::Duration;
 use tempfile::TempDir;
 
 /// Append a JSONL line to a file (simulates real session log appends).
@@ -201,22 +202,17 @@ async fn setup_watch_loop() -> (
     // Use a short poll interval so tests don't wait long
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path: log_path.clone(),
+    let params = log_watch_params(
+        log_path.clone(),
         sessions,
         event_tx,
         shutdown_rx,
-        log_entry_tx: None,
-        file_rx,
-    };
+        Some(file_rx),
+    );
 
     let handle = tokio::spawn(watch_loop(params));
 
     // Yield to let watch_loop read initial state before test modifies the file.
-    // The task must enter the select! loop before we write new content.
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
@@ -900,42 +896,66 @@ async fn check_trust_prompt_capture_error_returns_false() {
     assert!(!result, "should return false on capture error");
 }
 
-// --- poll_process_only Tests ---
+// --- Fallback polling (watch_loop with no file watcher) Tests ---
+
+/// Helper to construct WatchLoopParams for fallback polling tests (no file watcher).
+fn fallback_params(
+    sessions: FakeSessionAdapter,
+    event_tx: mpsc::Sender<Event>,
+    shutdown_rx: oneshot::Receiver<()>,
+) -> WatchLoopParams<FakeSessionAdapter> {
+    WatchLoopParams {
+        agent_id: AgentId::new("test-agent"),
+        tmux_session_id: "test-session".to_string(),
+        process_name: "claude".to_string(),
+        log_path: None,
+        sessions,
+        event_tx,
+        shutdown_rx,
+        log_entry_tx: None,
+        file_rx: None,
+    }
+}
+
+/// Helper to construct WatchLoopParams for tests with a log file.
+fn log_watch_params(
+    log_path: PathBuf,
+    sessions: FakeSessionAdapter,
+    event_tx: mpsc::Sender<Event>,
+    shutdown_rx: oneshot::Receiver<()>,
+    file_rx: Option<mpsc::Receiver<()>>,
+) -> WatchLoopParams<FakeSessionAdapter> {
+    WatchLoopParams {
+        agent_id: AgentId::new("test-agent"),
+        tmux_session_id: "test-tmux".to_string(),
+        process_name: "claude".to_string(),
+        log_path: Some(log_path),
+        sessions,
+        event_tx,
+        shutdown_rx,
+        log_entry_tx: None,
+        file_rx,
+    }
+}
 
 #[tokio::test]
 #[serial_test::serial]
-async fn poll_process_only_exits_when_session_dies() {
+async fn fallback_poll_exits_when_session_dies() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
     sessions.set_process_running("test-session", true);
 
-    let agent_id = AgentId::new("test-agent");
     let (event_tx, mut event_rx) = mpsc::channel(32);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-
-    // Use very short poll interval
     std::env::set_var("OJ_WATCHER_POLL_MS", "10");
 
     let sessions_clone = sessions.clone();
-    let handle = tokio::spawn(poll_process_only(
-        agent_id,
-        "test-session".to_string(),
-        "claude".to_string(),
-        sessions,
-        event_tx,
-        shutdown_rx,
-    ));
+    let handle = tokio::spawn(watch_loop(fallback_params(sessions, event_tx, shutdown_rx)));
 
-    // Let it poll once successfully
     tokio::time::sleep(Duration::from_millis(20)).await;
-
-    // Now kill the session - set_exited sets alive=false, so we'll get SessionGone
     sessions_clone.set_exited("test-session", 0);
-
-    // Wait for the poll to detect it
     tokio::time::sleep(Duration::from_millis(30)).await;
 
-    // Should receive a SessionGone event (because set_exited sets alive=false)
     let event = event_rx.try_recv();
     assert!(
         matches!(event, Ok(Event::AgentGone { .. })),
@@ -943,44 +963,28 @@ async fn poll_process_only_exits_when_session_dies() {
         event
     );
 
-    // Clean up
     let _ = shutdown_tx.send(());
     let _ = handle.await;
 }
 
 #[tokio::test]
 #[serial_test::serial]
-async fn poll_process_only_exits_on_shutdown() {
+async fn fallback_poll_exits_on_shutdown() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
     sessions.set_process_running("test-session", true);
 
-    let agent_id = AgentId::new("test-agent");
     let (event_tx, mut event_rx) = mpsc::channel(32);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let handle = tokio::spawn(poll_process_only(
-        agent_id,
-        "test-session".to_string(),
-        "claude".to_string(),
-        sessions,
-        event_tx,
-        shutdown_rx,
-    ));
+    let handle = tokio::spawn(watch_loop(fallback_params(sessions, event_tx, shutdown_rx)));
 
-    // Let it start
     tokio::time::sleep(Duration::from_millis(10)).await;
-
-    // Send shutdown
     shutdown_tx.send(()).unwrap();
 
-    // Should exit without emitting events
     let result = tokio::time::timeout(Duration::from_millis(200), handle).await;
     assert!(result.is_ok(), "should exit after shutdown signal");
-
-    // No events should have been emitted
     assert!(
         event_rx.try_recv().is_err(),
         "should not emit events on clean shutdown"
@@ -1012,17 +1016,7 @@ async fn watcher_emits_idle_immediately_for_initial_waiting_state() {
 
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path,
-        sessions,
-        event_tx,
-        shutdown_rx,
-        log_entry_tx: None,
-        file_rx,
-    };
+    let params = log_watch_params(log_path, sessions, event_tx, shutdown_rx, Some(file_rx));
 
     let _handle = tokio::spawn(watch_loop(params));
 
@@ -1060,17 +1054,7 @@ async fn watcher_emits_event_for_initial_non_working_state() {
 
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path,
-        sessions,
-        event_tx,
-        shutdown_rx,
-        log_entry_tx: None,
-        file_rx,
-    };
+    let params = log_watch_params(log_path, sessions, event_tx, shutdown_rx, Some(file_rx));
 
     let _handle = tokio::spawn(watch_loop(params));
 
@@ -1112,17 +1096,7 @@ async fn watcher_does_not_emit_for_initial_working_state() {
 
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path,
-        sessions,
-        event_tx,
-        shutdown_rx,
-        log_entry_tx: None,
-        file_rx,
-    };
+    let params = log_watch_params(log_path, sessions, event_tx, shutdown_rx, Some(file_rx));
 
     let _handle = tokio::spawn(watch_loop(params));
 
@@ -1371,17 +1345,14 @@ async fn watcher_extracts_log_entries_when_log_entry_tx_set() {
 
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path: log_path.clone(),
+    let mut params = log_watch_params(
+        log_path.clone(),
         sessions,
         event_tx,
         shutdown_rx,
-        log_entry_tx: Some(log_entry_tx),
-        file_rx,
-    };
+        Some(file_rx),
+    );
+    params.log_entry_tx = Some(log_entry_tx);
 
     let _handle = tokio::spawn(watch_loop(params));
 
@@ -1438,17 +1409,7 @@ async fn watcher_detects_process_death_via_liveness_check() {
     std::env::set_var("OJ_WATCHER_POLL_MS", "10");
 
     let sessions_clone = sessions.clone();
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path,
-        sessions,
-        event_tx,
-        shutdown_rx,
-        log_entry_tx: None,
-        file_rx,
-    };
+    let params = log_watch_params(log_path, sessions, event_tx, shutdown_rx, Some(file_rx));
 
     let handle = tokio::spawn(watch_loop(params));
 
@@ -1498,17 +1459,7 @@ async fn watcher_exits_on_shutdown_signal() {
 
     std::env::set_var("OJ_WATCHER_POLL_MS", "5000");
 
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path,
-        sessions,
-        event_tx,
-        shutdown_rx,
-        log_entry_tx: None,
-        file_rx,
-    };
+    let params = log_watch_params(log_path, sessions, event_tx, shutdown_rx, Some(file_rx));
 
     let handle = tokio::spawn(watch_loop(params));
 
@@ -1889,38 +1840,24 @@ async fn check_liveness_returns_exited_with_exit_code() {
     );
 }
 
-// --- poll_process_only with process exit (not session death) ---
+// --- Fallback polling detects process exit (not session death) ---
 
 #[tokio::test]
 #[serial_test::serial]
-async fn poll_process_only_detects_process_exit() {
+async fn fallback_poll_detects_process_exit() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
     sessions.set_process_running("test-session", true);
 
-    let agent_id = AgentId::new("test-agent");
     let (event_tx, mut event_rx) = mpsc::channel(32);
     let (_shutdown_tx, shutdown_rx) = oneshot::channel();
-
     std::env::set_var("OJ_WATCHER_POLL_MS", "10");
 
     let sessions_clone = sessions.clone();
-    let handle = tokio::spawn(poll_process_only(
-        agent_id,
-        "test-session".to_string(),
-        "claude".to_string(),
-        sessions,
-        event_tx,
-        shutdown_rx,
-    ));
+    let handle = tokio::spawn(watch_loop(fallback_params(sessions, event_tx, shutdown_rx)));
 
-    // Let it poll once
     tokio::time::sleep(Duration::from_millis(20)).await;
-
-    // Process exits but tmux session still alive
     sessions_clone.set_process_running("test-session", false);
-
-    // Wait for poll to detect
     tokio::time::sleep(Duration::from_millis(30)).await;
 
     let event = event_rx.try_recv();
@@ -1931,7 +1868,7 @@ async fn poll_process_only_detects_process_exit() {
     );
 
     let result = tokio::time::timeout(Duration::from_millis(200), handle).await;
-    assert!(result.is_ok(), "poll_process_only should exit");
+    assert!(result.is_ok(), "fallback poll should exit");
 }
 
 // --- watch_loop with log_entry_tx extraction on state change ---
@@ -1959,17 +1896,14 @@ async fn watcher_forwards_log_entries_on_file_change() {
 
     std::env::set_var("OJ_WATCHER_POLL_MS", "50");
 
-    let params = WatchLoopParams {
-        agent_id: AgentId::new("test-agent"),
-        tmux_session_id: "test-tmux".to_string(),
-        process_name: "claude".to_string(),
-        log_path: log_path.clone(),
+    let mut params = log_watch_params(
+        log_path.clone(),
         sessions,
         event_tx,
         shutdown_rx,
-        log_entry_tx: Some(log_entry_tx),
-        file_rx,
-    };
+        Some(file_rx),
+    );
+    params.log_entry_tx = Some(log_entry_tx);
 
     let _handle = tokio::spawn(watch_loop(params));
 

@@ -121,4 +121,8 @@ pub enum Query {
     GetDecision {
         id: String,
     },
+    /// Get health status for a specific job (GT doctor integration)
+    JobHealth {
+        id: String,
+    },
 }

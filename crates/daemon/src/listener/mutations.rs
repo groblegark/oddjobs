@@ -73,6 +73,60 @@ pub(super) fn handle_status(ctx: &ListenCtx) -> Response {
     }
 }
 
+/// Handle a health request (for GT doctor integration).
+///
+/// Returns aggregate daemon health: uptime, worker count, queue depth,
+/// running job count, and per-job health entries for non-terminal jobs.
+pub(super) fn handle_health(ctx: &ListenCtx) -> Response {
+    let uptime_secs = ctx.start_time.elapsed().as_secs();
+    let state = ctx.state.lock();
+
+    let worker_count = state.workers.values().filter(|w| w.status == "running").count();
+
+    let queue_depth: usize = state
+        .queue_items
+        .values()
+        .flat_map(|items| items.iter())
+        .filter(|item| {
+            matches!(
+                item.status,
+                oj_storage::QueueItemStatus::Pending | oj_storage::QueueItemStatus::Active
+            )
+        })
+        .count();
+
+    let non_terminal_jobs: Vec<_> = state.jobs.values().filter(|p| !p.is_terminal()).collect();
+    let running_jobs = non_terminal_jobs.len();
+
+    let jobs = non_terminal_jobs
+        .iter()
+        .map(|p| {
+            // Find the active agent for this job (if any)
+            let agent_state = state
+                .agents
+                .values()
+                .find(|a| matches!(&a.owner, oj_core::OwnerId::Job(jid) if jid.as_str() == p.id))
+                .map(|a| format!("{}", a.status));
+
+            crate::protocol::JobHealthEntry {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                state: oj_core::StepStatusKind::from(&p.step_status).to_string(),
+                step: p.step.clone(),
+                agent_state,
+            }
+        })
+        .collect();
+
+    Response::Health {
+        uptime_secs,
+        worker_count,
+        queue_depth,
+        running_jobs,
+        jobs,
+    }
+}
+
 /// Handle a session send request.
 pub(super) fn handle_session_send(
     ctx: &ListenCtx,

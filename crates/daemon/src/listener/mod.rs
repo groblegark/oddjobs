@@ -151,6 +151,8 @@ async fn handle_request(request: Request, ctx: &ListenCtx) -> Result<Response, C
 
         Request::Status => Ok(mutations::handle_status(ctx)),
 
+        Request::Health => Ok(mutations::handle_health(ctx)),
+
         Request::SessionSend { id, input } => mutations::handle_session_send(ctx, id, input),
 
         Request::SessionKill { id } => mutations::handle_session_kill(ctx, &id).await,

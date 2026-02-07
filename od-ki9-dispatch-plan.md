@@ -3,9 +3,25 @@
 ## Status
 
 - **Epic**: od-ki9 (GT/OJ Convergence: Deduplicate and establish ownership)
-- **Phase**: Research complete. Ready for implementation dispatch.
+- **Phase**: Waves 1+2 dispatched. Monitoring polecat execution.
 - **Prior research**: GT_OJ_CONVERGENCE_ANALYSIS.md, od-ki9-deep-integration-research.md
 - **Prior spikes**: od-vq6.1 (witness handoff), od-vq6.2 (merge queue ownership)
+- **Last updated**: 2026-02-07T04:30 by oddjobs/crew/research
+
+## Active Polecats
+
+| Bead | Polecat | Rig | Wave | Status |
+|------|---------|-----|------|--------|
+| ki9.1 | gastown/nux | gastown | 1 | Running (queued behind P1 gt-f6ya1g.1) |
+| ki9.3 | oddjobs/obsidian | oddjobs | 1 | Running (found existing legacy commit fa54f4b) |
+| ki9.9 | oddjobs/quartz | oddjobs | 1 | Running (researching) |
+| ki9.4 | gastown/dag | gastown | 2 | Running |
+| ki9.5 | gastown/cheedo | gastown | 2 | Running |
+| ki9.6 | gastown/keeper | gastown | 2 | Running |
+
+### Known Issues
+- **gt-8vf4tu**: gt sling hook step fails when BD_DAEMON_HOST is set for oddjobs polecats. Workaround: polecats find work via gt prime.
+- Agent bead creation warnings (missing gt:agent label) on gastown polecats — non-fatal.
 
 ## Dependency Graph
 
@@ -29,22 +45,22 @@ Phase 3: Feature Migration
 
 ## Dispatch Ordering
 
-### Wave 1 (Immediate — Phase 1 guards + unblocking ki9.9)
+### Wave 1 (DISPATCHED 2026-02-07 — Phase 1 guards + unblocking ki9.9)
 
-| Bead | Target Rig | Primary Language | Rationale |
-|------|-----------|-----------------|-----------|
-| **ki9.1** | gastown | Go | GT Witness code (handlers.go). Add `oj_job_id` check before AutoNukeIfClean. |
-| **ki9.3** | oddjobs | Rust/HCL | OJ merge.hcl flagging. Add `OJ_LEGACY_MERGE=1` guard. Minor GT refinery awareness. |
-| **ki9.9** | oddjobs | Rust | OJ daemon health endpoint. Unblocks ki9.2 and ki9.10. Moved up from Phase 3. |
+| Bead | Target Rig | Polecat | Status |
+|------|-----------|---------|--------|
+| **ki9.1** | gastown | nux | Dispatched, queued behind P1 |
+| **ki9.3** | oddjobs | obsidian | Dispatched, actively researching |
+| **ki9.9** | oddjobs | quartz | Dispatched, actively researching |
 
-### Wave 2 (After Wave 1 — Phase 2 seams + ki9.2 unblocked)
+### Wave 2 (DISPATCHED 2026-02-07 — Phase 2 seams, parallel with Wave 1)
 
-| Bead | Target Rig | Primary Language | Rationale |
-|------|-----------|-----------------|-----------|
-| **ki9.2** | gastown | Go | GT Witness routes health to OJ daemon (needs ki9.9 endpoint). |
-| **ki9.4** | gastown + oddjobs | Go + Rust | Cross-rig: GT routes nudge to `oj agent send`, OJ is already canonical. |
-| **ki9.5** | gastown | Go | Extract from GT tmux.go. OJ can consume later. |
-| **ki9.6** | gastown + oddjobs | Go + Rust | Cross-rig: GT produces env map, OJ consumes. |
+| Bead | Target Rig | Polecat | Status |
+|------|-----------|---------|--------|
+| **ki9.4** | gastown | dag | Dispatched with detailed research findings |
+| **ki9.5** | gastown | cheedo | Dispatched with detailed research findings |
+| **ki9.6** | gastown | keeper | Dispatched with detailed research findings |
+| **ki9.2** | gastown | — | BLOCKED by ki9.9 (awaiting health endpoint) |
 
 ### Wave 3 (After Wave 2 — Phase 2 blocked + Phase 3)
 

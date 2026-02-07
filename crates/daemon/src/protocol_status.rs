@@ -158,6 +158,20 @@ pub struct MetricsHealthSummary {
     pub ghost_sessions: Vec<String>,
 }
 
+/// Per-job health entry for the Health response (GT doctor integration)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobHealthEntry {
+    pub id: String,
+    pub name: String,
+    /// Step status as string (e.g., "running", "waiting", "completed")
+    pub state: String,
+    /// Current step name
+    pub step: String,
+    /// Agent state if an agent is active (e.g., "running", "waiting", "exited")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_state: Option<String>,
+}
+
 /// Summary of a project with active work
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectSummary {

@@ -669,3 +669,68 @@ fn step_record_detail_from_waiting() {
     assert_eq!(detail.outcome, StepOutcomeKind::Waiting);
     assert_eq!(detail.detail, Some("gate check failed".to_string()));
 }
+
+#[test]
+fn encode_decode_health_request() {
+    let request = Request::Health;
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+    assert_eq!(request, decoded);
+}
+
+#[test]
+fn encode_decode_health_response() {
+    let response = Response::Health {
+        uptime_secs: 7200,
+        worker_count: 3,
+        queue_depth: 12,
+        running_jobs: 2,
+        jobs: vec![
+            JobHealthEntry {
+                id: "job-1".to_string(),
+                name: "build".to_string(),
+                state: "running".to_string(),
+                step: "agent".to_string(),
+                agent_state: Some("running".to_string()),
+            },
+            JobHealthEntry {
+                id: "job-2".to_string(),
+                name: "deploy".to_string(),
+                state: "waiting".to_string(),
+                step: "gate".to_string(),
+                agent_state: None,
+            },
+        ],
+    };
+
+    let encoded = encode(&response).expect("encode failed");
+    let decoded: Response = decode(&encoded).expect("decode failed");
+    assert_eq!(response, decoded);
+}
+
+#[test]
+fn encode_decode_job_health_query() {
+    let request = Request::Query {
+        query: Query::JobHealth {
+            id: "job-abc".to_string(),
+        },
+    };
+    let encoded = encode(&request).expect("encode failed");
+    let decoded: Request = decode(&encoded).expect("decode failed");
+    assert_eq!(request, decoded);
+}
+
+#[test]
+fn encode_decode_job_health_response() {
+    let response = Response::JobHealth {
+        id: "job-123".to_string(),
+        name: "build-main".to_string(),
+        state: "running".to_string(),
+        step: "agent".to_string(),
+        agent_state: Some("running".to_string()),
+    };
+
+    let encoded = encode(&response).expect("encode failed");
+    let decoded: Response = decode(&encoded).expect("decode failed");
+    assert_eq!(response, decoded);
+}

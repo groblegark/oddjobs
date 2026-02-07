@@ -18,9 +18,9 @@ pub use query::Query;
 #[path = "protocol_status.rs"]
 mod status;
 pub use status::{
-    AgentEntry, AgentStatusEntry, CronEntry, CronSummary, JobEntry, JobStatusEntry,
-    MetricsHealthSummary, NamespaceStatus, OrphanAgent, OrphanSummary, ProjectSummary,
-    QueueItemEntry, QueueStatus, SessionEntry, WorkerEntry,
+    AgentEntry, AgentStatusEntry, CronEntry, CronSummary, JobEntry, JobHealthEntry,
+    JobStatusEntry, MetricsHealthSummary, NamespaceStatus, OrphanAgent, OrphanSummary,
+    ProjectSummary, QueueItemEntry, QueueStatus, SessionEntry, WorkerEntry,
 };
 
 #[path = "protocol_types.rs"]
@@ -63,6 +63,9 @@ pub enum Request {
 
     /// Get daemon status
     Status,
+
+    /// Health check for external integrations (GT doctor)
+    Health,
 
     /// Send input to a session
     SessionSend { id: String, input: String },
@@ -448,6 +451,26 @@ pub enum Response {
         sessions_active: usize,
         #[serde(default)]
         orphan_count: usize,
+    },
+
+    /// Daemon health summary for external integrations (GT doctor)
+    Health {
+        uptime_secs: u64,
+        worker_count: usize,
+        queue_depth: usize,
+        running_jobs: usize,
+        /// Non-terminal jobs with current state and agent state
+        jobs: Vec<JobHealthEntry>,
+    },
+
+    /// Per-job health detail (GT doctor integration)
+    JobHealth {
+        id: String,
+        name: String,
+        state: String,
+        step: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_state: Option<String>,
     },
 
     /// Error response

@@ -446,6 +446,32 @@ pub(super) fn handle_query(ctx: &ListenCtx, query: Query) -> Response {
             Response::Decision { decision }
         }
 
+        Query::JobHealth { id } => {
+            let job = state.get_job(&id);
+            match job {
+                Some(p) => {
+                    let agent_state = state
+                        .agents
+                        .values()
+                        .find(|a| {
+                            matches!(&a.owner, oj_core::OwnerId::Job(jid) if jid.as_str() == p.id)
+                        })
+                        .map(|a| format!("{}", a.status));
+
+                    Response::JobHealth {
+                        id: p.id.clone(),
+                        name: p.name.clone(),
+                        state: StepStatusKind::from(&p.step_status).to_string(),
+                        step: p.step.clone(),
+                        agent_state,
+                    }
+                }
+                None => Response::Error {
+                    message: format!("job not found: {}", id),
+                },
+            }
+        }
+
         // Handled by early return above; included for exhaustiveness
         Query::ListOrphans | Query::DismissOrphan { .. } | Query::ListProjects => unreachable!(),
     }

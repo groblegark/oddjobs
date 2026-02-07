@@ -62,6 +62,12 @@ pub enum DaemonCommand {
         #[arg(long)]
         dismiss: Option<String>,
     },
+    /// Health check for external integrations (GT doctor)
+    Health {
+        /// Query health for a specific job by ID (or prefix)
+        #[arg(long)]
+        job: Option<String>,
+    },
 }
 
 pub async fn daemon(args: DaemonArgs, format: OutputFormat) -> Result<()> {
@@ -81,6 +87,7 @@ pub async fn daemon(args: DaemonArgs, format: OutputFormat) -> Result<()> {
         }) => logs(limit, no_limit, follow, format).await,
         Some(DaemonCommand::Orphans { dismiss: Some(id) }) => dismiss_orphan(id, format).await,
         Some(DaemonCommand::Orphans { dismiss: None }) => orphans(format).await,
+        Some(DaemonCommand::Health { job }) => health(job, format).await,
         None => {
             // No subcommand — show colorized help
             let cmd = crate::find_subcommand(crate::cli_command(), &["daemon"]);
@@ -352,6 +359,112 @@ async fn dismiss_orphan(id: String, format: OutputFormat) -> Result<()> {
         OutputFormat::Text => println!("Orphan dismissed: {}", id),
         OutputFormat::Json => {
             let obj = serde_json::json!({ "dismissed": id });
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+    }
+
+    Ok(())
+}
+
+async fn health(job: Option<String>, format: OutputFormat) -> Result<()> {
+    let not_running = || match format {
+        OutputFormat::Text => {
+            println!("Daemon not running");
+            Ok(())
+        }
+        OutputFormat::Json => {
+            println!(r#"{{ "status": "not_running" }}"#);
+            Ok(())
+        }
+    };
+
+    let client = match DaemonClient::connect() {
+        Ok(c) => c,
+        Err(_) => return not_running(),
+    };
+
+    // Per-job health query
+    if let Some(job_id) = job {
+        let entry = match client.job_health(&job_id).await {
+            Ok(e) => e,
+            Err(crate::client::ClientError::DaemonNotRunning) => return not_running(),
+            Err(e) => return Err(anyhow!("{}", e)),
+        };
+
+        match format {
+            OutputFormat::Text => {
+                println!("Job:    {} ({})", entry.id.short(8), entry.name);
+                println!("State:  {}", entry.state);
+                println!("Step:   {}", entry.step);
+                if let Some(ref agent) = entry.agent_state {
+                    println!("Agent:  {}", agent);
+                }
+            }
+            OutputFormat::Json => {
+                let obj = serde_json::json!({
+                    "id": entry.id,
+                    "name": entry.name,
+                    "state": entry.state,
+                    "step": entry.step,
+                    "agent_state": entry.agent_state,
+                });
+                println!("{}", serde_json::to_string_pretty(&obj)?);
+            }
+        }
+        return Ok(());
+    }
+
+    // Aggregate health
+    let (uptime, worker_count, queue_depth, running_jobs, jobs) = match client.health().await {
+        Ok(result) => result,
+        Err(crate::client::ClientError::DaemonNotRunning) => return not_running(),
+        Err(crate::client::ClientError::Io(ref e))
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            ) =>
+        {
+            return not_running();
+        }
+        Err(e) => return Err(anyhow!("{}", e)),
+    };
+
+    match format {
+        OutputFormat::Text => {
+            let uptime_str = format_uptime(uptime);
+            println!("Status:       running");
+            println!("Uptime:       {}", uptime_str);
+            println!("Workers:      {}", worker_count);
+            println!("Queue depth:  {}", queue_depth);
+            println!("Running jobs: {}", running_jobs);
+
+            if !jobs.is_empty() {
+                println!();
+                println!(
+                    "{:<10} {:<20} {:<12} {:<12} {}",
+                    "ID", "NAME", "STATE", "STEP", "AGENT"
+                );
+                for j in &jobs {
+                    println!(
+                        "{:<10} {:<20} {:<12} {:<12} {}",
+                        j.id.short(8),
+                        truncate(&j.name, 20),
+                        truncate(&j.state, 12),
+                        truncate(&j.step, 12),
+                        j.agent_state.as_deref().unwrap_or("-"),
+                    );
+                }
+            }
+        }
+        OutputFormat::Json => {
+            let obj = serde_json::json!({
+                "status": "running",
+                "uptime_secs": uptime,
+                "worker_count": worker_count,
+                "queue_depth": queue_depth,
+                "running_jobs": running_jobs,
+                "jobs": jobs,
+            });
             println!("{}", serde_json::to_string_pretty(&obj)?);
         }
     }

@@ -243,6 +243,57 @@ impl DaemonClient {
         }
     }
 
+    /// Get daemon health summary (for GT doctor integration)
+    pub async fn health(
+        &self,
+    ) -> Result<
+        (
+            u64,
+            usize,
+            usize,
+            usize,
+            Vec<oj_daemon::JobHealthEntry>,
+        ),
+        ClientError,
+    > {
+        match self.send(&Request::Health).await? {
+            Response::Health {
+                uptime_secs,
+                worker_count,
+                queue_depth,
+                running_jobs,
+                jobs,
+            } => Ok((uptime_secs, worker_count, queue_depth, running_jobs, jobs)),
+            other => Self::reject(other),
+        }
+    }
+
+    /// Get health status for a specific job (GT doctor integration)
+    pub async fn job_health(
+        &self,
+        id: &str,
+    ) -> Result<oj_daemon::JobHealthEntry, ClientError> {
+        let request = Request::Query {
+            query: Query::JobHealth { id: id.to_string() },
+        };
+        match self.send(&request).await? {
+            Response::JobHealth {
+                id,
+                name,
+                state,
+                step,
+                agent_state,
+            } => Ok(oj_daemon::JobHealthEntry {
+                id,
+                name,
+                state,
+                step,
+                agent_state,
+            }),
+            other => Self::reject(other),
+        }
+    }
+
     /// Dismiss an orphaned job by deleting its breadcrumb
     pub async fn dismiss_orphan(&self, id: &str) -> Result<(), ClientError> {
         let request = Request::Query {

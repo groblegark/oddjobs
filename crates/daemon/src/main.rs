@@ -30,7 +30,7 @@ use oj_core::{Clock, Event, JobId};
 use oj_storage::{Checkpointer, MaterializedState, Wal};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::Notify;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::event_bus::EventBus;
 use crate::lifecycle::{Config, LifecycleError, StartupResult};
@@ -171,6 +171,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Signal ready for parent process (e.g., systemd, CLI waiting for startup)
     println!("READY");
+
+    // Spawn background runbook materialization from beads (best-effort)
+    spawn_runbook_materialize();
 
     // Spawn background reconciliation — daemon is already accepting connections
     if reconcile_ctx.job_count > 0
@@ -404,6 +407,46 @@ fn spawn_checkpoint(
                         "checkpoint task panicked"
                     );
                 }
+            }
+        }
+    });
+}
+
+/// Timeout for `bd runbook materialize --all --force` (5 minutes).
+const RUNBOOK_MATERIALIZE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Spawn a background task to materialize runbooks from beads.
+///
+/// Runs `bd runbook materialize --all --force` to write bead-stored runbooks
+/// to the filesystem so the daemon can load them normally. Best-effort: failures
+/// are logged as warnings but do not block daemon startup.
+fn spawn_runbook_materialize() {
+    tokio::spawn(async {
+        info!("starting background runbook materialization from beads");
+        let mut cmd = tokio::process::Command::new("bd");
+        cmd.args(["runbook", "materialize", "--all", "--force"]);
+
+        match oj_adapters::subprocess::run_with_timeout(
+            cmd,
+            RUNBOOK_MATERIALIZE_TIMEOUT,
+            "bd runbook materialize",
+        )
+        .await
+        {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                info!("runbook materialization complete: {}", stdout.trim());
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!(
+                    "runbook materialization failed (exit {}): {}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim()
+                );
+            }
+            Err(e) => {
+                warn!("runbook materialization error: {}", e);
             }
         }
     });

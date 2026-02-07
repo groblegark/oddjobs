@@ -3,25 +3,28 @@
 ## Status
 
 - **Epic**: od-ki9 (GT/OJ Convergence: Deduplicate and establish ownership)
-- **Phase**: Waves 1+2 dispatched. Monitoring polecat execution.
+- **Phase**: ki9.3 DONE. All polecats dead (API limits + BD_DAEMON_HOST). Needs re-dispatch.
 - **Prior research**: GT_OJ_CONVERGENCE_ANALYSIS.md, od-ki9-deep-integration-research.md
 - **Prior spikes**: od-vq6.1 (witness handoff), od-vq6.2 (merge queue ownership)
-- **Last updated**: 2026-02-07T04:30 by oddjobs/crew/research
+- **Last updated**: 2026-02-07T05:00 by oddjobs/crew/research
 
-## Active Polecats
+## Polecat Status (all dead — need re-dispatch)
 
-| Bead | Polecat | Rig | Wave | Status |
-|------|---------|-----|------|--------|
-| ki9.1 | gastown/nux | gastown | 1 | Running (queued behind P1 gt-f6ya1g.1) |
-| ki9.3 | oddjobs/obsidian | oddjobs | 1 | Running (found existing legacy commit fa54f4b) |
-| ki9.9 | oddjobs/quartz | oddjobs | 1 | Running (researching) |
-| ki9.4 | gastown/dag | gastown | 2 | Running |
-| ki9.5 | gastown/cheedo | gastown | 2 | Running |
-| ki9.6 | gastown/keeper | gastown | 2 | Running |
+| Bead | Last Polecat | Rig | Wave | Status |
+|------|-------------|-----|------|--------|
+| ki9.1 | gastown/nux | gastown | 1 | Dead (API limit). Nux was on P1 task first. |
+| ki9.3 | — | — | 1 | **DONE** — crew/research implemented (9a96059) |
+| ki9.9 | oddjobs/quartz | oddjobs | 1 | Dead. Had +301 lines health endpoint, lost before push. |
+| ki9.4 | gastown/dag | gastown | 2 | Dead (API limit). Was reading source files. |
+| ki9.5 | gastown/dementus | gastown | 2 | Dead (API limit). Was running tmux tests. |
+| ki9.6 | gastown/keeper | gastown | 2 | Dead. Was running go test. |
 
 ### Known Issues
-- **gt-8vf4tu**: gt sling hook step fails when BD_DAEMON_HOST is set for oddjobs polecats. Workaround: polecats find work via gt prime.
-- Agent bead creation warnings (missing gt:agent label) on gastown polecats — non-fatal.
+- **gt-8vf4tu**: gt sling hook step fails for oddjobs polecats when BD_DAEMON_HOST is set
+- Agent bead creation warns "missing gt:agent label" on gastown polecats — non-fatal
+- BD daemon intermittently returns 503 under load — retry after 10s
+- **API limits**: Gastown polecats hit Anthropic API limits (resets 9am UTC)
+- **Oddjobs polecats**: Repeated lifecycle failures from BD_DAEMON_HOST bug
 
 ## Dependency Graph
 

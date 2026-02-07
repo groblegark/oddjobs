@@ -298,6 +298,7 @@ where
             hash: runbook_hash,
             version: 1,
             runbook: runbook_json,
+            source: Default::default(),
         }))
     }
 

@@ -172,6 +172,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Signal ready for parent process (e.g., systemd, CLI waiting for startup)
     println!("READY");
 
+    // Spawn background runbook materialization — ensures bead-defined runbooks
+    // are written to disk before workers/crons load them. Best-effort: failures
+    // are logged but do not block the daemon.
+    tokio::spawn(async {
+        lifecycle::materialize_runbooks().await;
+    });
+
     // Spawn background reconciliation — daemon is already accepting connections
     if reconcile_ctx.job_count > 0
         || reconcile_ctx.worker_count > 0

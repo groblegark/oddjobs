@@ -240,10 +240,11 @@ fn log_summary_runbook_loaded() {
         hash: "abcdef1234567890".to_string(),
         version: 3,
         runbook,
+        source: Default::default(),
     };
     assert_eq!(
         event.log_summary(),
-        "runbook:loaded hash=abcdef123456 v=3 agents=2 jobs=1"
+        "runbook:loaded hash=abcdef123456 v=3 src=file agents=2 jobs=1"
     );
 }
 
@@ -254,10 +255,11 @@ fn log_summary_runbook_loaded_empty() {
         hash: "short".to_string(),
         version: 1,
         runbook,
+        source: Default::default(),
     };
     assert_eq!(
         event.log_summary(),
-        "runbook:loaded hash=short v=1 agents=0 jobs=0"
+        "runbook:loaded hash=short v=1 src=file agents=0 jobs=0"
     );
 }
 

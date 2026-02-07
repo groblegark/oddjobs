@@ -3,7 +3,9 @@
 
 //! Daemon lifecycle management: startup, shutdown, recovery.
 
+mod materialize;
 mod reconcile;
+pub(crate) use materialize::materialize_runbooks;
 pub(crate) use reconcile::reconcile_state;
 
 use std::fs::File;

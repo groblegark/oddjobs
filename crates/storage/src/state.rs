@@ -425,6 +425,7 @@ impl MaterializedState {
                 hash,
                 version,
                 runbook,
+                ..
             } => {
                 // Only insert if not already present (dedup by content hash)
                 if !self.runbooks.contains_key(hash) {

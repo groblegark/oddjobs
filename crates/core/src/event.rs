@@ -71,6 +71,17 @@ fn is_empty_map<K, V>(map: &HashMap<K, V>) -> bool {
     map.is_empty()
 }
 
+/// Source of a loaded runbook: file on disk or materialized from a bead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RunbookSource {
+    /// Loaded from a file on disk (default for backward compatibility)
+    #[default]
+    File,
+    /// Materialized from a bead definition
+    Bead,
+}
+
 /// Events that trigger state transitions in the system.
 ///
 /// Serializes with `{"type": "event:name", ...fields}` format.
@@ -222,6 +233,9 @@ pub enum Event {
         hash: String,
         version: u32,
         runbook: serde_json::Value,
+        /// Where this runbook was loaded from (file or bead).
+        #[serde(default)]
+        source: RunbookSource,
     },
 
     // -- session --
@@ -760,6 +774,7 @@ impl Event {
                 hash,
                 version,
                 runbook,
+                source,
             } => {
                 let agents = runbook
                     .get("agents")
@@ -771,8 +786,12 @@ impl Event {
                     .and_then(|v| v.as_object())
                     .map(|o| o.len())
                     .unwrap_or(0);
+                let src = match source {
+                    RunbookSource::File => "file",
+                    RunbookSource::Bead => "bead",
+                };
                 format!(
-                    "{t} hash={} v={version} agents={agents} jobs={jobs}",
+                    "{t} hash={} v={version} src={src} agents={agents} jobs={jobs}",
                     hash.short(12)
                 )
             }

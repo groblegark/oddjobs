@@ -39,6 +39,7 @@ pub(super) async fn load_runbook(
             hash: runbook_hash.to_string(),
             version: 1,
             runbook: runbook_json.clone(),
+            source: Default::default(),
         })
         .await
         .unwrap();

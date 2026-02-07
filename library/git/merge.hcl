@@ -1,4 +1,14 @@
-# Local merge queue with conflict resolution.
+# LEGACY: Local merge queue with conflict resolution.
+#
+# This library is superseded by the GT refinery, which is the canonical merge
+# queue owner in Gas Town. The GT refinery handles priority scoring, strategy
+# selection, and merge execution.
+#
+# This library remains available for non-Gas Town deployments where OJ operates
+# standalone. To enable it, set OJ_LEGACY_MERGE=1 in your environment. Without
+# that variable, the command and jobs will exit with a warning.
+#
+# See: od-vq6.2 (merge queue ownership), od-ki9.3 (legacy flagging)
 #
 # Clean merges flow through the fast-path. Conflicts are forwarded to a
 # resolve queue where an agent handles resolution without blocking
@@ -13,6 +23,11 @@ const "check" { default = "true" }
 command "merge" {
   args = "<branch> <title> [--base <base>]"
   run  = <<-SHELL
+    if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+      echo "error: OJ merge queue is legacy. The GT refinery is the canonical merge owner." >&2
+      echo "hint:  Set OJ_LEGACY_MERGE=1 to use this runbook in standalone (non-Gas Town) mode." >&2
+      exit 1
+    fi
     oj queue push merges --var branch="${args.branch}" --var title="${args.title}" --var base="${args.base}"
     echo "Queued '${args.branch}' for merge"
   SHELL
@@ -62,6 +77,18 @@ job "merge" {
     on_start = "Merging: ${var.mr.title}"
     on_done  = "Merged: ${var.mr.title}"
     on_fail  = "Merge failed: ${var.mr.title}"
+  }
+
+  # Legacy guard: reject merge jobs unless OJ_LEGACY_MERGE=1 is set.
+  step "guard" {
+    run = <<-SHELL
+      if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+        echo "error: OJ merge queue is legacy. The GT refinery is the canonical merge owner." >&2
+        echo "hint:  Set OJ_LEGACY_MERGE=1 to use this runbook in standalone (non-Gas Town) mode." >&2
+        exit 1
+      fi
+    SHELL
+    on_done = { step = "init" }
   }
 
   step "init" {
@@ -139,6 +166,18 @@ job "merge-conflict" {
     on_start = "Resolving conflicts: ${var.mr.title}"
     on_done  = "Resolved conflicts: ${var.mr.title}"
     on_fail  = "Conflict resolution failed: ${var.mr.title}"
+  }
+
+  # Legacy guard: reject merge-conflict jobs unless OJ_LEGACY_MERGE=1 is set.
+  step "guard" {
+    run = <<-SHELL
+      if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+        echo "error: OJ merge queue is legacy. The GT refinery is the canonical merge owner." >&2
+        echo "hint:  Set OJ_LEGACY_MERGE=1 to use this runbook in standalone (non-Gas Town) mode." >&2
+        exit 1
+      fi
+    SHELL
+    on_done = { step = "init" }
   }
 
   step "init" {

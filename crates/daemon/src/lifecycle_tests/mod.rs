@@ -109,6 +109,7 @@ async fn setup_daemon_with_job_and_reader() -> (DaemonState, EventReader, PathBu
         hash,
         version: 1,
         runbook: runbook_json,
+        source: None,
     });
 
     // Mark job step as running (as it would be during normal execution)

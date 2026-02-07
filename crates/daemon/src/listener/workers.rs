@@ -293,9 +293,20 @@ mod tests;
 ///
 /// Combines [`hash_runbook`] with emitting the `RunbookLoaded` event, which
 /// is the common pattern across worker, cron, and queue start handlers.
+///
+/// `source` records where the runbook was loaded from (filesystem, bead, etc.).
 pub(super) fn hash_and_emit_runbook(
     event_bus: &EventBus,
     runbook: &oj_runbook::Runbook,
+) -> Result<String, ConnectionError> {
+    hash_and_emit_runbook_with_source(event_bus, runbook, Some(oj_core::RunbookSource::Filesystem))
+}
+
+/// Like [`hash_and_emit_runbook`] but with an explicit source.
+pub(super) fn hash_and_emit_runbook_with_source(
+    event_bus: &EventBus,
+    runbook: &oj_runbook::Runbook,
+    source: Option<oj_core::RunbookSource>,
 ) -> Result<String, ConnectionError> {
     let (runbook_json, runbook_hash) = hash_runbook(runbook).map_err(ConnectionError::Internal)?;
     emit(
@@ -304,6 +315,7 @@ pub(super) fn hash_and_emit_runbook(
             hash: runbook_hash.clone(),
             version: 1,
             runbook: runbook_json,
+            source,
         },
     )?;
     Ok(runbook_hash)

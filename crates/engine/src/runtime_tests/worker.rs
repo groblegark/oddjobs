@@ -160,6 +160,7 @@ async fn runbook_loaded_event_populates_cache_for_worker_started() {
             hash: runbook_hash.clone(),
             version: 1,
             runbook: runbook_json,
+            source: None,
         })
         .await
         .unwrap();
@@ -217,6 +218,7 @@ async fn worker_restart_restores_active_jobs_from_persisted_state() {
             hash: runbook_hash.clone(),
             version: 1,
             runbook: runbook_json.clone(),
+            source: None,
         });
         state.apply_event(&Event::WorkerStarted {
             worker_name: "fixer".to_string(),
@@ -240,6 +242,7 @@ async fn worker_restart_restores_active_jobs_from_persisted_state() {
             hash: runbook_hash.clone(),
             version: 1,
             runbook: runbook_json,
+            source: None,
         })
         .await
         .unwrap();
@@ -292,6 +295,7 @@ async fn worker_restart_restores_active_jobs_with_namespace() {
             hash: runbook_hash.clone(),
             version: 1,
             runbook: runbook_json.clone(),
+            source: None,
         });
         state.apply_event(&Event::WorkerStarted {
             worker_name: "fixer".to_string(),
@@ -315,6 +319,7 @@ async fn worker_restart_restores_active_jobs_with_namespace() {
             hash: runbook_hash.clone(),
             version: 1,
             runbook: runbook_json,
+            source: None,
         })
         .await
         .unwrap();
@@ -363,6 +368,7 @@ async fn worker_picks_up_runbook_edits_on_poll() {
             hash: original_hash.clone(),
             version: 1,
             runbook: runbook_json,
+            source: None,
         })
         .await
         .unwrap();
@@ -517,6 +523,7 @@ async fn worker_no_refresh_when_runbook_unchanged() {
             hash: hash.clone(),
             version: 1,
             runbook: runbook_json,
+            source: None,
         })
         .await
         .unwrap();

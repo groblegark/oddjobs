@@ -131,6 +131,7 @@ where
                             hash: runbook_hash.clone(),
                             version: 1,
                             runbook: runbook_json,
+                            source: Some(oj_core::RunbookSource::Filesystem),
                         },
                     });
                 }
@@ -254,6 +255,7 @@ where
                             hash: runbook_hash.clone(),
                             version: 1,
                             runbook: runbook_json,
+                            source: Some(oj_core::RunbookSource::Filesystem),
                         },
                     });
                 }

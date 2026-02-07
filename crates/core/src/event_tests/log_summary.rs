@@ -240,6 +240,7 @@ fn log_summary_runbook_loaded() {
         hash: "abcdef1234567890".to_string(),
         version: 3,
         runbook,
+        source: None,
     };
     assert_eq!(
         event.log_summary(),
@@ -254,10 +255,43 @@ fn log_summary_runbook_loaded_empty() {
         hash: "short".to_string(),
         version: 1,
         runbook,
+        source: None,
     };
     assert_eq!(
         event.log_summary(),
         "runbook:loaded hash=short v=1 agents=0 jobs=0"
+    );
+}
+
+#[test]
+fn log_summary_runbook_loaded_bead_source() {
+    let runbook = serde_json::json!({"agents": {"a": {}}});
+    let event = Event::RunbookLoaded {
+        hash: "beadhash123456789".to_string(),
+        version: 1,
+        runbook,
+        source: Some(crate::event::RunbookSource::Bead {
+            bead_id: "od-abc".to_string(),
+        }),
+    };
+    assert_eq!(
+        event.log_summary(),
+        "runbook:loaded hash=beadhash1234 v=1 agents=1 jobs=0 src=bead:od-abc"
+    );
+}
+
+#[test]
+fn log_summary_runbook_loaded_filesystem_source() {
+    let runbook = serde_json::json!({});
+    let event = Event::RunbookLoaded {
+        hash: "fshash1234567890".to_string(),
+        version: 1,
+        runbook,
+        source: Some(crate::event::RunbookSource::Filesystem),
+    };
+    assert_eq!(
+        event.log_summary(),
+        "runbook:loaded hash=fshash123456 v=1 agents=0 jobs=0 src=fs"
     );
 }
 

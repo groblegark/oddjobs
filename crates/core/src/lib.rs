@@ -38,7 +38,9 @@ pub use agent_run::{AgentRun, AgentRunId, AgentRunStatus};
 pub use clock::{Clock, FakeClock, SystemClock};
 pub use decision::{Decision, DecisionId, DecisionOption, DecisionSource};
 pub use effect::Effect;
-pub use event::{AgentSignalKind, Event, PromptType, QuestionData, QuestionEntry, QuestionOption};
+pub use event::{
+    AgentSignalKind, Event, PromptType, QuestionData, QuestionEntry, QuestionOption, RunbookSource,
+};
 pub use id::{IdGen, ShortId, UuidIdGen};
 #[cfg(any(test, feature = "test-support"))]
 pub use job::JobBuilder;

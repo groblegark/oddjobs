@@ -71,6 +71,19 @@ fn is_empty_map<K, V>(map: &HashMap<K, V>) -> bool {
     map.is_empty()
 }
 
+/// Where a runbook was loaded from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunbookSource {
+    /// Loaded from the project's `.oj/runbooks/` directory.
+    Filesystem,
+    /// Materialized from a bead at daemon startup.
+    Bead {
+        /// The bead ID that contained the runbook content.
+        bead_id: String,
+    },
+}
+
 /// Events that trigger state transitions in the system.
 ///
 /// Serializes with `{"type": "event:name", ...fields}` format.
@@ -222,6 +235,9 @@ pub enum Event {
         hash: String,
         version: u32,
         runbook: serde_json::Value,
+        /// Where this runbook was loaded from (None for legacy events).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<RunbookSource>,
     },
 
     // -- session --
@@ -760,6 +776,7 @@ impl Event {
                 hash,
                 version,
                 runbook,
+                source,
             } => {
                 let agents = runbook
                     .get("agents")
@@ -771,8 +788,13 @@ impl Event {
                     .and_then(|v| v.as_object())
                     .map(|o| o.len())
                     .unwrap_or(0);
+                let src = match source {
+                    Some(RunbookSource::Bead { bead_id }) => format!(" src=bead:{bead_id}"),
+                    Some(RunbookSource::Filesystem) => " src=fs".to_string(),
+                    None => String::new(),
+                };
                 format!(
-                    "{t} hash={} v={version} agents={agents} jobs={jobs}",
+                    "{t} hash={} v={version} agents={agents} jobs={jobs}{src}",
                     hash.short(12)
                 )
             }

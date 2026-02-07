@@ -91,6 +91,7 @@ pub(crate) fn load_runbook_hash(ctx: &TestContext, content: &str) -> String {
             hash: hash.clone(),
             version: 1,
             runbook: runbook_json,
+            source: None,
         });
     });
     hash

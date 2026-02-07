@@ -85,6 +85,9 @@ pub struct Workspace {
 pub struct StoredRunbook {
     pub version: u32,
     pub data: serde_json::Value,
+    /// Where this runbook was loaded from (None for legacy events).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<oj_core::RunbookSource>,
 }
 
 /// Record of a running worker for WAL replay / restart recovery
@@ -425,6 +428,7 @@ impl MaterializedState {
                 hash,
                 version,
                 runbook,
+                source,
             } => {
                 // Only insert if not already present (dedup by content hash)
                 if !self.runbooks.contains_key(hash) {
@@ -433,6 +437,7 @@ impl MaterializedState {
                         StoredRunbook {
                             version: *version,
                             data: runbook.clone(),
+                            source: source.clone(),
                         },
                     );
                 }

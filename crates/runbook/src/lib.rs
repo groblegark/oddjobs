@@ -18,6 +18,7 @@ mod job;
 mod parser;
 mod queue;
 mod slug;
+pub mod source;
 mod template;
 mod validate;
 mod worker;

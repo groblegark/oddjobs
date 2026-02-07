@@ -359,6 +359,28 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
         state.agent_runs.len()
     );
 
+    // 4b. Pre-materialize bead runbooks (if configured via OJ_BEAD_RUNBOOKS)
+    let bead_runbooks = oj_runbook::source::load_bead_runbooks_from_env();
+    if !bead_runbooks.is_empty() {
+        let staging_dir = oj_runbook::source::bead_staging_dir(&config.state_dir);
+        let result =
+            oj_runbook::source::materialize_bead_runbooks(&bead_runbooks, &staging_dir);
+        if result.materialized > 0 {
+            info!(
+                count = result.materialized,
+                dir = %staging_dir.display(),
+                "materialized bead runbooks"
+            );
+        }
+        for (bead_id, err) in &result.errors {
+            warn!(
+                bead_id = %bead_id,
+                error = %err,
+                "failed to materialize bead runbook (filesystem fallback will be used)"
+            );
+        }
+    }
+
     // 5. Set up adapters (wrapped with tracing for observability)
     let session_adapter = TracedSession::new(TmuxAdapter::new());
     // Set up agent log extraction channel

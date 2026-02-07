@@ -62,6 +62,7 @@ fn load_runbook_into_state(state: &Arc<Mutex<MaterializedState>>, hash: &str) {
         hash: hash.to_string(),
         version: 1,
         runbook: serde_json::json!({}),
+        source: None,
     };
     state.lock().apply_event(&event);
 }
@@ -844,6 +845,7 @@ fn load_runbook_json_into_state(
         hash: hash.to_string(),
         version: 1,
         runbook: runbook_json,
+        source: None,
     };
     state.lock().apply_event(&event);
 }

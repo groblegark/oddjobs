@@ -10,9 +10,16 @@
 const "check" { default = "true" }
 
 # Queue a branch for the local merge queue.
+# Disabled by default — GT refinery is the canonical merge owner.
+# Set OJ_LEGACY_MERGE=1 to enable.
 command "merge" {
   args = "<branch> <title> [--base <base>]"
   run  = <<-SHELL
+    if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+      echo "error: OJ merge is disabled. GT refinery is the canonical merge owner."
+      echo "hint: Set OJ_LEGACY_MERGE=1 to enable OJ merge processing."
+      exit 1
+    fi
     oj queue push merges --var branch="${args.branch}" --var title="${args.title}" --var base="${args.base}"
     echo "Queued '${args.branch}' for merge"
   SHELL
@@ -62,6 +69,19 @@ job "merge" {
     on_start = "Merging: ${var.mr.title}"
     on_done  = "Merged: ${var.mr.title}"
     on_fail  = "Merge failed: ${var.mr.title}"
+  }
+
+  # Guard: OJ merge.hcl is disabled by default. GT refinery is the canonical
+  # merge owner. Set OJ_LEGACY_MERGE=1 to enable OJ merge processing.
+  step "guard" {
+    run = <<-SHELL
+      if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+        echo "error: OJ merge.hcl is disabled. GT refinery is the canonical merge owner."
+        echo "hint: Set OJ_LEGACY_MERGE=1 to enable OJ merge processing."
+        exit 1
+      fi
+    SHELL
+    on_done = { step = "init" }
   }
 
   step "init" {
@@ -139,6 +159,19 @@ job "merge-conflict" {
     on_start = "Resolving conflicts: ${var.mr.title}"
     on_done  = "Resolved conflicts: ${var.mr.title}"
     on_fail  = "Conflict resolution failed: ${var.mr.title}"
+  }
+
+  # Guard: OJ merge.hcl is disabled by default. GT refinery is the canonical
+  # merge owner. Set OJ_LEGACY_MERGE=1 to enable OJ merge processing.
+  step "guard" {
+    run = <<-SHELL
+      if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+        echo "error: OJ merge.hcl is disabled. GT refinery is the canonical merge owner."
+        echo "hint: Set OJ_LEGACY_MERGE=1 to enable OJ merge processing."
+        exit 1
+      fi
+    SHELL
+    on_done = { step = "init" }
   }
 
   step "init" {

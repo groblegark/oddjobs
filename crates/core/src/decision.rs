@@ -55,8 +55,32 @@ pub struct Decision {
     pub created_at_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at_ms: Option<u64>,
+    /// Set when this decision was auto-dismissed because a newer decision
+    /// was created for the same owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<DecisionId>,
     #[serde(default)]
     pub namespace: String,
+}
+
+impl DecisionOption {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            description: None,
+            recommended: false,
+        }
+    }
+
+    pub fn description(mut self, desc: impl Into<String>) -> Self {
+        self.description = Some(desc.into());
+        self
+    }
+
+    pub fn recommended(mut self) -> Self {
+        self.recommended = true;
+        self
+    }
 }
 
 impl Decision {

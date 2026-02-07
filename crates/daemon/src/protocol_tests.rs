@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use oj_core::{Event, JobId, StepOutcome, StepRecord};
+use oj_core::{Event, JobId, StepOutcome, StepOutcomeKind, StepRecord, StepStatusKind};
 
 #[test]
 fn encode_decode_roundtrip_request() {
@@ -78,7 +78,7 @@ fn job_summary_serialization() {
         name: "build feature".to_string(),
         kind: "build".to_string(),
         step: "Execute".to_string(),
-        step_status: "running".to_string(),
+        step_status: StepStatusKind::Running,
         created_at_ms: 1700000000000,
         updated_at_ms: 1700000001000,
         namespace: String::new(),
@@ -382,7 +382,7 @@ fn encode_decode_orphans_response() {
             kind: "deploy".to_string(),
             name: "deploy-staging".to_string(),
             current_step: "build".to_string(),
-            step_status: "running".to_string(),
+            step_status: StepStatusKind::Running,
             workspace_root: Some(std::path::PathBuf::from("/tmp/ws")),
             agents: vec![OrphanAgent {
                 agent_id: "pipe-orphan-build".to_string(),
@@ -618,7 +618,7 @@ fn step_record_detail_from_running() {
     assert_eq!(detail.name, "build");
     assert_eq!(detail.started_at_ms, 1000);
     assert_eq!(detail.finished_at_ms, None);
-    assert_eq!(detail.outcome, "running");
+    assert_eq!(detail.outcome, StepOutcomeKind::Running);
     assert_eq!(detail.detail, None);
     assert_eq!(detail.agent_id, Some("agent-1".to_string()));
     assert_eq!(detail.agent_name, Some("coder".to_string()));
@@ -635,7 +635,7 @@ fn step_record_detail_from_completed() {
         agent_name: None,
     };
     let detail = StepRecordDetail::from(&record);
-    assert_eq!(detail.outcome, "completed");
+    assert_eq!(detail.outcome, StepOutcomeKind::Completed);
     assert_eq!(detail.finished_at_ms, Some(3000));
     assert_eq!(detail.detail, None);
 }
@@ -651,7 +651,7 @@ fn step_record_detail_from_failed() {
         agent_name: None,
     };
     let detail = StepRecordDetail::from(&record);
-    assert_eq!(detail.outcome, "failed");
+    assert_eq!(detail.outcome, StepOutcomeKind::Failed);
     assert_eq!(detail.detail, Some("compilation error".to_string()));
 }
 
@@ -666,6 +666,6 @@ fn step_record_detail_from_waiting() {
         agent_name: None,
     };
     let detail = StepRecordDetail::from(&record);
-    assert_eq!(detail.outcome, "waiting");
+    assert_eq!(detail.outcome, StepOutcomeKind::Waiting);
     assert_eq!(detail.detail, Some("gate check failed".to_string()));
 }

@@ -11,9 +11,10 @@ use oj_storage::MaterializedState;
 
 use crate::protocol::Response;
 
-use super::super::handle_queue_retry;
+use super::super::{handle_queue_retry, RetryFilter};
 use super::{
-    drain_events, project_with_queue_only, push_and_mark_dead, push_and_mark_failed, test_event_bus,
+    drain_events, make_ctx, project_with_queue_only, push_and_mark_dead, push_and_mark_failed,
+    test_event_bus,
 };
 
 // ── Single-item retry tests ───────────────────────────────────────────
@@ -24,9 +25,10 @@ fn retry_with_prefix_resolves_unique_match() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     push_and_mark_dead(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "def98765-0000-0000-0000-000000000000",
@@ -34,14 +36,15 @@ fn retry_with_prefix_resolves_unique_match() {
     );
 
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &["def98".to_string()],
-        false,
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &["def98".to_string()],
+            all_dead: false,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -67,9 +70,10 @@ fn retry_with_exact_id_still_works() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     push_and_mark_dead(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "exact-id-1234",
@@ -77,14 +81,15 @@ fn retry_with_exact_id_still_works() {
     );
 
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &["exact-id-1234".to_string()],
-        false,
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &["exact-id-1234".to_string()],
+            all_dead: false,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -105,10 +110,11 @@ fn retry_ambiguous_prefix_returns_error() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     for suffix in ["aaa", "bbb"] {
         push_and_mark_dead(
-            &state,
+            &ctx.state,
             "",
             "tasks",
             &format!("abc-{}", suffix),
@@ -117,14 +123,15 @@ fn retry_ambiguous_prefix_returns_error() {
     }
 
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &["abc".to_string()],
-        false,
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &["abc".to_string()],
+            all_dead: false,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -141,16 +148,18 @@ fn retry_no_match_returns_not_found() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, _wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, state);
 
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &["nonexistent".to_string()],
-        false,
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &["nonexistent".to_string()],
+            all_dead: false,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -169,11 +178,12 @@ fn retry_bulk_multiple_items() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     // Create multiple dead items
     for i in 1..=3 {
         push_and_mark_dead(
-            &state,
+            &ctx.state,
             "",
             "tasks",
             &format!("item-{}", i),
@@ -181,19 +191,21 @@ fn retry_bulk_multiple_items() {
         );
     }
 
+    let ids = [
+        "item-1".to_string(),
+        "item-2".to_string(),
+        "item-3".to_string(),
+    ];
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &[
-            "item-1".to_string(),
-            "item-2".to_string(),
-            "item-3".to_string(),
-        ],
-        false,
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &ids,
+            all_dead: false,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -232,12 +244,13 @@ fn retry_all_dead_items() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     // Create multiple items in different states
-    push_and_mark_dead(&state, "", "tasks", "dead-1", &[("task", "d1")]);
-    push_and_mark_dead(&state, "", "tasks", "dead-2", &[("task", "d2")]);
+    push_and_mark_dead(&ctx.state, "", "tasks", "dead-1", &[("task", "d1")]);
+    push_and_mark_dead(&ctx.state, "", "tasks", "dead-2", &[("task", "d2")]);
     // One pending item (should be skipped)
-    state.lock().apply_event(&Event::QueuePushed {
+    ctx.state.lock().apply_event(&Event::QueuePushed {
         queue_name: "tasks".to_string(),
         item_id: "pending-1".to_string(),
         data: [("task".to_string(), "p1".to_string())]
@@ -248,14 +261,15 @@ fn retry_all_dead_items() {
     });
 
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &[],  // Empty - using --all-dead flag
-        true, // all_dead = true
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &[],
+            all_dead: true,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -286,11 +300,12 @@ fn retry_by_status_failed() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     // Create items in different states
-    push_and_mark_dead(&state, "", "tasks", "dead-1", &[("task", "d1")]);
+    push_and_mark_dead(&ctx.state, "", "tasks", "dead-1", &[("task", "d1")]);
     push_and_mark_failed(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "failed-1",
@@ -298,7 +313,7 @@ fn retry_by_status_failed() {
         1_000_000,
     );
     push_and_mark_failed(
-        &state,
+        &ctx.state,
         "",
         "tasks",
         "failed-2",
@@ -307,14 +322,15 @@ fn retry_by_status_failed() {
     );
 
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &[], // Empty - using --status flag
-        false,
-        Some("failed"), // status filter
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &[],
+            all_dead: false,
+            status_filter: Some("failed"),
+        },
     )
     .unwrap();
 
@@ -349,11 +365,12 @@ fn retry_bulk_mixed_results() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, Arc::clone(&state));
 
     // Create one dead item (can be retried)
-    push_and_mark_dead(&state, "", "tasks", "dead-1", &[("task", "d1")]);
+    push_and_mark_dead(&ctx.state, "", "tasks", "dead-1", &[("task", "d1")]);
     // Create one pending item (cannot be retried - not dead/failed)
-    state.lock().apply_event(&Event::QueuePushed {
+    ctx.state.lock().apply_event(&Event::QueuePushed {
         queue_name: "tasks".to_string(),
         item_id: "pending-1".to_string(),
         data: [("task".to_string(), "p1".to_string())]
@@ -364,19 +381,21 @@ fn retry_bulk_mixed_results() {
     });
     // "nonexistent" doesn't exist
 
+    let ids = [
+        "dead-1".to_string(),
+        "pending-1".to_string(),
+        "nonexistent".to_string(),
+    ];
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &[
-            "dead-1".to_string(),
-            "pending-1".to_string(),
-            "nonexistent".to_string(),
-        ],
-        false,
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &ids,
+            all_dead: false,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -405,16 +424,18 @@ fn retry_all_dead_empty_queue() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, state);
 
     let result = handle_queue_retry(
+        &ctx,
         project.path(),
         "",
         "tasks",
-        &[],
-        true, // all_dead = true
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &[],
+            all_dead: true,
+            status_filter: None,
+        },
     )
     .unwrap();
 
@@ -460,14 +481,6 @@ fn retry_with_wrong_project_root_falls_back_to_namespace() {
             namespace: "my-project".to_string(),
         },
     );
-    // Add a dead queue item to retry
-    push_and_mark_dead(
-        &Arc::new(Mutex::new(MaterializedState::default())),
-        "my-project",
-        "tasks",
-        "item-dead-1",
-        &[("task", "retry-me")],
-    );
     // Apply directly to initial state
     initial.apply_event(&Event::QueuePushed {
         queue_name: "tasks".to_string(),
@@ -483,17 +496,18 @@ fn retry_with_wrong_project_root_falls_back_to_namespace() {
         item_id: "item-dead-1".to_string(),
         namespace: "my-project".to_string(),
     });
-    let state = Arc::new(Mutex::new(initial));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial)));
 
     let result = handle_queue_retry(
+        &ctx,
         std::path::Path::new("/wrong/path"),
         "my-project",
         "tasks",
-        &["item-dead-1".to_string()],
-        false,
-        None,
-        &event_bus,
-        &state,
+        RetryFilter {
+            item_ids: &["item-dead-1".to_string()],
+            all_dead: false,
+            status_filter: None,
+        },
     )
     .unwrap();
 

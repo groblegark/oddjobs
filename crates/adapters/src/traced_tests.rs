@@ -93,21 +93,22 @@ async fn spawn_traced_session() -> (
     (fake, traced, session_id)
 }
 
-fn test_spawn_config(cwd: Option<PathBuf>) -> AgentSpawnConfig {
-    AgentSpawnConfig {
-        agent_id: AgentId::new("test-agent-1"),
-        agent_name: "claude".to_string(),
-        command: "claude code".to_string(),
-        env: vec![],
-        workspace_path: PathBuf::from("/tmp"),
-        cwd,
-        prompt: "Test prompt".to_string(),
-        job_name: "test-job".to_string(),
-        job_id: "pipe-1".to_string(),
-        project_root: PathBuf::from("/project"),
-        session_config: std::collections::HashMap::new(),
-        owner: OwnerId::Job(JobId::default()),
+fn test_spawn_config(cwd_path: Option<PathBuf>) -> AgentSpawnConfig {
+    let mut config = AgentSpawnConfig::new(
+        AgentId::new("test-agent-1"),
+        "claude code",
+        PathBuf::from("/tmp"),
+        OwnerId::Job(JobId::default()),
+    )
+    .agent_name("claude")
+    .prompt("Test prompt")
+    .job_name("test-job")
+    .job_id("pipe-1")
+    .project_root(PathBuf::from("/project"));
+    if let Some(cwd_val) = cwd_path {
+        config = config.cwd(cwd_val);
     }
+    config
 }
 
 /// Spawn a traced agent, returning the fake adapter, traced wrapper, and agent id

@@ -136,23 +136,22 @@ where
                 };
 
                 // Build agent configuration from effect fields
-                let config = AgentSpawnConfig {
-                    agent_id: agent_id.clone(),
-                    agent_name,
-                    command,
-                    env,
-                    workspace_path: workspace_path.clone(),
-                    cwd,
-                    prompt: input.get("prompt").cloned().unwrap_or_default(),
-                    job_name: input
-                        .get("name")
-                        .cloned()
-                        .unwrap_or_else(|| job_id_str.clone()),
-                    job_id: job_id_str,
-                    project_root: workspace_path,
-                    session_config,
-                    owner: owner.clone(),
-                };
+                let mut config =
+                    AgentSpawnConfig::new(agent_id.clone(), command, workspace_path, owner.clone())
+                        .agent_name(agent_name)
+                        .env(env)
+                        .prompt(input.get("prompt").cloned().unwrap_or_default())
+                        .job_name(
+                            input
+                                .get("name")
+                                .cloned()
+                                .unwrap_or_else(|| job_id_str.clone()),
+                        )
+                        .job_id(job_id_str)
+                        .session_config(session_config);
+                if let Some(cwd) = cwd {
+                    config = config.cwd(cwd);
+                }
 
                 // Spawn agent (this starts the watcher that emits events)
                 let handle = self.agents.spawn(config, self.event_tx.clone()).await?;
@@ -707,6 +706,11 @@ where
     /// Get the current size of an agent's session log file in bytes.
     pub async fn get_session_log_size(&self, agent_id: &oj_core::AgentId) -> Option<u64> {
         self.agents.session_log_size(agent_id).await
+    }
+
+    /// Extract the last assistant text message from the agent's session log.
+    pub async fn get_last_assistant_message(&self, agent_id: &oj_core::AgentId) -> Option<String> {
+        self.agents.last_assistant_message(agent_id).await
     }
 }
 

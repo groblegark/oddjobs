@@ -74,7 +74,7 @@ fn friendly_name_label_check(name: &str, kind: &str, id: &str, expected: &str) {
 #[serial]
 fn header_without_watch_interval() {
     setup_no_color();
-    let out = format_text(120, &[], None);
+    let out = format_text(120, &[], None, None);
     assert_eq!(out, "oj daemon: running 2m\n");
 }
 
@@ -82,7 +82,7 @@ fn header_without_watch_interval() {
 #[serial]
 fn header_with_watch_interval() {
     setup_no_color();
-    let out = format_text(120, &[], Some("5s"));
+    let out = format_text(120, &[], Some("5s"), None);
     assert_eq!(out, "oj daemon: running 2m | every 5s\n");
 }
 
@@ -90,7 +90,7 @@ fn header_with_watch_interval() {
 #[serial]
 fn header_with_custom_watch_interval() {
     setup_no_color();
-    let out = format_text(3700, &[], Some("10s"));
+    let out = format_text(3700, &[], Some("10s"), None);
     assert_eq!(out, "oj daemon: running 1h1m | every 10s\n");
 }
 
@@ -105,7 +105,7 @@ fn header_with_active_jobs_and_watch() {
     let mut ns = empty_ns("test");
     ns.active_jobs.push(entry);
 
-    let out = format_text(60, &[ns], Some("2s"));
+    let out = format_text(60, &[ns], Some("2s"), None);
     let first_line = out.lines().next().unwrap();
     assert_eq!(
         first_line,
@@ -124,7 +124,7 @@ fn header_without_watch_has_no_every() {
     let mut ns = empty_ns("test");
     ns.active_jobs.push(entry);
 
-    let out = format_text(60, &[ns], None);
+    let out = format_text(60, &[ns], None, None);
     let first_line = out.lines().next().unwrap();
     assert_eq!(first_line, "oj daemon: running 1m | 1 active job");
     assert!(!first_line.contains("every"));
@@ -139,7 +139,7 @@ fn header_shows_decisions_pending_singular() {
 
     let mut ns = empty_ns("test");
     ns.pending_decisions = 1;
-    let out = format_text(60, &[ns], None);
+    let out = format_text(60, &[ns], None, None);
     let first_line = out.lines().next().unwrap();
     assert!(
         first_line.contains("| 1 decision pending"),
@@ -160,7 +160,7 @@ fn header_shows_decisions_pending_plural() {
     ns1.pending_decisions = 2;
     let mut ns2 = empty_ns("proj-b");
     ns2.pending_decisions = 1;
-    let out = format_text(60, &[ns1, ns2], None);
+    let out = format_text(60, &[ns1, ns2], None, None);
     let first_line = out.lines().next().unwrap();
     assert!(
         first_line.contains("| 3 decisions pending"),
@@ -174,7 +174,7 @@ fn header_hides_decisions_when_zero() {
     setup_no_color();
 
     let ns = empty_ns("test");
-    let out = format_text(60, &[ns], None);
+    let out = format_text(60, &[ns], None, None);
     assert!(
         !out.contains("decision"),
         "header should not mention decisions when count is zero: {out}"
@@ -196,7 +196,7 @@ fn namespace_with_only_empty_queues_is_hidden() {
         dead: 0,
     });
 
-    let output = format_text(60, &[ns], None);
+    let output = format_text(60, &[ns], None, None);
     assert!(
         !output.contains("empty-project"),
         "namespace with only empty queues should be hidden:\n{output}"
@@ -217,7 +217,7 @@ fn namespace_with_non_empty_queue_is_shown() {
         dead: 0,
     });
 
-    let output = format_text(60, &[ns], None);
+    let output = format_text(60, &[ns], None, None);
     assert!(
         output.contains("active-project"),
         "namespace with non-empty queue should be shown:\n{output}"

@@ -93,14 +93,14 @@ Agent signal and lifecycle events also update job/agent_run status during replay
 |---|---|---|---|
 | `cron:started` | CronStarted | cron_name, project_root, runbook_hash, interval, run_target, namespace | Insert or update cron record |
 | `cron:stopped` | CronStopped | cron_name, namespace | Set cron status to stopped |
-| `cron:fired` | CronFired | cron_name, namespace, job_id?, agent_run_id? | Update last_fired_at_ms |
+| `cron:fired` | CronFired | cron_name, namespace, job_id, agent_run_id? | Update last_fired_at_ms |
 | `cron:deleted` | CronDeleted | cron_name, namespace | Remove cron record |
 
 ### Decision lifecycle
 
 | Type Tag | Variant | Fields | Effect |
 |---|---|---|---|
-| `decision:created` | DecisionCreated | id, job_id, agent_id?, owner?, source, context, options, created_at_ms, namespace | Insert decision, set job to Waiting |
+| `decision:created` | DecisionCreated | id, job_id, agent_id?, owner, source, context, options, created_at_ms, namespace | Insert decision, set job to Waiting |
 | `decision:resolved` | DecisionResolved | id, chosen?, message?, resolved_at_ms, namespace | Update decision resolution |
 
 ### Standalone agent runs
@@ -112,7 +112,7 @@ Agent signal and lifecycle events also update job/agent_run status during replay
 | `agent_run:status_changed` | AgentRunStatusChanged | id, status, reason? | Update status |
 | `agent_run:deleted` | AgentRunDeleted | id | Remove agent run |
 
-Action/signal events (`CommandRun`, `TimerStart`, `SessionInput`, `AgentInput`, `JobResume`, `JobCancel`, `WorkspaceDrop`, `Shutdown`, `Custom`) do not affect persisted state. `WorkerWake`, `WorkerPollComplete`, `WorkerTakeComplete`, `CronOnce`, `AgentIdle`, `AgentStop`, and `AgentPrompt` are also signals that do not mutate state.
+`CommandRun` persists the namespace → project_root mapping but is otherwise a signal event. Action/signal events (`TimerStart`, `SessionInput`, `AgentInput`, `JobResume`, `JobCancel`, `AgentRunResume`, `WorkspaceDrop`, `Shutdown`, `Custom`) do not affect persisted state. `WorkerWake`, `WorkerPollComplete`, `WorkerTakeComplete`, `CronOnce`, `AgentIdle`, `AgentStop`, and `AgentPrompt` are also signals that do not mutate state.
 
 ## Materialized State
 

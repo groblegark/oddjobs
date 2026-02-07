@@ -18,20 +18,18 @@ async fn spawn_rejects_nonexistent_cwd() {
     let project_dir = TempDir::new().unwrap();
     let workspace_dir = TempDir::new().unwrap();
 
-    let config = AgentSpawnConfig {
-        agent_id: AgentId::new("test-agent-1"),
-        agent_name: "claude".to_string(),
-        command: "claude code".to_string(),
-        env: vec![],
-        workspace_path: workspace_dir.path().to_path_buf(),
-        cwd: Some(PathBuf::from("/nonexistent/path")),
-        prompt: "Test prompt".to_string(),
-        job_name: "test-job".to_string(),
-        job_id: "pipe-1".to_string(),
-        project_root: project_dir.path().to_path_buf(),
-        session_config: HashMap::new(),
-        owner: OwnerId::Job(JobId::default()),
-    };
+    let config = AgentSpawnConfig::new(
+        AgentId::new("test-agent-1"),
+        "claude code",
+        workspace_dir.path().to_path_buf(),
+        OwnerId::Job(JobId::default()),
+    )
+    .agent_name("claude")
+    .cwd(PathBuf::from("/nonexistent/path"))
+    .prompt("Test prompt")
+    .job_name("test-job")
+    .job_id("pipe-1")
+    .project_root(project_dir.path().to_path_buf());
 
     let result = adapter.spawn(config, tx).await;
 
@@ -104,11 +102,9 @@ fn test_augment_command_no_change_without_skip_flag() {
 }
 
 #[tokio::test]
-async fn test_handle_bypass_permissions_prompt_accepts() {
+async fn test_bypass_permissions_prompt_accepts() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
-
-    // Simulate the bypass permissions prompt output
     sessions.set_output(
         "test-session",
         vec![
@@ -119,54 +115,63 @@ async fn test_handle_bypass_permissions_prompt_accepts() {
         ],
     );
 
-    let result = handle_bypass_permissions_prompt(&sessions, "test-session", 1)
-        .await
-        .unwrap();
+    let result = poll_for_prompt(
+        &sessions,
+        "test-session",
+        1,
+        &PromptCheck {
+            detect: &["Bypass Permissions mode", "1. No", "2. Yes"],
+            match_any: false,
+            response: Some("2"),
+            check_errors: true,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, PromptResult::Handled);
 
-    assert_eq!(result, BypassPromptResult::Accepted);
-
-    // Verify "2" was sent to accept
-    let calls = sessions.calls();
-    let send_calls: Vec<_> = calls
+    let sends: Vec<_> = sessions
+        .calls()
         .iter()
         .filter_map(|c| match c {
             SessionCall::Send { id, input } => Some((id.clone(), input.clone())),
             _ => None,
         })
         .collect();
-    assert_eq!(send_calls.len(), 1);
-    assert_eq!(send_calls[0], ("test-session".to_string(), "2".to_string()));
+    assert_eq!(sends, vec![("test-session".to_string(), "2".to_string())]);
 }
 
 #[tokio::test]
-async fn test_handle_bypass_permissions_prompt_not_present() {
+async fn test_bypass_permissions_prompt_not_present() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
-
-    // Simulate normal Claude startup (no prompt)
     sessions.set_output("test-session", vec!["Claude Code is ready.".to_string()]);
 
-    let result = handle_bypass_permissions_prompt(&sessions, "test-session", 1)
-        .await
-        .unwrap();
+    let result = poll_for_prompt(
+        &sessions,
+        "test-session",
+        1,
+        &PromptCheck {
+            detect: &["Bypass Permissions mode", "1. No", "2. Yes"],
+            match_any: false,
+            response: Some("2"),
+            check_errors: true,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, PromptResult::NotPresent);
 
-    assert_eq!(result, BypassPromptResult::NotPresent);
-
-    // Verify no send was called
-    let calls = sessions.calls();
-    let send_calls: Vec<_> = calls
+    assert!(sessions
+        .calls()
         .iter()
-        .filter(|c| matches!(c, SessionCall::Send { .. }))
-        .collect();
-    assert!(send_calls.is_empty());
+        .all(|c| !matches!(c, SessionCall::Send { .. })));
 }
 
 #[tokio::test]
-async fn test_handle_workspace_trust_prompt_accepts() {
+async fn test_workspace_trust_prompt_accepts() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
-
-    // Simulate the workspace trust prompt output
     sessions.set_output(
         "test-session",
         vec![
@@ -178,46 +183,57 @@ async fn test_handle_workspace_trust_prompt_accepts() {
         ],
     );
 
-    let result = handle_workspace_trust_prompt(&sessions, "test-session", 1)
-        .await
-        .unwrap();
+    let result = poll_for_prompt(
+        &sessions,
+        "test-session",
+        1,
+        &PromptCheck {
+            detect: &["Accessing workspace", "1. Yes", "2. No"],
+            match_any: false,
+            response: Some("1"),
+            check_errors: true,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, PromptResult::Handled);
 
-    assert_eq!(result, WorkspaceTrustResult::Accepted);
-
-    // Verify "1" was sent to trust
-    let calls = sessions.calls();
-    let send_calls: Vec<_> = calls
+    let sends: Vec<_> = sessions
+        .calls()
         .iter()
         .filter_map(|c| match c {
             SessionCall::Send { id, input } => Some((id.clone(), input.clone())),
             _ => None,
         })
         .collect();
-    assert_eq!(send_calls.len(), 1);
-    assert_eq!(send_calls[0], ("test-session".to_string(), "1".to_string()));
+    assert_eq!(sends, vec![("test-session".to_string(), "1".to_string())]);
 }
 
 #[tokio::test]
-async fn test_handle_workspace_trust_prompt_not_present() {
+async fn test_workspace_trust_prompt_not_present() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
-
-    // Simulate normal Claude startup (no prompt)
     sessions.set_output("test-session", vec!["Claude Code is ready.".to_string()]);
 
-    let result = handle_workspace_trust_prompt(&sessions, "test-session", 1)
-        .await
-        .unwrap();
+    let result = poll_for_prompt(
+        &sessions,
+        "test-session",
+        1,
+        &PromptCheck {
+            detect: &["Accessing workspace", "1. Yes", "2. No"],
+            match_any: false,
+            response: Some("1"),
+            check_errors: true,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, PromptResult::NotPresent);
 
-    assert_eq!(result, WorkspaceTrustResult::NotPresent);
-
-    // Verify no send was called
-    let calls = sessions.calls();
-    let send_calls: Vec<_> = calls
+    assert!(sessions
+        .calls()
         .iter()
-        .filter(|c| matches!(c, SessionCall::Send { .. }))
-        .collect();
-    assert!(send_calls.is_empty());
+        .all(|c| !matches!(c, SessionCall::Send { .. })));
 }
 
 // Session name generation tests
@@ -315,10 +331,9 @@ fn generate_short_random_produces_hex_chars() {
 }
 
 #[tokio::test]
-async fn test_handle_login_prompt_detected_select_login() {
+async fn test_login_prompt_detected_select_login() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
-
     sessions.set_output(
         "test-session",
         vec![
@@ -330,18 +345,26 @@ async fn test_handle_login_prompt_detected_select_login() {
         ],
     );
 
-    let result = handle_login_prompt(&sessions, "test-session", 1)
-        .await
-        .unwrap();
-
-    assert_eq!(result, LoginPromptResult::Detected);
+    let result = poll_for_prompt(
+        &sessions,
+        "test-session",
+        1,
+        &PromptCheck {
+            detect: &["Select login method", "Choose the text style"],
+            match_any: true,
+            response: None,
+            check_errors: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, PromptResult::Handled);
 }
 
 #[tokio::test]
-async fn test_handle_login_prompt_detected_text_style() {
+async fn test_login_prompt_detected_text_style() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
-
     sessions.set_output(
         "test-session",
         vec![
@@ -350,25 +373,42 @@ async fn test_handle_login_prompt_detected_text_style() {
         ],
     );
 
-    let result = handle_login_prompt(&sessions, "test-session", 1)
-        .await
-        .unwrap();
-
-    assert_eq!(result, LoginPromptResult::Detected);
+    let result = poll_for_prompt(
+        &sessions,
+        "test-session",
+        1,
+        &PromptCheck {
+            detect: &["Select login method", "Choose the text style"],
+            match_any: true,
+            response: None,
+            check_errors: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, PromptResult::Handled);
 }
 
 #[tokio::test]
-async fn test_handle_login_prompt_not_present() {
+async fn test_login_prompt_not_present() {
     let sessions = FakeSessionAdapter::new();
     sessions.add_session("test-session", true);
-
     sessions.set_output("test-session", vec!["Claude Code is ready.".to_string()]);
 
-    let result = handle_login_prompt(&sessions, "test-session", 1)
-        .await
-        .unwrap();
-
-    assert_eq!(result, LoginPromptResult::NotPresent);
+    let result = poll_for_prompt(
+        &sessions,
+        "test-session",
+        1,
+        &PromptCheck {
+            detect: &["Select login method", "Choose the text style"],
+            match_any: true,
+            response: None,
+            check_errors: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, PromptResult::NotPresent);
 }
 
 #[tokio::test]

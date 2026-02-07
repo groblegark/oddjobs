@@ -13,35 +13,6 @@ use super::*;
 use oj_adapters::SessionCall;
 use oj_core::{Event, JobId, OwnerId};
 
-/// Collect all pending timer IDs from the scheduler.
-fn pending_timer_ids(ctx: &TestContext) -> Vec<String> {
-    let scheduler = ctx.runtime.executor.scheduler();
-    let mut sched = scheduler.lock();
-    ctx.clock.advance(std::time::Duration::from_secs(7200));
-    let fired = sched.fired_timers(ctx.clock.now());
-    fired
-        .into_iter()
-        .filter_map(|e| match e {
-            Event::TimerStart { id } => Some(id.as_str().to_string()),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Helper: check that no job-scoped timer with the given prefix exists.
-fn assert_no_timer_with_prefix(timer_ids: &[String], prefix: &str) {
-    let matching: Vec<&String> = timer_ids
-        .iter()
-        .filter(|id| id.starts_with(prefix))
-        .collect();
-    assert!(
-        matching.is_empty(),
-        "expected no timers starting with '{}', found: {:?}",
-        prefix,
-        matching
-    );
-}
-
 // =============================================================================
 // Runbook definitions
 // =============================================================================

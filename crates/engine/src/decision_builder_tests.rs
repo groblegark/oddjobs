@@ -11,7 +11,9 @@ fn test_idle_trigger_builds_correct_options() {
     let (id, event) = EscalationDecisionBuilder::for_job(
         JobId::new("pipe-1"),
         "test-job".to_string(),
-        EscalationTrigger::Idle,
+        EscalationTrigger::Idle {
+            assistant_context: None,
+        },
     )
     .build();
 
@@ -43,6 +45,7 @@ fn test_dead_trigger_builds_correct_options() {
         "test-job".to_string(),
         EscalationTrigger::Dead {
             exit_code: Some(137),
+            assistant_context: None,
         },
     )
     .build();
@@ -74,6 +77,7 @@ fn test_error_trigger_builds_correct_options() {
         EscalationTrigger::Error {
             error_type: "OutOfCredits".to_string(),
             message: "API quota exceeded".to_string(),
+            assistant_context: None,
         },
     )
     .build();
@@ -128,6 +132,7 @@ fn test_prompt_trigger_builds_correct_options() {
         "test-job".to_string(),
         EscalationTrigger::Prompt {
             prompt_type: "permission".to_string(),
+            assistant_context: None,
         },
     )
     .build();
@@ -155,7 +160,9 @@ fn test_builder_with_agent_id_and_namespace() {
     let (_, event) = EscalationDecisionBuilder::for_job(
         JobId::new("pipe-1"),
         "test-job".to_string(),
-        EscalationTrigger::Idle,
+        EscalationTrigger::Idle {
+            assistant_context: None,
+        },
     )
     .agent_id("agent-123")
     .namespace("my-project")
@@ -179,7 +186,9 @@ fn test_builder_with_agent_log_tail() {
     let (_, event) = EscalationDecisionBuilder::for_job(
         JobId::new("pipe-1"),
         "test-job".to_string(),
-        EscalationTrigger::Idle,
+        EscalationTrigger::Idle {
+            assistant_context: None,
+        },
     )
     .agent_log_tail("last few lines of output")
     .build();
@@ -198,7 +207,10 @@ fn test_dead_trigger_without_exit_code() {
     let (_, event) = EscalationDecisionBuilder::for_job(
         JobId::new("pipe-1"),
         "test-job".to_string(),
-        EscalationTrigger::Dead { exit_code: None },
+        EscalationTrigger::Dead {
+            exit_code: None,
+            assistant_context: None,
+        },
     )
     .build();
 
@@ -259,6 +271,7 @@ fn test_question_trigger_with_data() {
         "test-job".to_string(),
         EscalationTrigger::Question {
             question_data: Some(question_data),
+            assistant_context: None,
         },
     )
     .build();
@@ -295,6 +308,7 @@ fn test_question_trigger_without_data() {
         "test-job".to_string(),
         EscalationTrigger::Question {
             question_data: None,
+            assistant_context: None,
         },
     )
     .build();
@@ -320,6 +334,7 @@ fn test_question_trigger_without_data() {
 fn test_question_trigger_maps_to_question_source() {
     let trigger = EscalationTrigger::Question {
         question_data: None,
+        assistant_context: None,
     };
     assert_eq!(trigger.to_source(), DecisionSource::Question);
 }
@@ -352,6 +367,7 @@ fn test_question_trigger_multi_question_context() {
         "test-job".to_string(),
         EscalationTrigger::Question {
             question_data: Some(question_data),
+            assistant_context: None,
         },
     )
     .build();
@@ -378,7 +394,9 @@ fn test_for_agent_run_idle_trigger() {
     let (id, event) = EscalationDecisionBuilder::for_agent_run(
         AgentRunId::new("ar-123"),
         "my-command".to_string(),
-        EscalationTrigger::Idle,
+        EscalationTrigger::Idle {
+            assistant_context: None,
+        },
     )
     .build();
 
@@ -415,6 +433,7 @@ fn test_for_agent_run_error_trigger() {
         EscalationTrigger::Error {
             error_type: "OutOfCredits".to_string(),
             message: "API quota exceeded".to_string(),
+            assistant_context: None,
         },
     )
     .namespace("test-ns")
@@ -445,7 +464,9 @@ fn test_for_job_creates_job_owner() {
     let (_, event) = EscalationDecisionBuilder::for_job(
         JobId::new("job-789"),
         "test-job".to_string(),
-        EscalationTrigger::Idle,
+        EscalationTrigger::Idle {
+            assistant_context: None,
+        },
     )
     .build();
 
@@ -463,7 +484,10 @@ fn test_for_agent_run_with_agent_id() {
     let (_, event) = EscalationDecisionBuilder::for_agent_run(
         AgentRunId::new("ar-001"),
         "deploy".to_string(),
-        EscalationTrigger::Dead { exit_code: Some(1) },
+        EscalationTrigger::Dead {
+            exit_code: Some(1),
+            assistant_context: None,
+        },
     )
     .agent_id("agent-uuid-123")
     .build();

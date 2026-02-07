@@ -4,16 +4,8 @@
 use super::*;
 
 #[test]
-fn reads_only_new_content() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("session.jsonl");
-
-    std::fs::write(
-        &log_path,
-        r#"{"type":"user","message":{"content":"hello"}}
-"#,
-    )
-    .unwrap();
+fn incremental_parser_reads_only_new_content() {
+    let (_dir, log_path) = temp_log("{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n");
 
     let mut parser = SessionLogParser::new();
     let state = parser.parse(&log_path);
@@ -22,16 +14,11 @@ fn reads_only_new_content() {
 
     let offset_after_first = parser.last_offset;
 
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&log_path)
-        .unwrap();
-    writeln!(
-        file,
-        r#"{{"type":"assistant","message":{{"content":[{{"type":"text","text":"Done!"}}]}}}}"#,
-    )
-    .unwrap();
+    // Append new content
+    append_line(
+        &log_path,
+        r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Done!"}]}}"#,
+    );
 
     let state = parser.parse(&log_path);
     assert_eq!(state, AgentState::WaitingForInput);
@@ -42,52 +29,35 @@ fn reads_only_new_content() {
 }
 
 #[test]
-fn returns_cached_state_when_no_new_content() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("session.jsonl");
-
-    std::fs::write(
-        &log_path,
-        r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Done!"}]}}
-"#,
-    )
-    .unwrap();
+fn incremental_parser_returns_cached_state_when_no_new_content() {
+    let (_dir, log_path) = temp_log(
+        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Done!\"}]}}\n",
+    );
 
     let mut parser = SessionLogParser::new();
-    let state = parser.parse(&log_path);
-    assert_eq!(state, AgentState::WaitingForInput);
-
-    let state = parser.parse(&log_path);
-    assert_eq!(state, AgentState::WaitingForInput);
+    assert_eq!(parser.parse(&log_path), AgentState::WaitingForInput);
+    assert_eq!(parser.parse(&log_path), AgentState::WaitingForInput);
 }
 
 #[test]
-fn handles_file_truncation() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("session.jsonl");
-
-    std::fs::write(
-        &log_path,
-        r#"{"type":"user","message":{"content":"hello"}}
-{"type":"assistant","message":{"content":[{"type":"text","text":"Done!"}]}}
-"#,
-    )
-    .unwrap();
+fn incremental_parser_handles_file_truncation() {
+    let (_dir, log_path) = temp_log(
+        "{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n\
+         {\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Done!\"}]}}\n",
+    );
 
     let mut parser = SessionLogParser::new();
-    let state = parser.parse(&log_path);
-    assert_eq!(state, AgentState::WaitingForInput);
+    assert_eq!(parser.parse(&log_path), AgentState::WaitingForInput);
     let large_offset = parser.last_offset;
 
+    // Truncate and write shorter content
     std::fs::write(
         &log_path,
-        r#"{"type":"user","message":{"content":"retry"}}
-"#,
+        "{\"type\":\"user\",\"message\":{\"content\":\"retry\"}}\n",
     )
     .unwrap();
 
-    let state = parser.parse(&log_path);
-    assert_eq!(state, AgentState::Working);
+    assert_eq!(parser.parse(&log_path), AgentState::Working);
     assert!(
         parser.last_offset < large_offset,
         "offset should reset after truncation"
@@ -95,67 +65,43 @@ fn handles_file_truncation() {
 }
 
 #[test]
-fn handles_multiple_appends() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("session.jsonl");
-
-    std::fs::write(
-        &log_path,
-        r#"{"type":"user","message":{"content":"hello"}}
-"#,
-    )
-    .unwrap();
+fn incremental_parser_handles_multiple_appends() {
+    let (_dir, log_path) = temp_log("{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n");
 
     let mut parser = SessionLogParser::new();
     assert_eq!(parser.parse(&log_path), AgentState::Working);
 
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&log_path)
-        .unwrap();
-    writeln!(
-        file,
-        r#"{{"type":"assistant","message":{{"content":[{{"type":"thinking","thinking":"..."}}]}}}}"#,
-    )
-    .unwrap();
-
+    // Append assistant thinking (working)
+    append_line(
+        &log_path,
+        r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"..."}]}}"#,
+    );
     assert_eq!(parser.parse(&log_path), AgentState::Working);
 
-    writeln!(
-        file,
-        r#"{{"type":"user","message":{{"content":"tool result"}}}}"#,
-    )
-    .unwrap();
-
+    // Append tool use result (working — user message)
+    append_line(
+        &log_path,
+        r#"{"type":"user","message":{"content":"tool result"}}"#,
+    );
     assert_eq!(parser.parse(&log_path), AgentState::Working);
 
-    writeln!(
-        file,
-        r#"{{"type":"assistant","message":{{"content":[{{"type":"text","text":"All done"}}]}}}}"#,
-    )
-    .unwrap();
-
+    // Append final text-only response (idle)
+    append_line(
+        &log_path,
+        r#"{"type":"assistant","message":{"content":[{"type":"text","text":"All done"}]}}"#,
+    );
     assert_eq!(parser.parse(&log_path), AgentState::WaitingForInput);
 }
 
 #[test]
-fn handles_incomplete_final_line() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("session.jsonl");
-
-    std::fs::write(
-        &log_path,
-        r#"{"type":"user","message":{"content":"hello"}}
-"#,
-    )
-    .unwrap();
+fn incremental_parser_handles_incomplete_final_line() {
+    let (_dir, log_path) = temp_log("{\"type\":\"user\",\"message\":{\"content\":\"hello\"}}\n");
 
     let mut parser = SessionLogParser::new();
-    let state = parser.parse(&log_path);
-    assert_eq!(state, AgentState::Working);
+    assert_eq!(parser.parse(&log_path), AgentState::Working);
     let offset_after_complete = parser.last_offset;
 
+    // Append incomplete line (no trailing newline)
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .append(true)
@@ -171,11 +117,10 @@ fn handles_incomplete_final_line() {
     assert_eq!(parser.last_offset, offset_after_complete);
     assert_eq!(state, AgentState::Working);
 
-    // Complete the line
+    // Now complete the line
     file.write_all(b"\"}]}}\n").unwrap();
 
-    let state = parser.parse(&log_path);
-    assert_eq!(state, AgentState::WaitingForInput);
+    assert_eq!(parser.parse(&log_path), AgentState::WaitingForInput);
     assert!(
         parser.last_offset > offset_after_complete,
         "offset should advance after line is complete"
@@ -184,11 +129,7 @@ fn handles_incomplete_final_line() {
 
 #[test]
 fn rapid_state_changes_all_detected() {
-    let dir = TempDir::new().unwrap();
-    let log_path = dir.path().join("session.jsonl");
-
-    std::fs::write(&log_path, "").unwrap();
-
+    let (_dir, log_path) = temp_log("");
     let mut parser = SessionLogParser::new();
 
     assert_eq!(parser.parse(&log_path), AgentState::Working);

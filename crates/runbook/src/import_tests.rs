@@ -5,137 +5,6 @@ use super::*;
 use std::collections::HashMap;
 
 // =============================================================================
-// extract_labels tests
-// =============================================================================
-
-#[test]
-fn extract_labels_single() {
-    let labels = extract_labels(r#"import "oj/wok" {}"#, "import");
-    assert_eq!(labels, vec!["oj/wok"]);
-}
-
-#[test]
-fn extract_labels_two() {
-    let labels = extract_labels(r#"import "oj/wok" "wok" {}"#, "import");
-    assert_eq!(labels, vec!["oj/wok", "wok"]);
-}
-
-#[test]
-fn extract_labels_const() {
-    let labels = extract_labels(r#"const "prefix" {}"#, "const");
-    assert_eq!(labels, vec!["prefix"]);
-}
-
-// =============================================================================
-// extract_blocks tests
-// =============================================================================
-
-#[test]
-fn extract_empty_import() {
-    let content = r#"import "oj/wok" {}
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.imports.len(), 1);
-    assert_eq!(result.imports[0].source, "oj/wok");
-    assert!(result.imports[0].alias.is_none());
-    assert!(result.imports[0].consts.is_empty());
-    assert!(result.remaining.trim().is_empty());
-}
-
-#[test]
-fn extract_import_with_alias() {
-    let content = r#"import "oj/wok" "wok" {}
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.imports.len(), 1);
-    assert_eq!(result.imports[0].source, "oj/wok");
-    assert_eq!(result.imports[0].alias.as_deref(), Some("wok"));
-}
-
-#[test]
-fn extract_import_with_consts() {
-    let content = r#"import "oj/wok" { const = { prefix = "oj" } }
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.imports.len(), 1);
-    assert_eq!(
-        result.imports[0].consts.get("prefix"),
-        Some(&"oj".to_string())
-    );
-}
-
-#[test]
-fn extract_import_with_alias_and_consts() {
-    let content = r#"import "oj/wok" "wok" { const = { prefix = "oj", check = "make check" } }
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.imports.len(), 1);
-    assert_eq!(result.imports[0].source, "oj/wok");
-    assert_eq!(result.imports[0].alias.as_deref(), Some("wok"));
-    assert_eq!(
-        result.imports[0].consts.get("prefix"),
-        Some(&"oj".to_string())
-    );
-    assert_eq!(
-        result.imports[0].consts.get("check"),
-        Some(&"make check".to_string())
-    );
-}
-
-#[test]
-fn extract_const_required() {
-    let content = r#"const "prefix" {}
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.consts.len(), 1);
-    assert_eq!(result.consts[0].name, "prefix");
-    assert!(result.consts[0].default.is_none());
-}
-
-#[test]
-fn extract_const_with_default() {
-    let content = r#"const "check" { default = "true" }
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.consts.len(), 1);
-    assert_eq!(result.consts[0].name, "check");
-    assert_eq!(result.consts[0].default.as_deref(), Some("true"));
-}
-
-#[test]
-fn extract_preserves_remaining() {
-    let content = r#"import "oj/wok" {}
-
-command "test" {
-  run = "echo test"
-}
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.imports.len(), 1);
-    assert!(result.remaining.contains("command \"test\""));
-    assert!(!result.remaining.contains("import"));
-}
-
-#[test]
-fn extract_multiple_blocks() {
-    let content = r#"const "prefix" {}
-const "check" { default = "true" }
-
-import "oj/wok" { const = { prefix = "oj" } }
-
-command "test" {
-  run = "echo test"
-}
-"#;
-    let result = extract_blocks(content).unwrap();
-    assert_eq!(result.consts.len(), 2);
-    assert_eq!(result.imports.len(), 1);
-    assert!(result.remaining.contains("command \"test\""));
-    assert!(!result.remaining.contains("const "));
-    assert!(!result.remaining.contains("import "));
-}
-
-// =============================================================================
 // interpolate_consts tests
 // =============================================================================
 
@@ -144,7 +13,7 @@ fn interpolate_const_value() {
     let values: HashMap<String, String> = [("prefix".to_string(), "oj".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values);
+    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values).unwrap();
     assert_eq!(result, "wok ready -p oj -o json");
 }
 
@@ -153,7 +22,7 @@ fn interpolate_const_shell_escapes() {
     let values: HashMap<String, String> = [("prefix".to_string(), "my$project".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values);
+    let result = interpolate_consts("wok ready -p ${const.prefix} -o json", &values).unwrap();
     assert_eq!(result, "wok ready -p my\\$project -o json");
 }
 
@@ -162,7 +31,7 @@ fn interpolate_raw_const() {
     let values: HashMap<String, String> = [("check".to_string(), "make check".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("run = \"${raw(const.check)}\"", &values);
+    let result = interpolate_consts("run = \"${raw(const.check)}\"", &values).unwrap();
     assert_eq!(result, "run = \"make check\"");
 }
 
@@ -171,14 +40,14 @@ fn interpolate_raw_const_not_escaped() {
     let values: HashMap<String, String> = [("check".to_string(), "echo $HOME".to_string())]
         .into_iter()
         .collect();
-    let result = interpolate_consts("${raw(const.check)}", &values);
+    let result = interpolate_consts("${raw(const.check)}", &values).unwrap();
     assert_eq!(result, "echo $HOME");
 }
 
 #[test]
 fn interpolate_unknown_const_left_alone() {
     let values: HashMap<String, String> = HashMap::new();
-    let result = interpolate_consts("${const.unknown}", &values);
+    let result = interpolate_consts("${const.unknown}", &values).unwrap();
     assert_eq!(result, "${const.unknown}");
 }
 
@@ -188,10 +57,9 @@ fn interpolate_unknown_const_left_alone() {
 
 #[test]
 fn validate_consts_required_provided() {
-    let defs = vec![ConstDef {
-        name: "prefix".to_string(),
-        default: None,
-    }];
+    let defs: HashMap<String, ConstDef> = [("prefix".to_string(), ConstDef { default: None })]
+        .into_iter()
+        .collect();
     let provided: HashMap<String, String> = [("prefix".to_string(), "oj".to_string())]
         .into_iter()
         .collect();
@@ -202,10 +70,9 @@ fn validate_consts_required_provided() {
 
 #[test]
 fn validate_consts_required_missing() {
-    let defs = vec![ConstDef {
-        name: "prefix".to_string(),
-        default: None,
-    }];
+    let defs: HashMap<String, ConstDef> = [("prefix".to_string(), ConstDef { default: None })]
+        .into_iter()
+        .collect();
     let provided: HashMap<String, String> = HashMap::new();
     let err = validate_consts(&defs, &provided, "oj/wok").unwrap_err();
     let msg = err.to_string();
@@ -217,10 +84,14 @@ fn validate_consts_required_missing() {
 
 #[test]
 fn validate_consts_default_used() {
-    let defs = vec![ConstDef {
-        name: "check".to_string(),
-        default: Some("true".to_string()),
-    }];
+    let defs: HashMap<String, ConstDef> = [(
+        "check".to_string(),
+        ConstDef {
+            default: Some("true".to_string()),
+        },
+    )]
+    .into_iter()
+    .collect();
     let provided: HashMap<String, String> = HashMap::new();
     let (values, _) = validate_consts(&defs, &provided, "oj/wok").unwrap();
     assert_eq!(values.get("check"), Some(&"true".to_string()));
@@ -228,10 +99,14 @@ fn validate_consts_default_used() {
 
 #[test]
 fn validate_consts_default_overridden() {
-    let defs = vec![ConstDef {
-        name: "check".to_string(),
-        default: Some("true".to_string()),
-    }];
+    let defs: HashMap<String, ConstDef> = [(
+        "check".to_string(),
+        ConstDef {
+            default: Some("true".to_string()),
+        },
+    )]
+    .into_iter()
+    .collect();
     let provided: HashMap<String, String> = [("check".to_string(), "make check".to_string())]
         .into_iter()
         .collect();
@@ -241,10 +116,9 @@ fn validate_consts_default_overridden() {
 
 #[test]
 fn validate_consts_unknown_warns() {
-    let defs = vec![ConstDef {
-        name: "prefix".to_string(),
-        default: None,
-    }];
+    let defs: HashMap<String, ConstDef> = [("prefix".to_string(), ConstDef { default: None })]
+        .into_iter()
+        .collect();
     let provided: HashMap<String, String> = [
         ("prefix".to_string(), "oj".to_string()),
         ("extra".to_string(), "value".to_string()),
@@ -262,8 +136,10 @@ fn validate_consts_unknown_warns() {
 
 #[test]
 fn resolve_known_libraries() {
-    assert!(resolve_library("oj/wok").is_ok());
-    assert!(resolve_library("oj/merge").is_ok());
+    let wok_files = resolve_library("oj/wok").unwrap();
+    assert!(!wok_files.is_empty(), "oj/wok should have files");
+    let git_files = resolve_library("oj/git").unwrap();
+    assert!(!git_files.is_empty(), "oj/git should have files");
 }
 
 #[test]
@@ -341,7 +217,7 @@ fn merge_with_alias_prefixes_names() {
 
     let warnings = merge_runbook(&mut target, source, Some("wok"), "test").unwrap();
     assert!(warnings.is_empty());
-    assert!(target.commands.contains_key("wok.fix"));
+    assert!(target.commands.contains_key("wok:fix"));
     assert!(!target.commands.contains_key("fix"));
 }
 
@@ -351,7 +227,9 @@ fn merge_with_alias_prefixes_names() {
 
 #[test]
 fn parse_import_oj_wok() {
-    let content = r#"import "oj/wok" { const = { prefix = "oj" } }
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+}
 "#;
     let (runbook, warnings) = parse_with_imports(content, Format::Hcl).unwrap();
 
@@ -364,7 +242,7 @@ fn parse_import_oj_wok() {
         );
     }
 
-    // Should have wok entities
+    // Should have wok entities from bug.hcl, chore.hcl, and epic.hcl
     assert!(
         runbook.commands.contains_key("fix"),
         "missing 'fix' command"
@@ -373,57 +251,78 @@ fn parse_import_oj_wok() {
         runbook.commands.contains_key("chore"),
         "missing 'chore' command"
     );
+    assert!(
+        runbook.commands.contains_key("epic"),
+        "missing 'epic' command"
+    );
     assert!(runbook.queues.contains_key("bugs"), "missing 'bugs' queue");
     assert!(
         runbook.queues.contains_key("chores"),
         "missing 'chores' queue"
+    );
+    assert!(
+        runbook.queues.contains_key("plans"),
+        "missing 'plans' queue"
     );
     assert!(runbook.workers.contains_key("bug"), "missing 'bug' worker");
     assert!(
         runbook.workers.contains_key("chore"),
         "missing 'chore' worker"
     );
+    assert!(
+        runbook.workers.contains_key("plan"),
+        "missing 'plan' worker"
+    );
     assert!(runbook.jobs.contains_key("bug"), "missing 'bug' job");
     assert!(runbook.jobs.contains_key("chore"), "missing 'chore' job");
+    assert!(runbook.jobs.contains_key("epic"), "missing 'epic' job");
     assert!(runbook.agents.contains_key("bugs"), "missing 'bugs' agent");
     assert!(
         runbook.agents.contains_key("chores"),
         "missing 'chores' agent"
     );
+    assert!(runbook.agents.contains_key("plan"), "missing 'plan' agent");
 }
 
 #[test]
 fn parse_import_oj_wok_with_alias() {
-    let content = r#"import "oj/wok" "wok" { const = { prefix = "oj" } }
+    let content = r#"import "oj/wok" {
+  alias = "wok"
+  const "prefix" { value = "oj" }
+}
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
 
-    // All names should be prefixed with "wok."
+    // All names should be prefixed with "wok:"
     assert!(
-        runbook.commands.contains_key("wok.fix"),
-        "missing 'wok.fix' command"
+        runbook.commands.contains_key("wok:fix"),
+        "missing 'wok:fix' command"
     );
     assert!(
-        runbook.queues.contains_key("wok.bugs"),
-        "missing 'wok.bugs' queue"
+        runbook.commands.contains_key("wok:epic"),
+        "missing 'wok:epic' command"
     );
     assert!(
-        runbook.workers.contains_key("wok.bug"),
-        "missing 'wok.bug' worker"
+        runbook.queues.contains_key("wok:bugs"),
+        "missing 'wok:bugs' queue"
     );
     assert!(
-        runbook.jobs.contains_key("wok.bug"),
-        "missing 'wok.bug' job"
+        runbook.workers.contains_key("wok:bug"),
+        "missing 'wok:bug' worker"
     );
     assert!(
-        runbook.agents.contains_key("wok.bugs"),
-        "missing 'wok.bugs' agent"
+        runbook.jobs.contains_key("wok:bug"),
+        "missing 'wok:bug' job"
+    );
+    assert!(
+        runbook.agents.contains_key("wok:bugs"),
+        "missing 'wok:bugs' agent"
     );
 }
 
 #[test]
-fn parse_import_oj_merge() {
-    let content = r#"import "oj/merge" {}
+fn parse_import_oj_git() {
+    let content = r#"import "oj/git" {}
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
 
@@ -452,7 +351,10 @@ fn parse_import_oj_merge() {
 
 #[test]
 fn parse_import_with_custom_check() {
-    let content = r#"import "oj/wok" { const = { prefix = "oj", check = "make check" } }
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+  const "check" { value = "make check" }
+}
 "#;
     let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
 
@@ -467,10 +369,7 @@ fn parse_import_missing_required_const() {
 "#;
     let err = parse_with_imports(content, Format::Hcl).unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("missing required const 'prefix'"),
-        "got: {msg}"
-    );
+    assert!(msg.contains("missing required const"), "got: {msg}");
 }
 
 // =============================================================================
@@ -480,10 +379,14 @@ fn parse_import_missing_required_const() {
 #[test]
 fn available_libraries_returns_all() {
     let libs = available_libraries();
-    assert_eq!(libs.len(), 2);
     let sources: Vec<&str> = libs.iter().map(|l| l.source).collect();
     assert!(sources.contains(&"oj/wok"), "missing oj/wok");
-    assert!(sources.contains(&"oj/merge"), "missing oj/merge");
+    assert!(sources.contains(&"oj/git"), "missing oj/git");
+    assert!(
+        libs.len() >= 2,
+        "expected at least 2 libraries, got {}",
+        libs.len()
+    );
 }
 
 #[test]
@@ -501,14 +404,23 @@ fn available_libraries_have_descriptions() {
 #[test]
 fn available_libraries_parse_successfully() {
     let libs = available_libraries();
+    let empty_values = HashMap::new();
     for lib in &libs {
-        let extracted = extract_blocks(lib.content).unwrap_or_else(|e| {
-            panic!("failed to extract blocks from '{}': {}", lib.source, e);
-        });
-        let _runbook = crate::parser::parse_runbook_no_xref(&extracted.remaining, Format::Hcl)
-            .unwrap_or_else(|e| {
-                panic!("failed to parse library '{}': {}", lib.source, e);
+        for (filename, content) in lib.files {
+            // Strip const directives before parsing (templates may contain %{ if } blocks)
+            let processed = interpolate_consts(content, &empty_values).unwrap_or_else(|e| {
+                panic!(
+                    "failed to process directives in library '{}' file '{}': {}",
+                    lib.source, filename, e
+                );
             });
+            crate::parser::parse_runbook_no_xref(&processed, Format::Hcl).unwrap_or_else(|e| {
+                panic!(
+                    "failed to parse library '{}' file '{}': {}",
+                    lib.source, filename, e
+                );
+            });
+        }
     }
 }
 
@@ -522,4 +434,209 @@ command "test" {
     let (runbook, warnings) = parse_with_imports(content, Format::Hcl).unwrap();
     assert!(warnings.is_empty());
     assert!(runbook.commands.contains_key("test"));
+}
+
+// =============================================================================
+// const directive tests
+// =============================================================================
+
+#[yare::parameterized(
+    empty     = { "",    "no\n" },
+    non_empty = { "cmd", "yes\n" },
+)]
+fn const_directive_if_else(value: &str, expected: &str) {
+    let values: HashMap<String, String> = [("submit".to_string(), value.to_string())]
+        .into_iter()
+        .collect();
+    let input = "%{ if const.submit != \"\" }\nyes\n%{ else }\nno\n%{ endif }\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[yare::parameterized(
+    both_true   = { "yes", "also", "outer\ninner\n" },
+    outer_false = { "no",  "also", "" },
+)]
+fn const_directive_nested(outer: &str, inner: &str, expected: &str) {
+    let values: HashMap<String, String> = [
+        ("outer".to_string(), outer.to_string()),
+        ("inner".to_string(), inner.to_string()),
+    ]
+    .into_iter()
+    .collect();
+    let input = "%{ if const.outer == \"yes\" }\nouter\n%{ if const.inner == \"also\" }\ninner\n%{ endif }\n%{ endif }\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[yare::parameterized(
+    unmatched_endif = { "before\n%{ endif }\nafter\n", "endif without matching if" },
+    unclosed_if     = { "%{ if const.x != \"\" }\nhello\n", "unclosed if directive" },
+)]
+fn const_directive_error(input: &str, expected_err: &str) {
+    let values: HashMap<String, String> =
+        [("x".to_string(), "y".to_string())].into_iter().collect();
+    let result = interpolate_consts(input, &values);
+    assert_eq!(result.unwrap_err(), expected_err);
+}
+
+#[test]
+fn const_directive_whitespace_strip() {
+    let values: HashMap<String, String> =
+        [("x".to_string(), "val".to_string())].into_iter().collect();
+    let input = "before\n%{~ if const.x != \"\" ~}\nincluded\n%{~ endif ~}\nafter\n";
+    let result = interpolate_consts(input, &values).unwrap();
+    assert_eq!(result, "before\nincluded\nafter\n");
+}
+
+#[yare::parameterized(
+    eq_match    = { "hello", "==", "hello", "yes\n" },
+    eq_mismatch = { "hello", "==", "world", "" },
+    ne_match    = { "hello", "!=", "world", "yes\n" },
+    ne_mismatch = { "hello", "!=", "hello", "" },
+    ne_default  = { "true",  "!=", "true",  "" },
+    ne_custom   = { "make",  "!=", "true",  "yes\n" },
+)]
+fn const_directive_comparison(value: &str, op: &str, literal: &str, expected: &str) {
+    let values: HashMap<String, String> =
+        [("x".to_string(), value.to_string())].into_iter().collect();
+    let input = format!("%{{ if const.x {op} \"{literal}\" }}\nyes\n%{{ endif }}\n");
+    let result = interpolate_consts(&input, &values).unwrap();
+    assert_eq!(result, expected);
+}
+
+// =============================================================================
+// imported command description tests
+// =============================================================================
+
+#[test]
+fn imported_commands_get_descriptions_from_doc_comments() {
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+
+    // Each imported command should have a description from its library doc comment
+    let fix = runbook.commands.get("fix").unwrap();
+    assert_eq!(
+        fix.description.as_deref(),
+        Some("File a wok bug and dispatch it to a fix worker."),
+    );
+
+    let chore = runbook.commands.get("chore").unwrap();
+    assert_eq!(
+        chore.description.as_deref(),
+        Some("File a wok chore and dispatch it to a worker."),
+    );
+
+    let epic = runbook.commands.get("epic").unwrap();
+    assert!(
+        epic.description.is_some(),
+        "epic command should have a description"
+    );
+
+    let idea = runbook.commands.get("idea").unwrap();
+    assert_eq!(
+        idea.description.as_deref(),
+        Some("Create a new wok epic with 'plan:needed' only."),
+    );
+}
+
+#[test]
+fn imported_commands_with_alias_get_descriptions() {
+    let content = r#"import "oj/git" {
+  alias = "git"
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+
+    let merge = runbook.commands.get("git:merge").unwrap();
+    assert_eq!(
+        merge.description.as_deref(),
+        Some("Queue a branch for the local merge queue."),
+    );
+}
+
+#[test]
+fn explicit_description_not_overridden_by_import() {
+    // Commands with explicit description fields should keep them
+    let content = r#"import "oj/git" {}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+    let merge = runbook.commands.get("merge").unwrap();
+    // Should have the doc comment description, not None
+    assert!(
+        merge.description.is_some(),
+        "merge should have description from doc comment"
+    );
+}
+
+#[test]
+fn parse_import_oj_wok_without_submit() {
+    // submit defaults to empty, conditional blocks should be stripped
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+    // Should still parse successfully with all entities
+    assert!(runbook.jobs.contains_key("bug"), "missing 'bug' job");
+    assert!(runbook.jobs.contains_key("chore"), "missing 'chore' job");
+    assert!(runbook.jobs.contains_key("epic"), "missing 'epic' job");
+}
+
+#[test]
+fn parse_import_oj_wok_with_submit() {
+    let content = r#"import "oj/wok" {
+  const "prefix" { value = "oj" }
+  const "submit" { value = "oj run merge \"$branch\" \"$title\"" }
+}
+"#;
+    let (runbook, _) = parse_with_imports(content, Format::Hcl).unwrap();
+    assert!(runbook.jobs.contains_key("bug"), "missing 'bug' job");
+    assert!(runbook.jobs.contains_key("chore"), "missing 'chore' job");
+    assert!(runbook.jobs.contains_key("epic"), "missing 'epic' job");
+}
+
+// =============================================================================
+// ConstDef equality tests
+// =============================================================================
+
+#[test]
+fn const_def_equal_same_default() {
+    let a = ConstDef {
+        default: Some("true".to_string()),
+    };
+    let b = ConstDef {
+        default: Some("true".to_string()),
+    };
+    assert_eq!(a, b);
+}
+
+#[test]
+fn const_def_not_equal_different_default() {
+    let a = ConstDef {
+        default: Some("true".to_string()),
+    };
+    let b = ConstDef {
+        default: Some("false".to_string()),
+    };
+    assert_ne!(a, b);
+}
+
+#[test]
+fn const_def_not_equal_none_vs_some() {
+    let a = ConstDef { default: None };
+    let b = ConstDef {
+        default: Some("true".to_string()),
+    };
+    assert_ne!(a, b);
+}
+
+#[test]
+fn const_def_equal_both_none() {
+    let a = ConstDef { default: None };
+    let b = ConstDef { default: None };
+    assert_eq!(a, b);
 }

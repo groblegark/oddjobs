@@ -133,20 +133,13 @@ fn job_agent_default_on_stop_is_signal() {
     temp.oj().args(&["daemon", "start"]).passes();
     temp.oj().args(&["run", "build", "test"]).passes();
 
-    // Wait for agent to be spawned (job reaches running status)
-    let running = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp.oj().args(&["job", "list"]).passes().stdout();
-        out.contains("running") || out.contains("completed")
-    });
+    // config.json is written at agent spawn time — wait for it directly
+    let config_found = wait_for(SPEC_WAIT_MAX_MS * 4, || read_agent_config(&temp).is_some());
     assert!(
-        running,
-        "job should reach running or completed\ndaemon log:\n{}",
+        config_found,
+        "config.json should be written at spawn time\ndaemon log:\n{}",
         temp.daemon_log()
     );
-
-    // Verify config.json was written with on_stop = signal
-    let config_found = wait_for(SPEC_WAIT_MAX_MS, || read_agent_config(&temp).is_some());
-    assert!(config_found, "config.json should be written at spawn time");
 
     let config = read_agent_config(&temp).unwrap();
     assert!(
@@ -172,18 +165,12 @@ fn job_agent_explicit_on_stop_idle() {
     temp.oj().args(&["daemon", "start"]).passes();
     temp.oj().args(&["run", "build", "test"]).passes();
 
-    let running = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp.oj().args(&["job", "list"]).passes().stdout();
-        out.contains("running") || out.contains("completed")
-    });
+    let config_found = wait_for(SPEC_WAIT_MAX_MS * 4, || read_agent_config(&temp).is_some());
     assert!(
-        running,
-        "job should reach running or completed\ndaemon log:\n{}",
+        config_found,
+        "config.json should be written at spawn time\ndaemon log:\n{}",
         temp.daemon_log()
     );
-
-    let config_found = wait_for(SPEC_WAIT_MAX_MS, || read_agent_config(&temp).is_some());
-    assert!(config_found, "config.json should be written at spawn time");
 
     let config = read_agent_config(&temp).unwrap();
     assert!(
@@ -209,18 +196,12 @@ fn job_agent_explicit_on_stop_escalate() {
     temp.oj().args(&["daemon", "start"]).passes();
     temp.oj().args(&["run", "build", "test"]).passes();
 
-    let running = wait_for(SPEC_WAIT_MAX_MS * 3, || {
-        let out = temp.oj().args(&["job", "list"]).passes().stdout();
-        out.contains("running") || out.contains("completed")
-    });
+    let config_found = wait_for(SPEC_WAIT_MAX_MS * 4, || read_agent_config(&temp).is_some());
     assert!(
-        running,
-        "job should reach running or completed\ndaemon log:\n{}",
+        config_found,
+        "config.json should be written at spawn time\ndaemon log:\n{}",
         temp.daemon_log()
     );
-
-    let config_found = wait_for(SPEC_WAIT_MAX_MS, || read_agent_config(&temp).is_some());
-    assert!(config_found, "config.json should be written at spawn time");
 
     let config = read_agent_config(&temp).unwrap();
     assert!(

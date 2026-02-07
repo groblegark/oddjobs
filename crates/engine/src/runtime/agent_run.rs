@@ -6,12 +6,13 @@
 use super::Runtime;
 use crate::error::RuntimeError;
 use crate::monitor::{self, ActionEffects, MonitorState};
+use crate::ActionContext;
 use oj_adapters::agent::find_session_log;
 use oj_adapters::subprocess::{run_with_timeout, GATE_TIMEOUT};
 use oj_adapters::{AgentAdapter, AgentReconnectConfig, NotifyAdapter, SessionAdapter};
 use oj_core::{
     AgentId, AgentRun, AgentRunId, AgentRunStatus, AgentSignalKind, Clock, Effect, Event, OwnerId,
-    QuestionData, SessionId, TimerId,
+    SessionId, TimerId,
 };
 use oj_runbook::AgentDef;
 use std::collections::HashMap;
@@ -53,8 +54,8 @@ where
             resume_session_id,
         } = params;
 
-        // Build a SpawnContext for standalone agent
-        let ctx = crate::spawn::SpawnContext::from_agent_run(agent_run_id, agent_name, namespace);
+        // Build a SpawnCtx for standalone agent
+        let ctx = crate::spawn::SpawnCtx::from_agent_run(agent_run_id, agent_name, namespace);
 
         let effects = crate::spawn::build_spawn_effects(
             agent_def,
@@ -279,6 +280,22 @@ where
         agent_def: &AgentDef,
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Fetch assistant context: from MonitorState for prompts, from executor for other states
+        let assistant_context: Option<String> = match &state {
+            MonitorState::Prompting {
+                assistant_context, ..
+            } => assistant_context.clone(),
+            MonitorState::Working => None,
+            _ => {
+                // For idle, exited, gone, failed: fetch from agent adapter
+                let agent_id = agent_run.agent_id.as_ref().map(AgentId::new);
+                match agent_id {
+                    Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+                    None => None,
+                }
+            }
+        };
+
         let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
                 // Cancel idle grace timer — agent is working
@@ -340,6 +357,7 @@ where
             MonitorState::Prompting {
                 ref prompt_type,
                 ref question_data,
+                ..
             } => {
                 tracing::info!(
                     agent_run_id = %agent_run.id,
@@ -365,11 +383,14 @@ where
                 return self
                     .execute_standalone_action_with_attempts(
                         agent_run,
-                        agent_def,
-                        &error_action,
-                        message,
-                        0,
-                        None,
+                        &ActionContext {
+                            agent_def,
+                            action_config: &error_action,
+                            trigger: message,
+                            chain_pos: 0,
+                            question_data: None,
+                            assistant_context: assistant_context.as_deref(),
+                        },
                     )
                     .await;
             }
@@ -387,11 +408,14 @@ where
 
         self.execute_standalone_action_with_attempts(
             agent_run,
-            agent_def,
-            action_config,
-            trigger,
-            0,
-            qd.as_ref(),
+            &ActionContext {
+                agent_def,
+                action_config,
+                trigger,
+                chain_pos: 0,
+                question_data: qd.as_ref(),
+                assistant_context: assistant_context.as_deref(),
+            },
         )
         .await
     }
@@ -400,13 +424,9 @@ where
     pub(crate) async fn execute_standalone_action_with_attempts(
         &self,
         agent_run: &AgentRun,
-        agent_def: &AgentDef,
-        action_config: &oj_runbook::ActionConfig,
-        trigger: &str,
-        chain_pos: usize,
-        question_data: Option<&QuestionData>,
+        ctx: &ActionContext<'_>,
     ) -> Result<Vec<Event>, RuntimeError> {
-        let attempts = action_config.attempts();
+        let attempts = ctx.action_config.attempts();
         let agent_run_id = AgentRunId::new(&agent_run.id);
 
         // Increment attempt count
@@ -414,14 +434,14 @@ where
             state
                 .agent_runs
                 .get_mut(agent_run_id.as_str())
-                .map(|ar| ar.increment_action_attempt(trigger, chain_pos))
+                .map(|ar| ar.increment_action_attempt(ctx.trigger, ctx.chain_pos))
                 .unwrap_or(1)
         });
 
         tracing::debug!(
             agent_run_id = %agent_run.id,
-            trigger,
-            chain_pos,
+            trigger = ctx.trigger,
+            chain_pos = ctx.chain_pos,
             attempt_num,
             max_attempts = ?attempts,
             "checking standalone action attempts"
@@ -431,23 +451,24 @@ where
         if attempts.is_exhausted(attempt_num - 1) {
             tracing::info!(
                 agent_run_id = %agent_run.id,
-                trigger,
+                trigger = ctx.trigger,
                 attempts = attempt_num - 1,
                 "attempts exhausted, escalating standalone agent"
             );
             let escalate_config =
                 oj_runbook::ActionConfig::simple(oj_runbook::AgentAction::Escalate);
+            let exhausted_trigger = format!("{}_exhausted", ctx.trigger);
             return self
                 .execute_standalone_action_effects(
                     agent_run,
-                    agent_def,
+                    ctx.agent_def,
                     monitor::build_action_effects_for_agent_run(
+                        &ActionContext {
+                            action_config: &escalate_config,
+                            trigger: &exhausted_trigger,
+                            ..*ctx
+                        },
                         agent_run,
-                        agent_def,
-                        &escalate_config,
-                        &format!("{}_exhausted", trigger),
-                        &agent_run.vars,
-                        question_data,
                     )?,
                 )
                 .await;
@@ -455,18 +476,19 @@ where
 
         // Check if cooldown needed
         if attempt_num > 1 {
-            if let Some(cooldown_str) = action_config.cooldown() {
+            if let Some(cooldown_str) = ctx.action_config.cooldown() {
                 let duration = monitor::parse_duration(cooldown_str).map_err(|e| {
                     RuntimeError::InvalidRequest(format!(
                         "invalid cooldown '{}': {}",
                         cooldown_str, e
                     ))
                 })?;
-                let timer_id = TimerId::cooldown_agent_run(&agent_run_id, trigger, chain_pos);
+                let timer_id =
+                    TimerId::cooldown_agent_run(&agent_run_id, ctx.trigger, ctx.chain_pos);
 
                 tracing::info!(
                     agent_run_id = %agent_run.id,
-                    trigger,
+                    trigger = ctx.trigger,
                     attempt = attempt_num,
                     cooldown = ?duration,
                     "scheduling cooldown before standalone retry"
@@ -486,15 +508,8 @@ where
         // Execute the action
         self.execute_standalone_action_effects(
             agent_run,
-            agent_def,
-            monitor::build_action_effects_for_agent_run(
-                agent_run,
-                agent_def,
-                action_config,
-                trigger,
-                &agent_run.vars,
-                question_data,
-            )?,
+            ctx.agent_def,
+            monitor::build_action_effects_for_agent_run(ctx, agent_run)?,
         )
         .await
     }
@@ -663,12 +678,15 @@ where
                         let escalate_config =
                             oj_runbook::ActionConfig::simple(oj_runbook::AgentAction::Escalate);
                         let escalate_effects = monitor::build_action_effects_for_agent_run(
+                            &ActionContext {
+                                agent_def,
+                                action_config: &escalate_config,
+                                trigger: "gate_failed",
+                                chain_pos: 0,
+                                question_data: None,
+                                assistant_context: None,
+                            },
                             agent_run,
-                            agent_def,
-                            &escalate_config,
-                            "gate_failed",
-                            &agent_run.vars,
-                            None,
                         )?;
                         match escalate_effects {
                             ActionEffects::EscalateAgentRun { effects } => {

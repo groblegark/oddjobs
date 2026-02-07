@@ -60,16 +60,7 @@ async fn reconcile_state_resumes_running_workers() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    // Collect all emitted events
-    drop(event_tx); // Close sender so recv() terminates
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should have emitted exactly one WorkerStarted for the running worker
     let worker_started_events: Vec<_> = events
@@ -120,14 +111,7 @@ async fn reconcile_job_dead_session_uses_step_history_agent_id() {
         make_job_with_agent("pipe-1", "build", agent_uuid, "oj-nonexistent-session"),
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should emit AgentGone with the UUID from step_history
     let gone_events: Vec<_> = events
@@ -153,10 +137,10 @@ async fn reconcile_job_dead_session_uses_step_history_agent_id() {
 }
 
 #[tokio::test]
-async fn reconcile_job_no_agent_id_in_step_history_skips() {
+async fn reconcile_job_no_agent_id_in_step_history_emits_job_failed() {
     // When a job has no agent_id in step_history (e.g., shell step
-    // or crashed before agent was recorded), reconciliation should skip
-    // it rather than emitting events with fabricated agent_ids.
+    // or crashed before agent was recorded), reconciliation should
+    // emit JobAdvanced{step:"failed"} to terminate the zombie job.
     let dir = tempdir().unwrap();
     let dir_path = dir.path().to_owned();
     let (runtime, session_adapter) = setup_reconcile_runtime(&dir_path);
@@ -168,13 +152,25 @@ async fn reconcile_job_no_agent_id_in_step_history_skips() {
     let mut test_state = MaterializedState::default();
     test_state.jobs.insert("pipe-2".to_string(), job);
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
+    // Should emit JobAdvanced{step:"failed"} instead of agent events
+    let advanced_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, Event::JobAdvanced { .. }))
+        .collect();
+    assert_eq!(
+        advanced_events.len(),
+        1,
+        "should emit exactly one JobAdvanced event, got: {:?}",
+        advanced_events
+    );
+    match &advanced_events[0] {
+        Event::JobAdvanced { id, step } => {
+            assert_eq!(id, &JobId::new("pipe-2"));
+            assert_eq!(step, "failed");
+        }
+        _ => unreachable!(),
     }
 
     // Should not emit any agent events for this job
@@ -186,6 +182,75 @@ async fn reconcile_job_no_agent_id_in_step_history_skips() {
         agent_events.is_empty(),
         "should not emit agent events when step_history has no agent_id, got: {:?}",
         agent_events
+    );
+}
+
+#[tokio::test]
+async fn reconcile_job_no_session_id_emits_job_failed() {
+    // When a job has no session_id (daemon crashed before session was
+    // created), reconciliation should emit JobAdvanced{step:"failed"}.
+    let dir = tempdir().unwrap();
+    let dir_path = dir.path().to_owned();
+    let (runtime, session_adapter) = setup_reconcile_runtime(&dir_path);
+
+    // Job with no session_id (builder default is None)
+    let job = Job::builder().id("pipe-nosess").step("work").build();
+
+    let mut test_state = MaterializedState::default();
+    test_state.jobs.insert("pipe-nosess".to_string(), job);
+
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
+
+    let advanced_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, Event::JobAdvanced { .. }))
+        .collect();
+    assert_eq!(
+        advanced_events.len(),
+        1,
+        "should emit exactly one JobAdvanced event"
+    );
+    match &advanced_events[0] {
+        Event::JobAdvanced { id, step } => {
+            assert_eq!(id, &JobId::new("pipe-nosess"));
+            assert_eq!(step, "failed");
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[tokio::test]
+async fn reconcile_job_no_session_id_waiting_is_skipped() {
+    // A Waiting job with no session_id should be skipped (already escalated).
+    let dir = tempdir().unwrap();
+    let dir_path = dir.path().to_owned();
+    let (runtime, session_adapter) = setup_reconcile_runtime(&dir_path);
+
+    let job = Job::builder()
+        .id("pipe-waiting")
+        .step("work")
+        .step_status(StepStatus::Waiting(Some("escalated".to_string())))
+        .build();
+
+    let mut test_state = MaterializedState::default();
+    test_state.jobs.insert("pipe-waiting".to_string(), job);
+
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
+
+    // Should not emit any events for a Waiting job
+    let job_events: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                Event::JobAdvanced { .. } | Event::AgentGone { .. } | Event::AgentExited { .. }
+            )
+        })
+        .collect();
+    assert!(
+        job_events.is_empty(),
+        "should not emit events for Waiting job, got: {:?}",
+        job_events
     );
 }
 
@@ -221,14 +286,7 @@ async fn reconcile_agent_run_dead_session_emits_gone_with_correct_id() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should emit AgentGone with the correct UUID
     let gone_events: Vec<_> = events
@@ -281,14 +339,7 @@ async fn reconcile_agent_run_no_agent_id_marks_failed_directly() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     // Should emit AgentRunStatusChanged(Failed) directly
     let status_events: Vec<_> = events
@@ -355,14 +406,7 @@ async fn reconcile_agent_run_no_session_id_marks_failed() {
         },
     );
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(100);
-    reconcile_state(&runtime, &test_state, &session_adapter, &event_tx).await;
-
-    drop(event_tx);
-    let mut events = Vec::new();
-    while let Some(event) = event_rx.recv().await {
-        events.push(event);
-    }
+    let events = run_reconcile(&runtime, &session_adapter, test_state).await;
 
     let status_events: Vec<_> = events
         .iter()

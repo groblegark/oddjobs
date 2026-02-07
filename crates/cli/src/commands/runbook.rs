@@ -64,8 +64,8 @@ fn handle_list(project_root: &Path, format: OutputFormat) -> Result<()> {
                 } else {
                     summary
                         .imports
-                        .iter()
-                        .map(|i| i.source.as_str())
+                        .keys()
+                        .map(|s| s.as_str())
                         .collect::<Vec<_>>()
                         .join(", ")
                 };
@@ -100,7 +100,7 @@ fn handle_list(project_root: &Path, format: OutputFormat) -> Result<()> {
                 .map(|s| {
                     serde_json::json!({
                         "file": s.file,
-                        "imports": s.imports.iter().map(|i| &i.source).collect::<Vec<_>>(),
+                        "imports": s.imports.keys().collect::<Vec<_>>(),
                         "commands": s.commands,
                         "jobs": s.jobs,
                         "agents": s.agents,
@@ -119,32 +119,29 @@ fn handle_list(project_root: &Path, format: OutputFormat) -> Result<()> {
 }
 
 /// Resolve command names from imports by parsing each library.
-fn imported_command_names(imports: &[oj_runbook::ImportDef]) -> Vec<String> {
+fn imported_command_names(
+    imports: &std::collections::HashMap<String, oj_runbook::ImportDef>,
+) -> Vec<String> {
     let mut names = Vec::new();
-    for import in imports {
-        let content = match oj_runbook::resolve_library(&import.source) {
-            Ok(c) => c,
+    for (source, import_def) in imports {
+        let files = match oj_runbook::resolve_library(source) {
+            Ok(f) => f,
             Err(_) => continue,
         };
-        // Extract blocks to get remaining content, then parse for command names
-        let extracted = match oj_runbook::extract_blocks(content) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let runbook = match oj_runbook::parse_runbook_with_format(
-            &extracted.remaining,
-            oj_runbook::Format::Hcl,
-        ) {
-            Ok(rb) => rb,
-            Err(_) => continue,
-        };
-        let prefix = import.alias.as_deref();
-        for cmd_name in runbook.commands.keys() {
-            let name = match prefix {
-                Some(p) => format!("{}.{}", p, cmd_name),
-                None => cmd_name.clone(),
-            };
-            names.push(name);
+        for (_, content) in files {
+            let runbook =
+                match oj_runbook::parse_runbook_with_format(content, oj_runbook::Format::Hcl) {
+                    Ok(rb) => rb,
+                    Err(_) => continue,
+                };
+            let prefix = import_def.alias.as_deref();
+            for cmd_name in runbook.commands.keys() {
+                let name = match prefix {
+                    Some(p) => format!("{}:{}", p, cmd_name),
+                    None => cmd_name.clone(),
+                };
+                names.push(name);
+            }
         }
     }
     names.sort();
@@ -186,7 +183,7 @@ fn handle_search(query: Option<&str>, format: OutputFormat) -> Result<()> {
             ]);
 
             for lib in &filtered {
-                let consts_display = format_const_summary(lib.content);
+                let consts_display = format_const_summary(lib.files);
                 table.row(vec![
                     lib.source.to_string(),
                     consts_display,
@@ -200,7 +197,7 @@ fn handle_search(query: Option<&str>, format: OutputFormat) -> Result<()> {
             let entries: Vec<serde_json::Value> = filtered
                 .iter()
                 .map(|lib| {
-                    let consts_json = format_consts_json(lib.content);
+                    let consts_json = format_consts_json(lib.files);
                     serde_json::json!({
                         "source": lib.source,
                         "description": lib.description,
@@ -216,23 +213,22 @@ fn handle_search(query: Option<&str>, format: OutputFormat) -> Result<()> {
 }
 
 fn handle_show(path: &str, format: OutputFormat) -> Result<()> {
-    let content = oj_runbook::resolve_library(path).map_err(|_| {
+    let files = oj_runbook::resolve_library(path).map_err(|_| {
         anyhow::anyhow!(
             "unknown library '{}'; use 'oj runbook search' to see available libraries",
             path
         )
     })?;
 
-    let description = oj_runbook::extract_file_comment(content)
+    let description = files
+        .first()
+        .and_then(|(_, content)| oj_runbook::extract_file_comment(content))
         .map(|c| c.short)
         .unwrap_or_default();
 
-    let const_defs = extract_const_defs(content);
-
-    // Parse library to enumerate entities
-    let extracted = oj_runbook::extract_blocks(content)?;
-    let runbook =
-        oj_runbook::parse_runbook_with_format(&extracted.remaining, oj_runbook::Format::Hcl)?;
+    // Collect const definitions and merge all files into a single runbook
+    let const_defs = extract_const_defs(files);
+    let runbook = merge_library_files(files)?;
 
     match format {
         OutputFormat::Text => {
@@ -243,7 +239,9 @@ fn handle_show(path: &str, format: OutputFormat) -> Result<()> {
 
             if !const_defs.is_empty() {
                 println!("\nParameters:");
-                for def in &const_defs {
+                let mut sorted_consts: Vec<_> = const_defs.iter().collect();
+                sorted_consts.sort_by_key(|(name, _)| *name);
+                for (name, def) in &sorted_consts {
                     let req = if def.default.is_none() {
                         "(required)"
                     } else {
@@ -253,7 +251,7 @@ fn handle_show(path: &str, format: OutputFormat) -> Result<()> {
                         Some(d) => format!(" [default: \"{}\"]", d),
                         None => String::new(),
                     };
-                    println!("  {:<12} {:<12} {}", def.name, req, default_str.trim());
+                    println!("  {:<12} {:<12} {}", name, req, default_str.trim());
                 }
             }
 
@@ -315,30 +313,35 @@ fn handle_show(path: &str, format: OutputFormat) -> Result<()> {
             }
 
             // Usage example
-            let const_example = if const_defs.iter().any(|c| c.default.is_none()) {
-                let required: Vec<_> = const_defs
-                    .iter()
-                    .filter(|c| c.default.is_none())
-                    .map(|c| format!("{} = \"...\"", c.name))
-                    .collect();
-                format!(" {{ const = {{ {} }} }}", required.join(", "))
-            } else {
-                " {}".to_string()
-            };
             println!("\nUsage:");
-            println!("  import \"{}\"{}", path, const_example);
+            if const_defs.values().any(|c| c.default.is_none()) {
+                println!("  import \"{}\" {{", path);
+                let mut required: Vec<_> = const_defs
+                    .iter()
+                    .filter(|(_, c)| c.default.is_none())
+                    .map(|(name, _)| name.as_str())
+                    .collect();
+                required.sort();
+                for name in required {
+                    println!("    const \"{}\" {{ value = \"...\" }}", name);
+                }
+                println!("  }}");
+            } else {
+                println!("  import \"{}\" {{}}", path);
+            }
         }
         OutputFormat::Json => {
-            let consts_json: Vec<serde_json::Value> = const_defs
+            let mut consts_json: Vec<serde_json::Value> = const_defs
                 .iter()
-                .map(|c| {
+                .map(|(name, c)| {
                     serde_json::json!({
-                        "name": c.name,
+                        "name": name,
                         "required": c.default.is_none(),
                         "default": c.default,
                     })
                 })
                 .collect();
+            consts_json.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
 
             let entities = build_entity_map(&runbook);
 
@@ -382,123 +385,72 @@ fn build_entity_map(runbook: &oj_runbook::Runbook) -> serde_json::Value {
 }
 
 /// Format const definitions as a JSON array.
-fn format_consts_json(content: &str) -> Vec<serde_json::Value> {
-    extract_const_defs(content)
+fn format_consts_json(files: &[(&str, &str)]) -> Vec<serde_json::Value> {
+    let consts = extract_const_defs(files);
+    let mut result: Vec<serde_json::Value> = consts
         .iter()
-        .map(|c| {
+        .map(|(name, c)| {
             serde_json::json!({
-                "name": c.name,
+                "name": name,
                 "required": c.default.is_none(),
                 "default": c.default,
             })
         })
-        .collect()
+        .collect();
+    result.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    result
 }
 
-/// Extract const definitions from library content.
-fn extract_const_defs(content: &str) -> Vec<oj_runbook::ConstDef> {
-    match oj_runbook::extract_blocks(content) {
-        Ok(result) => result.consts,
-        Err(_) => Vec::new(),
+/// Extract const definitions from all library files.
+fn extract_const_defs(
+    files: &[(&str, &str)],
+) -> std::collections::HashMap<String, oj_runbook::ConstDef> {
+    let mut all_consts = std::collections::HashMap::new();
+    for (_, content) in files {
+        if let Ok(runbook) = oj_runbook::parse_runbook_with_format(content, oj_runbook::Format::Hcl)
+        {
+            all_consts.extend(runbook.consts);
+        }
     }
+    all_consts
+}
+
+/// Merge all library files into a single runbook for entity enumeration.
+fn merge_library_files(files: &[(&str, &str)]) -> Result<oj_runbook::Runbook> {
+    let mut merged = oj_runbook::Runbook::default();
+    for (_, content) in files {
+        let runbook = oj_runbook::parse_runbook_with_format(content, oj_runbook::Format::Hcl)?;
+        // Simple merge — library files shouldn't conflict
+        merged.commands.extend(runbook.commands);
+        merged.jobs.extend(runbook.jobs);
+        merged.agents.extend(runbook.agents);
+        merged.queues.extend(runbook.queues);
+        merged.workers.extend(runbook.workers);
+        merged.crons.extend(runbook.crons);
+    }
+    Ok(merged)
 }
 
 /// Format const defs for the search table summary.
-fn format_const_summary(content: &str) -> String {
-    let defs = extract_const_defs(content);
+fn format_const_summary(files: &[(&str, &str)]) -> String {
+    let defs = extract_const_defs(files);
     if defs.is_empty() {
         return "-".to_string();
     }
-    defs.iter()
-        .map(|c| {
+    let mut items: Vec<_> = defs
+        .iter()
+        .map(|(name, c)| {
             if c.default.is_none() {
-                format!("{} (req)", c.name)
+                format!("{} (req)", name)
             } else {
-                c.name.clone()
+                name.clone()
             }
         })
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect();
+    items.sort();
+    items.join(", ")
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_list_subcommand() {
-        use clap::Parser;
-
-        #[derive(Parser)]
-        struct Cli {
-            #[command(subcommand)]
-            command: RunbookCommand,
-        }
-
-        let cli = Cli::try_parse_from(["test", "list"]).unwrap();
-        assert!(matches!(cli.command, RunbookCommand::List {}));
-    }
-
-    #[test]
-    fn parse_search_no_query() {
-        use clap::Parser;
-
-        #[derive(Parser)]
-        struct Cli {
-            #[command(subcommand)]
-            command: RunbookCommand,
-        }
-
-        let cli = Cli::try_parse_from(["test", "search"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            RunbookCommand::Search { query: None }
-        ));
-    }
-
-    #[test]
-    fn parse_search_with_query() {
-        use clap::Parser;
-
-        #[derive(Parser)]
-        struct Cli {
-            #[command(subcommand)]
-            command: RunbookCommand,
-        }
-
-        let cli = Cli::try_parse_from(["test", "search", "wok"]).unwrap();
-        assert!(matches!(cli.command, RunbookCommand::Search { query: Some(q) } if q == "wok"));
-    }
-
-    #[test]
-    fn parse_show_subcommand() {
-        use clap::Parser;
-
-        #[derive(Parser)]
-        struct Cli {
-            #[command(subcommand)]
-            command: RunbookCommand,
-        }
-
-        let cli = Cli::try_parse_from(["test", "show", "oj/wok"]).unwrap();
-        assert!(matches!(cli.command, RunbookCommand::Show { path } if path == "oj/wok"));
-    }
-
-    #[test]
-    fn search_filters_by_query() {
-        let libraries = oj_runbook::available_libraries();
-
-        let q = "merge";
-        let q_lower = q.to_lowercase();
-        let filtered: Vec<_> = libraries
-            .into_iter()
-            .filter(|lib| {
-                lib.source.to_lowercase().contains(&q_lower)
-                    || lib.description.to_lowercase().contains(&q_lower)
-            })
-            .collect();
-
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].source, "oj/merge");
-    }
-}
+#[path = "runbook_tests.rs"]
+mod tests;

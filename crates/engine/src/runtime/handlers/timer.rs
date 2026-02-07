@@ -6,6 +6,7 @@
 use super::super::Runtime;
 use crate::error::RuntimeError;
 use crate::monitor::{self, MonitorState};
+use crate::ActionContext;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
     split_scoped_name, AgentId, AgentRunId, AgentRunStatus, AgentState, Clock, Effect, Event,
@@ -107,13 +108,28 @@ where
             "cooldown expired, executing action"
         );
 
+        // Fetch assistant context for the cooldown retry
+        let agent_id = job
+            .step_history
+            .iter()
+            .rfind(|r| r.name == job.step)
+            .and_then(|r| r.agent_id.as_ref())
+            .map(oj_core::AgentId::new);
+        let assistant_context = match agent_id {
+            Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+            None => None,
+        };
+
         self.execute_action_with_attempts(
             &job,
-            &agent_def,
-            &action_config,
-            trigger,
-            chain_pos,
-            None,
+            &ActionContext {
+                agent_def: &agent_def,
+                action_config: &action_config,
+                trigger,
+                chain_pos,
+                question_data: None,
+                assistant_context: assistant_context.as_deref(),
+            },
         )
         .await
     }
@@ -617,13 +633,23 @@ where
             "standalone agent cooldown expired, executing action"
         );
 
+        // Fetch assistant context for the cooldown retry
+        let agent_id = agent_run.agent_id.as_ref().map(oj_core::AgentId::new);
+        let assistant_context = match agent_id {
+            Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+            None => None,
+        };
+
         self.execute_standalone_action_with_attempts(
             &agent_run,
-            &agent_def,
-            &action_config,
-            trigger,
-            chain_pos,
-            None,
+            &ActionContext {
+                agent_def: &agent_def,
+                action_config: &action_config,
+                trigger,
+                chain_pos,
+                question_data: None,
+                assistant_context: assistant_context.as_deref(),
+            },
         )
         .await
     }

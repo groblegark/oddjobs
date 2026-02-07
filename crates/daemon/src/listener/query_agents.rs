@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use oj_core::{namespace_to_option, OwnerId, StepOutcome};
+use oj_core::{namespace_to_option, OwnerId, StepOutcome, StepOutcomeKind};
 use oj_storage::MaterializedState;
 
 use crate::protocol::{AgentDetail, AgentSummary, Response, StepRecordDetail};
@@ -35,7 +35,7 @@ pub(super) fn handle_get_agent(
             .find(|s| s.agent_id.as_deref() == Some(&summary.agent_id));
 
         let error = step.and_then(|s| {
-            if s.outcome == "failed" {
+            if s.outcome == StepOutcomeKind::Failed {
                 s.detail.clone()
             } else {
                 None
@@ -384,16 +384,15 @@ pub(super) fn compute_agent_summaries(
             }
 
             // Determine exit reason from step outcome
-            let exit_reason = match step.outcome.as_str() {
-                "completed" => Some("completed".to_string()),
-                "waiting" => Some("idle".to_string()),
-                "failed" => step
+            let exit_reason = match step.outcome {
+                StepOutcomeKind::Completed => Some("completed".to_string()),
+                StepOutcomeKind::Waiting => Some("idle".to_string()),
+                StepOutcomeKind::Failed => step
                     .detail
                     .as_ref()
                     .map(|d| format!("failed: {}", d))
                     .or(Some("failed".to_string())),
-                "running" => None,
-                _ => None,
+                StepOutcomeKind::Running => None,
             };
 
             // Check for "session gone" in log
@@ -411,7 +410,7 @@ pub(super) fn compute_agent_summaries(
                 agent_id: agent_id.clone(),
                 agent_name: step.agent_name.clone(),
                 namespace: namespace.map(|s| s.to_string()),
-                status: step.outcome.clone(),
+                status: step.outcome.to_string(),
                 files_read,
                 files_written,
                 commands_run,

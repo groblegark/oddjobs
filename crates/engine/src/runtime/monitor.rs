@@ -7,13 +7,14 @@ use super::Runtime;
 use crate::decision_builder::{EscalationDecisionBuilder, EscalationTrigger};
 use crate::error::RuntimeError;
 use crate::monitor::{self, ActionEffects, MonitorState};
+use crate::ActionContext;
 use oj_adapters::agent::find_session_log;
 use oj_adapters::subprocess::{run_with_timeout, GATE_TIMEOUT};
 use oj_adapters::AgentReconnectConfig;
 use oj_adapters::{AgentAdapter, NotifyAdapter, SessionAdapter};
 use oj_core::{
-    AgentId, AgentSignalKind, Clock, Effect, Event, Job, JobId, OwnerId, PromptType, QuestionData,
-    SessionId, TimerId,
+    AgentId, AgentSignalKind, Clock, Effect, Event, Job, JobId, OwnerId, PromptType, SessionId,
+    TimerId,
 };
 use std::collections::HashMap;
 
@@ -109,7 +110,7 @@ where
             .ok_or_else(|| RuntimeError::AgentNotFound(agent_name.to_string()))?;
         let execution_dir = self.execution_dir(&job);
 
-        let ctx = crate::spawn::SpawnContext::from_job(&job, job_id);
+        let ctx = crate::spawn::SpawnCtx::from_job(&job, job_id);
         let mut effects = crate::spawn::build_spawn_effects(
             agent_def,
             &ctx,
@@ -178,6 +179,27 @@ where
         agent_def: &oj_runbook::AgentDef,
         state: MonitorState,
     ) -> Result<Vec<Event>, RuntimeError> {
+        // Fetch assistant context: from MonitorState for prompts, from executor for other states
+        let assistant_context: Option<String> = match &state {
+            MonitorState::Prompting {
+                assistant_context, ..
+            } => assistant_context.clone(),
+            MonitorState::Working => None,
+            _ => {
+                // For idle, exited, gone, failed: fetch from agent adapter
+                let agent_id = job
+                    .step_history
+                    .iter()
+                    .rfind(|r| r.name == job.step)
+                    .and_then(|r| r.agent_id.as_ref())
+                    .map(AgentId::new);
+                match agent_id {
+                    Some(aid) => self.executor.get_last_assistant_message(&aid).await,
+                    None => None,
+                }
+            }
+        };
+
         let (action_config, trigger, qd) = match state {
             MonitorState::Working => {
                 // Cancel idle grace timer — agent is working
@@ -248,6 +270,7 @@ where
             MonitorState::Prompting {
                 ref prompt_type,
                 ref question_data,
+                ..
             } => {
                 tracing::info!(
                     job_id = %job.id,
@@ -284,7 +307,17 @@ where
                 }
                 let error_action = agent_def.on_error.action_for(error_type.as_ref());
                 return self
-                    .execute_action_with_attempts(job, agent_def, &error_action, message, 0, None)
+                    .execute_action_with_attempts(
+                        job,
+                        &ActionContext {
+                            agent_def,
+                            action_config: &error_action,
+                            trigger: message,
+                            chain_pos: 0,
+                            question_data: None,
+                            assistant_context: assistant_context.as_deref(),
+                        },
+                    )
                     .await;
             }
             MonitorState::Exited => {
@@ -305,21 +338,27 @@ where
             }
         };
 
-        self.execute_action_with_attempts(job, agent_def, action_config, trigger, 0, qd.as_ref())
-            .await
+        self.execute_action_with_attempts(
+            job,
+            &ActionContext {
+                agent_def,
+                action_config,
+                trigger,
+                chain_pos: 0,
+                question_data: qd.as_ref(),
+                assistant_context: assistant_context.as_deref(),
+            },
+        )
+        .await
     }
 
     /// Execute an action with attempt tracking and cooldown support
     pub(crate) async fn execute_action_with_attempts(
         &self,
         job: &Job,
-        agent_def: &oj_runbook::AgentDef,
-        action_config: &oj_runbook::ActionConfig,
-        trigger: &str,
-        chain_pos: usize,
-        question_data: Option<&QuestionData>,
+        ctx: &ActionContext<'_>,
     ) -> Result<Vec<Event>, RuntimeError> {
-        let attempts = action_config.attempts();
+        let attempts = ctx.action_config.attempts();
         let job_id = JobId::new(&job.id);
 
         // Increment attempt count and get new value
@@ -327,14 +366,14 @@ where
             state
                 .jobs
                 .get_mut(job_id.as_str())
-                .map(|p| p.increment_action_attempt(trigger, chain_pos))
+                .map(|p| p.increment_action_attempt(ctx.trigger, ctx.chain_pos))
                 .unwrap_or(1)
         });
 
         tracing::debug!(
             job_id = %job.id,
-            trigger,
-            chain_pos,
+            trigger = ctx.trigger,
+            chain_pos = ctx.chain_pos,
             attempt_num,
             max_attempts = ?attempts,
             "checking action attempts"
@@ -344,29 +383,30 @@ where
         if attempts.is_exhausted(attempt_num - 1) {
             tracing::info!(
                 job_id = %job.id,
-                trigger,
+                trigger = ctx.trigger,
                 attempts = attempt_num - 1,
                 "attempts exhausted, escalating"
             );
             self.logger.append(
                 &job.id,
                 &job.step,
-                &format!("{} attempts exhausted, escalating", trigger),
+                &format!("{} attempts exhausted, escalating", ctx.trigger),
             );
             // Escalate
             let escalate_config =
                 oj_runbook::ActionConfig::simple(oj_runbook::AgentAction::Escalate);
+            let exhausted_trigger = format!("{}_exhausted", ctx.trigger);
             return self
                 .execute_action_effects(
                     job,
-                    agent_def,
+                    ctx.agent_def,
                     monitor::build_action_effects(
+                        &ActionContext {
+                            action_config: &escalate_config,
+                            trigger: &exhausted_trigger,
+                            ..*ctx
+                        },
                         job,
-                        agent_def,
-                        &escalate_config,
-                        &format!("{}_exhausted", trigger),
-                        &job.vars,
-                        question_data,
                     )?,
                 )
                 .await;
@@ -374,18 +414,18 @@ where
 
         // Check if cooldown needed (not first attempt, cooldown configured)
         if attempt_num > 1 {
-            if let Some(cooldown_str) = action_config.cooldown() {
+            if let Some(cooldown_str) = ctx.action_config.cooldown() {
                 let duration = monitor::parse_duration(cooldown_str).map_err(|e| {
                     RuntimeError::InvalidRequest(format!(
                         "invalid cooldown '{}': {}",
                         cooldown_str, e
                     ))
                 })?;
-                let timer_id = TimerId::cooldown(&job_id, trigger, chain_pos);
+                let timer_id = TimerId::cooldown(&job_id, ctx.trigger, ctx.chain_pos);
 
                 tracing::info!(
                     job_id = %job.id,
-                    trigger,
+                    trigger = ctx.trigger,
                     attempt = attempt_num,
                     cooldown = ?duration,
                     "scheduling cooldown before retry"
@@ -395,7 +435,7 @@ where
                     &job.step,
                     &format!(
                         "{} attempt {} cooldown {:?}",
-                        trigger, attempt_num, duration
+                        ctx.trigger, attempt_num, duration
                     ),
                 );
 
@@ -412,19 +452,8 @@ where
         }
 
         // Execute the action
-        self.execute_action_effects(
-            job,
-            agent_def,
-            monitor::build_action_effects(
-                job,
-                agent_def,
-                action_config,
-                trigger,
-                &job.vars,
-                question_data,
-            )?,
-        )
-        .await
+        self.execute_action_effects(job, ctx.agent_def, monitor::build_action_effects(ctx, job)?)
+            .await
     }
 
     /// Run a shell gate command for the `gate` on_dead action.
@@ -841,64 +870,5 @@ fn parse_gate_error(error: &str) -> (i32, String) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::parse_gate_error;
-
-    #[test]
-    fn parse_gate_error_with_exit_code_no_stderr() {
-        let (code, stderr) = parse_gate_error("gate `make test` failed (exit 1)");
-        assert_eq!(code, 1);
-        assert_eq!(stderr, "");
-    }
-
-    #[test]
-    fn parse_gate_error_with_exit_code_and_stderr() {
-        let (code, stderr) =
-            parse_gate_error("gate `make test` failed (exit 2): compilation error");
-        assert_eq!(code, 2);
-        assert_eq!(stderr, "compilation error");
-    }
-
-    #[test]
-    fn parse_gate_error_execution_error() {
-        let (code, stderr) = parse_gate_error("gate `make test` execution error: not found");
-        // No "(exit N)" pattern, falls back
-        assert_eq!(code, 1);
-        assert_eq!(stderr, "gate `make test` execution error: not found");
-    }
-
-    #[test]
-    fn parse_gate_error_exit_code_zero() {
-        let (code, stderr) = parse_gate_error("gate `true` failed (exit 0)");
-        assert_eq!(code, 0);
-        assert_eq!(stderr, "");
-    }
-
-    #[test]
-    fn parse_gate_error_high_exit_code() {
-        let (code, stderr) = parse_gate_error("gate `cmd` failed (exit 127)");
-        assert_eq!(code, 127);
-        assert_eq!(stderr, "");
-    }
-
-    #[test]
-    fn parse_gate_error_multiline_stderr() {
-        let (code, stderr) = parse_gate_error("gate `cmd` failed (exit 1): line1\nline2\nline3");
-        assert_eq!(code, 1);
-        assert_eq!(stderr, "line1\nline2\nline3");
-    }
-
-    #[test]
-    fn parse_gate_error_no_pattern_match() {
-        let (code, stderr) = parse_gate_error("some random error message");
-        assert_eq!(code, 1);
-        assert_eq!(stderr, "some random error message");
-    }
-
-    #[test]
-    fn parse_gate_error_negative_exit_code() {
-        // The parser uses i32::parse, so negative codes are parsed correctly
-        let (code, _stderr) = parse_gate_error("gate `cmd` failed (exit -1)");
-        assert_eq!(code, -1);
-    }
-}
+#[path = "monitor_tests.rs"]
+mod tests;

@@ -6,24 +6,19 @@
 //! Checks persisted state against actual tmux sessions and reconnects
 //! monitoring or triggers appropriate exit handling for each entity.
 
-use oj_adapters::{SessionAdapter, TmuxAdapter, TracedSession};
+use oj_adapters::SessionAdapter;
 use oj_core::{AgentId, AgentRunId, AgentRunStatus, Event, JobId, OwnerId, SessionId};
-use oj_storage::MaterializedState;
-use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use super::DaemonRuntime;
+use super::ReconcileCtx;
 
 /// Reconcile sessions with actual tmux state after daemon restart.
 ///
 /// Cleans up orphaned sessions whose jobs are terminal or missing from state.
 /// This prevents stale sessions from accumulating across daemon restarts.
-async fn reconcile_sessions(
-    state: &MaterializedState,
-    _sessions: &TracedSession<TmuxAdapter>,
-    event_tx: &mpsc::Sender<Event>,
-) {
-    let sessions_to_check: Vec<_> = state
+async fn reconcile_sessions(ctx: &ReconcileCtx) {
+    let sessions_to_check: Vec<_> = ctx
+        .state_snapshot
         .sessions
         .values()
         .map(|s| (s.id.clone(), s.job_id.clone()))
@@ -33,6 +28,7 @@ async fn reconcile_sessions(
         return;
     }
 
+    let state = &ctx.state_snapshot;
     let mut orphaned = 0;
     for (session_id, job_id) in sessions_to_check {
         // Check if the associated job is terminal or missing
@@ -58,7 +54,8 @@ async fn reconcile_sessions(
                 .await;
 
             // Emit SessionDeleted to clean up state
-            let _ = event_tx
+            let _ = ctx
+                .event_tx
                 .send(Event::SessionDeleted {
                     id: SessionId::new(&session_id),
                 })
@@ -79,14 +76,11 @@ async fn reconcile_sessions(
 /// For each non-terminal job, checks whether its tmux session and agent
 /// process are still alive, then either reconnects monitoring or triggers
 /// appropriate exit handling through the event channel.
-pub(crate) async fn reconcile_state(
-    runtime: &DaemonRuntime,
-    state: &MaterializedState,
-    sessions: &TracedSession<TmuxAdapter>,
-    event_tx: &mpsc::Sender<Event>,
-) {
+pub(crate) async fn reconcile_state(ctx: &ReconcileCtx) {
     // Reconcile sessions: clean up orphaned sessions whose jobs are terminal or missing
-    reconcile_sessions(state, sessions, event_tx).await;
+    reconcile_sessions(ctx).await;
+
+    let state = &ctx.state_snapshot;
 
     // Resume workers that were running before the daemon restarted.
     // Re-emitting WorkerStarted recreates the in-memory WorkerState and
@@ -107,7 +101,8 @@ pub(crate) async fn reconcile_state(
             namespace = %worker.namespace,
             "resuming worker after daemon restart"
         );
-        let _ = event_tx
+        let _ = ctx
+            .event_tx
             .send(Event::WorkerStarted {
                 worker_name: worker.name.clone(),
                 project_root: worker.project_root.clone(),
@@ -136,7 +131,8 @@ pub(crate) async fn reconcile_state(
             namespace = %cron.namespace,
             "resuming cron after daemon restart"
         );
-        let _ = event_tx
+        let _ = ctx
+            .event_tx
             .send(Event::CronStarted {
                 cron_name: cron.name.clone(),
                 project_root: cron.project_root.clone(),
@@ -165,7 +161,8 @@ pub(crate) async fn reconcile_state(
     for agent_run in &non_terminal_runs {
         let Some(ref session_id) = agent_run.session_id else {
             warn!(agent_run_id = %agent_run.id, "no session_id, marking failed");
-            let _ = event_tx
+            let _ = ctx
+                .event_tx
                 .send(Event::AgentRunStatusChanged {
                     id: AgentRunId::new(&agent_run.id),
                     status: AgentRunStatus::Failed,
@@ -181,7 +178,8 @@ pub(crate) async fn reconcile_state(
         // the handler verifies agent_id matches.
         let Some(ref agent_id_str) = agent_run.agent_id else {
             warn!(agent_run_id = %agent_run.id, "no agent_id, marking failed");
-            let _ = event_tx
+            let _ = ctx
+                .event_tx
                 .send(Event::AgentRunStatusChanged {
                     id: AgentRunId::new(&agent_run.id),
                     status: AgentRunStatus::Failed,
@@ -191,11 +189,16 @@ pub(crate) async fn reconcile_state(
             continue;
         };
 
-        let is_alive = sessions.is_alive(session_id).await.unwrap_or(false);
+        let is_alive = ctx
+            .session_adapter
+            .is_alive(session_id)
+            .await
+            .unwrap_or(false);
 
         if is_alive {
             let process_name = "claude";
-            let is_running = sessions
+            let is_running = ctx
+                .session_adapter
                 .is_process_running(session_id, process_name)
                 .await
                 .unwrap_or(false);
@@ -206,13 +209,14 @@ pub(crate) async fn reconcile_state(
                     session_id,
                     "recovering: standalone agent still running, reconnecting watcher"
                 );
-                if let Err(e) = runtime.recover_standalone_agent(agent_run).await {
+                if let Err(e) = ctx.runtime.recover_standalone_agent(agent_run).await {
                     warn!(
                         agent_run_id = %agent_run.id,
                         error = %e,
                         "failed to recover standalone agent, marking failed"
                     );
-                    let _ = event_tx
+                    let _ = ctx
+                        .event_tx
                         .send(Event::AgentRunStatusChanged {
                             id: AgentRunId::new(&agent_run.id),
                             status: AgentRunStatus::Failed,
@@ -228,8 +232,10 @@ pub(crate) async fn reconcile_state(
                 );
                 let agent_id = AgentId::new(agent_id_str);
                 let agent_run_id = AgentRunId::new(&agent_run.id);
-                runtime.register_agent(agent_id.clone(), OwnerId::agent_run(agent_run_id.clone()));
-                let _ = event_tx
+                ctx.runtime
+                    .register_agent(agent_id.clone(), OwnerId::agent_run(agent_run_id.clone()));
+                let _ = ctx
+                    .event_tx
                     .send(Event::AgentExited {
                         agent_id,
                         exit_code: None,
@@ -245,8 +251,10 @@ pub(crate) async fn reconcile_state(
             );
             let agent_id = AgentId::new(agent_id_str);
             let agent_run_id = AgentRunId::new(&agent_run.id);
-            runtime.register_agent(agent_id.clone(), OwnerId::agent_run(agent_run_id.clone()));
-            let _ = event_tx
+            ctx.runtime
+                .register_agent(agent_id.clone(), OwnerId::agent_run(agent_run_id.clone()));
+            let _ = ctx
+                .event_tx
                 .send(Event::AgentGone {
                     agent_id,
                     owner: OwnerId::agent_run(agent_run_id),
@@ -276,7 +284,14 @@ pub(crate) async fn reconcile_state(
 
         // Determine the tmux session ID
         let Some(session_id) = &job.session_id else {
-            warn!(job_id = %job.id, "no session_id, skipping");
+            warn!(job_id = %job.id, "no session_id, marking failed");
+            let _ = ctx
+                .event_tx
+                .send(Event::JobAdvanced {
+                    id: JobId::new(job.id.clone()),
+                    step: "failed".to_string(),
+                })
+                .await;
             continue;
         };
 
@@ -290,10 +305,15 @@ pub(crate) async fn reconcile_state(
             .and_then(|r| r.agent_id.clone());
 
         // Check tmux session liveness
-        let is_alive = sessions.is_alive(session_id).await.unwrap_or(false);
+        let is_alive = ctx
+            .session_adapter
+            .is_alive(session_id)
+            .await
+            .unwrap_or(false);
 
         if is_alive {
-            let is_running = sessions
+            let is_running = ctx
+                .session_adapter
                 .is_process_running(session_id, "claude")
                 .await
                 .unwrap_or(false);
@@ -305,7 +325,7 @@ pub(crate) async fn reconcile_state(
                     session_id,
                     "recovering: agent still running, reconnecting watcher"
                 );
-                if let Err(e) = runtime.recover_agent(job).await {
+                if let Err(e) = ctx.runtime.recover_agent(job).await {
                     warn!(
                         job_id = %job.id,
                         error = %e,
@@ -318,7 +338,8 @@ pub(crate) async fn reconcile_state(
                         .unwrap_or_else(|| format!("{}-{}", job.id, job.step));
                     let agent_id = AgentId::new(aid);
                     let job_id = JobId::new(job.id.clone());
-                    let _ = event_tx
+                    let _ = ctx
+                        .event_tx
                         .send(Event::AgentGone {
                             agent_id,
                             owner: OwnerId::job(job_id),
@@ -330,8 +351,15 @@ pub(crate) async fn reconcile_state(
                 let Some(ref aid) = agent_id_str else {
                     warn!(
                         job_id = %job.id,
-                        "no agent_id in step_history, cannot route exit event"
+                        "no agent_id in step_history, marking failed"
                     );
+                    let _ = ctx
+                        .event_tx
+                        .send(Event::JobAdvanced {
+                            id: JobId::new(job.id.clone()),
+                            step: "failed".to_string(),
+                        })
+                        .await;
                     continue;
                 };
                 info!(
@@ -342,8 +370,10 @@ pub(crate) async fn reconcile_state(
                 let agent_id = AgentId::new(aid);
                 let job_id = JobId::new(job.id.to_string());
                 // Register mapping so handle_agent_state_changed can find it
-                runtime.register_agent(agent_id.clone(), OwnerId::job(job_id.clone()));
-                let _ = event_tx
+                ctx.runtime
+                    .register_agent(agent_id.clone(), OwnerId::job(job_id.clone()));
+                let _ = ctx
+                    .event_tx
                     .send(Event::AgentExited {
                         agent_id,
                         exit_code: None,
@@ -356,8 +386,15 @@ pub(crate) async fn reconcile_state(
             let Some(ref aid) = agent_id_str else {
                 warn!(
                     job_id = %job.id,
-                    "no agent_id in step_history, cannot route gone event"
+                    "no agent_id in step_history, marking failed"
                 );
+                let _ = ctx
+                    .event_tx
+                    .send(Event::JobAdvanced {
+                        id: JobId::new(job.id.clone()),
+                        step: "failed".to_string(),
+                    })
+                    .await;
                 continue;
             };
             info!(
@@ -367,8 +404,10 @@ pub(crate) async fn reconcile_state(
             );
             let agent_id = AgentId::new(aid);
             let job_id = JobId::new(job.id.clone());
-            runtime.register_agent(agent_id.clone(), OwnerId::job(job_id.clone()));
-            let _ = event_tx
+            ctx.runtime
+                .register_agent(agent_id.clone(), OwnerId::job(job_id.clone()));
+            let _ = ctx
+                .event_tx
                 .send(Event::AgentGone {
                     agent_id,
                     owner: OwnerId::job(job_id),

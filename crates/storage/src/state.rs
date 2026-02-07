@@ -116,6 +116,18 @@ pub enum QueueItemStatus {
     Dead,
 }
 
+impl std::fmt::Display for QueueItemStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueueItemStatus::Pending => write!(f, "pending"),
+            QueueItemStatus::Active => write!(f, "active"),
+            QueueItemStatus::Completed => write!(f, "completed"),
+            QueueItemStatus::Failed => write!(f, "failed"),
+            QueueItemStatus::Dead => write!(f, "dead"),
+        }
+    }
+}
+
 /// A single item in a persisted queue
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueItem {
@@ -303,14 +315,16 @@ impl MaterializedState {
                 owner,
                 ..
             } => {
-                // Route by owner
+                // Route by owner (skip if job already reached a terminal step)
                 if let OwnerId::Job(job_id) = owner {
                     if let Some(job) = self.jobs.get_mut(job_id.as_str()) {
-                        if *exit_code == Some(0) {
-                            job.step_status = StepStatus::Completed;
-                        } else {
-                            job.step_status = StepStatus::Failed;
-                            job.error = Some(format!("exit code: {:?}", exit_code));
+                        if !job.is_terminal() {
+                            if *exit_code == Some(0) {
+                                job.step_status = StepStatus::Completed;
+                            } else {
+                                job.step_status = StepStatus::Failed;
+                                job.error = Some(format!("exit code: {:?}", exit_code));
+                            }
                         }
                     }
                 }
@@ -326,11 +340,13 @@ impl MaterializedState {
                 owner,
                 ..
             } => {
-                // Route by owner
+                // Route by owner (skip if job already reached a terminal step)
                 if let OwnerId::Job(job_id) = owner {
                     if let Some(job) = self.jobs.get_mut(job_id.as_str()) {
-                        job.step_status = StepStatus::Failed;
-                        job.error = Some(error.to_string());
+                        if !job.is_terminal() {
+                            job.step_status = StepStatus::Failed;
+                            job.error = Some(error.to_string());
+                        }
                     }
                 }
                 // Update unified agent record
@@ -342,11 +358,15 @@ impl MaterializedState {
             Event::AgentGone {
                 agent_id, owner, ..
             } => {
-                // Route by owner
+                // Route by owner (skip if job already reached a terminal step —
+                // the tmux session often closes after the job has already
+                // advanced through remaining shell steps to "done")
                 if let OwnerId::Job(job_id) = owner {
                     if let Some(job) = self.jobs.get_mut(job_id.as_str()) {
-                        job.step_status = StepStatus::Failed;
-                        job.error = Some("session terminated unexpectedly".to_string());
+                        if !job.is_terminal() {
+                            job.step_status = StepStatus::Failed;
+                            job.error = Some("session terminated unexpectedly".to_string());
+                        }
                     }
                 }
                 // Update unified agent record
@@ -386,17 +406,17 @@ impl MaterializedState {
                 namespace,
                 cron_name,
             } => {
-                let config = JobConfig {
-                    id: id.to_string(),
-                    name: name.clone(),
-                    kind: kind.clone(),
-                    vars: vars.clone(),
-                    runbook_hash: runbook_hash.clone(),
-                    cwd: cwd.clone(),
-                    initial_step: initial_step.clone(),
-                    namespace: namespace.clone(),
-                    cron_name: cron_name.clone(),
-                };
+                let mut builder =
+                    JobConfig::builder(id.to_string(), kind.clone(), initial_step.clone())
+                        .name(name.clone())
+                        .vars(vars.clone())
+                        .runbook_hash(runbook_hash.clone())
+                        .cwd(cwd.clone())
+                        .namespace(namespace.clone());
+                if let Some(cn) = cron_name {
+                    builder = builder.cron_name(cn.clone());
+                }
+                let config = builder.build();
                 let job = Job::new_with_epoch_ms(config, *created_at_epoch_ms);
                 self.jobs.insert(id.to_string(), job);
             }
@@ -994,10 +1014,19 @@ impl MaterializedState {
             } => {
                 // Idempotency: skip if already exists
                 if !self.decisions.contains_key(id) {
+                    // Auto-dismiss previous unresolved decisions for the same owner
+                    let new_decision_id = DecisionId::new(id.clone());
+                    for existing in self.decisions.values_mut() {
+                        if existing.owner == *owner && !existing.is_resolved() {
+                            existing.resolved_at_ms = Some(*created_at_ms);
+                            existing.superseded_by = Some(new_decision_id.clone());
+                        }
+                    }
+
                     self.decisions.insert(
                         id.clone(),
                         Decision {
-                            id: DecisionId::new(id.clone()),
+                            id: new_decision_id,
                             job_id: job_id.to_string(),
                             agent_id: agent_id.clone(),
                             owner: owner.clone(),
@@ -1008,6 +1037,7 @@ impl MaterializedState {
                             message: None,
                             created_at_ms: *created_at_ms,
                             resolved_at_ms: None,
+                            superseded_by: None,
                             namespace: namespace.clone(),
                         },
                     );

@@ -15,6 +15,16 @@ use oj_runbook::{ActionConfig, AgentAction, AgentDef, ErrorType, RunDirective, R
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// Bundled parameters for action execution (on_idle, on_dead, etc.).
+pub(crate) struct ActionContext<'a> {
+    pub agent_def: &'a AgentDef,
+    pub action_config: &'a ActionConfig,
+    pub trigger: &'a str,
+    pub chain_pos: usize,
+    pub question_data: Option<&'a QuestionData>,
+    pub assistant_context: Option<&'a str>,
+}
+
 /// Parse a duration string like "30s", "5m", "1h" into a Duration
 pub fn parse_duration(s: &str) -> Result<Duration, String> {
     let s = s.trim();
@@ -62,6 +72,7 @@ pub enum MonitorState {
     Prompting {
         prompt_type: PromptType,
         question_data: Option<QuestionData>,
+        assistant_context: Option<String>,
     },
     /// Agent encountered an error
     Failed {
@@ -129,20 +140,17 @@ pub fn get_agent_def<'a>(runbook: &'a Runbook, job: &Job) -> Result<&'a AgentDef
 
 /// Build effects for an agent action (nudge, recover, escalate, etc.)
 pub fn build_action_effects(
+    ctx: &ActionContext<'_>,
     job: &Job,
-    agent_def: &AgentDef,
-    action_config: &ActionConfig,
-    trigger: &str,
-    input: &HashMap<String, String>,
-    question_data: Option<&QuestionData>,
 ) -> Result<ActionEffects, RuntimeError> {
-    let action = action_config.action();
-    let message = action_config.message();
+    let action = ctx.action_config.action();
+    let message = ctx.action_config.message();
+    let input = &job.vars;
     let job_id = JobId::new(&job.id);
 
     tracing::info!(
         job_id = %job.id,
-        trigger = trigger,
+        trigger = ctx.trigger,
         action = ?action,
         "building agent action effects"
     );
@@ -166,17 +174,17 @@ pub fn build_action_effects(
         AgentAction::Done => Ok(ActionEffects::AdvanceJob),
 
         AgentAction::Fail => Ok(ActionEffects::FailJob {
-            error: trigger.to_string(),
+            error: ctx.trigger.to_string(),
         }),
 
         AgentAction::Resume => {
             // Build modified input for re-spawn
             let mut new_inputs = input.clone();
             // Determine whether to use --resume: yes when no message or append mode
-            let use_resume = message.is_none() || action_config.append();
+            let use_resume = message.is_none() || ctx.action_config.append();
 
             if let Some(msg) = message {
-                if action_config.append() && use_resume {
+                if ctx.action_config.append() && use_resume {
                     // Message will be passed as argument to --resume
                     new_inputs.insert("resume_message".to_string(), msg.to_string());
                 } else {
@@ -194,7 +202,7 @@ pub fn build_action_effects(
 
             Ok(ActionEffects::Resume {
                 kill_session: job.session_id.clone(),
-                agent_name: agent_def.name.clone(),
+                agent_name: ctx.agent_def.name.clone(),
                 input: new_inputs,
                 resume_session_id: if use_resume { resume_session_id } else { None },
             })
@@ -203,44 +211,60 @@ pub fn build_action_effects(
         AgentAction::Escalate => {
             tracing::warn!(
                 job_id = %job.id,
-                trigger = trigger,
+                trigger = ctx.trigger,
                 message = ?message,
                 "escalating to human — creating decision"
             );
 
+            let ac = ctx.assistant_context.map(|s| s.to_string());
             // Determine escalation trigger type from the trigger string
-            let escalation_trigger = match trigger {
-                "idle" | "on_idle" => EscalationTrigger::Idle,
-                "dead" | "on_dead" | "exit" | "exited" => {
-                    EscalationTrigger::Dead { exit_code: None }
-                }
+            let escalation_trigger = match ctx.trigger {
+                "idle" | "on_idle" => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                },
+                "dead" | "on_dead" | "exit" | "exited" => EscalationTrigger::Dead {
+                    exit_code: None,
+                    assistant_context: ac,
+                },
                 "error" | "on_error" => EscalationTrigger::Error {
                     error_type: "unknown".to_string(),
                     message: message.unwrap_or("").to_string(),
+                    assistant_context: ac,
                 },
                 "prompt:question" => EscalationTrigger::Question {
-                    question_data: question_data.cloned(),
+                    question_data: ctx.question_data.cloned(),
+                    assistant_context: ac,
                 },
                 "prompt" | "on_prompt" => EscalationTrigger::Prompt {
                     prompt_type: "permission".to_string(),
+                    assistant_context: ac,
                 },
                 t if t.ends_with("_exhausted") => {
                     // Handle "idle_exhausted", "error_exhausted",
                     // "prompt:question_exhausted" etc.
                     let base = t.trim_end_matches("_exhausted");
                     match base {
-                        "idle" => EscalationTrigger::Idle,
+                        "idle" => EscalationTrigger::Idle {
+                            assistant_context: ac,
+                        },
                         "prompt:question" => EscalationTrigger::Question {
-                            question_data: question_data.cloned(),
+                            question_data: ctx.question_data.cloned(),
+                            assistant_context: ac,
                         },
                         "error" => EscalationTrigger::Error {
                             error_type: "exhausted".to_string(),
                             message: message.unwrap_or("").to_string(),
+                            assistant_context: ac,
                         },
-                        _ => EscalationTrigger::Dead { exit_code: None },
+                        _ => EscalationTrigger::Dead {
+                            exit_code: None,
+                            assistant_context: ac,
+                        },
                     }
                 }
-                _ => EscalationTrigger::Idle, // fallback
+                _ => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                }, // fallback
             };
 
             let (_decision_id, decision_event) = EscalationDecisionBuilder::for_job(
@@ -260,7 +284,7 @@ pub fn build_action_effects(
                 // Desktop notification on decision created
                 Effect::Notify {
                     title: format!("Decision needed: {}", job.name),
-                    message: format!("Job requires attention ({})", trigger),
+                    message: format!("Job requires attention ({})", ctx.trigger),
                 },
                 // Cancel exit-deferred timer (agent may still be alive)
                 Effect::CancelTimer {
@@ -272,7 +296,8 @@ pub fn build_action_effects(
         }
 
         AgentAction::Gate => {
-            let command = action_config
+            let command = ctx
+                .action_config
                 .run()
                 .ok_or_else(|| RuntimeError::InvalidRunDirective {
                     context: format!("job {}", job.id),
@@ -287,20 +312,17 @@ pub fn build_action_effects(
 
 /// Build effects for an agent action on a standalone agent run.
 pub fn build_action_effects_for_agent_run(
+    ctx: &ActionContext<'_>,
     agent_run: &oj_core::AgentRun,
-    agent_def: &AgentDef,
-    action_config: &ActionConfig,
-    trigger: &str,
-    input: &HashMap<String, String>,
-    _question_data: Option<&QuestionData>,
 ) -> Result<ActionEffects, RuntimeError> {
-    let action = action_config.action();
-    let message = action_config.message();
+    let action = ctx.action_config.action();
+    let message = ctx.action_config.message();
+    let input = &agent_run.vars;
     let agent_run_id = oj_core::AgentRunId::new(&agent_run.id);
 
     tracing::info!(
         agent_run_id = %agent_run.id,
-        trigger = trigger,
+        trigger = ctx.trigger,
         action = ?action,
         "building agent run action effects"
     );
@@ -324,15 +346,15 @@ pub fn build_action_effects_for_agent_run(
         AgentAction::Done => Ok(ActionEffects::CompleteAgentRun),
 
         AgentAction::Fail => Ok(ActionEffects::FailAgentRun {
-            error: trigger.to_string(),
+            error: ctx.trigger.to_string(),
         }),
 
         AgentAction::Resume => {
             let mut new_inputs = input.clone();
-            let use_resume = message.is_none() || action_config.append();
+            let use_resume = message.is_none() || ctx.action_config.append();
 
             if let Some(msg) = message {
-                if action_config.append() && use_resume {
+                if ctx.action_config.append() && use_resume {
                     new_inputs.insert("resume_message".to_string(), msg.to_string());
                 } else {
                     new_inputs.insert("prompt".to_string(), msg.to_string());
@@ -344,7 +366,7 @@ pub fn build_action_effects_for_agent_run(
 
             Ok(ActionEffects::Resume {
                 kill_session: agent_run.session_id.clone(),
-                agent_name: agent_def.name.clone(),
+                agent_name: ctx.agent_def.name.clone(),
                 input: new_inputs,
                 resume_session_id: if use_resume { resume_session_id } else { None },
             })
@@ -353,42 +375,58 @@ pub fn build_action_effects_for_agent_run(
         AgentAction::Escalate => {
             tracing::warn!(
                 agent_run_id = %agent_run.id,
-                trigger = trigger,
+                trigger = ctx.trigger,
                 message = ?message,
                 "escalating standalone agent to human — creating decision"
             );
 
+            let ac = ctx.assistant_context.map(|s| s.to_string());
             // Determine escalation trigger type from the trigger string
-            let escalation_trigger = match trigger {
-                "idle" | "on_idle" => EscalationTrigger::Idle,
-                "dead" | "on_dead" | "exit" | "exited" => {
-                    EscalationTrigger::Dead { exit_code: None }
-                }
+            let escalation_trigger = match ctx.trigger {
+                "idle" | "on_idle" => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                },
+                "dead" | "on_dead" | "exit" | "exited" => EscalationTrigger::Dead {
+                    exit_code: None,
+                    assistant_context: ac,
+                },
                 "error" | "on_error" => EscalationTrigger::Error {
                     error_type: "unknown".to_string(),
                     message: message.unwrap_or("").to_string(),
+                    assistant_context: ac,
                 },
                 "prompt:question" => EscalationTrigger::Question {
-                    question_data: _question_data.cloned(),
+                    question_data: ctx.question_data.cloned(),
+                    assistant_context: ac,
                 },
                 "prompt" | "on_prompt" => EscalationTrigger::Prompt {
                     prompt_type: "permission".to_string(),
+                    assistant_context: ac,
                 },
                 t if t.ends_with("_exhausted") => {
                     let base = t.trim_end_matches("_exhausted");
                     match base {
-                        "idle" => EscalationTrigger::Idle,
+                        "idle" => EscalationTrigger::Idle {
+                            assistant_context: ac,
+                        },
                         "prompt:question" => EscalationTrigger::Question {
-                            question_data: _question_data.cloned(),
+                            question_data: ctx.question_data.cloned(),
+                            assistant_context: ac,
                         },
                         "error" => EscalationTrigger::Error {
                             error_type: "exhausted".to_string(),
                             message: message.unwrap_or("").to_string(),
+                            assistant_context: ac,
                         },
-                        _ => EscalationTrigger::Dead { exit_code: None },
+                        _ => EscalationTrigger::Dead {
+                            exit_code: None,
+                            assistant_context: ac,
+                        },
                     }
                 }
-                _ => EscalationTrigger::Idle, // fallback
+                _ => EscalationTrigger::Idle {
+                    assistant_context: ac,
+                }, // fallback
             };
 
             let (_decision_id, decision_event) = EscalationDecisionBuilder::for_agent_run(
@@ -408,14 +446,14 @@ pub fn build_action_effects_for_agent_run(
                 // Desktop notification on decision created
                 Effect::Notify {
                     title: format!("Decision needed: {}", agent_run.command_name),
-                    message: format!("Agent requires attention ({})", trigger),
+                    message: format!("Agent requires attention ({})", ctx.trigger),
                 },
                 // Emit AgentRunStatusChanged to Escalated
                 Effect::Emit {
                     event: Event::AgentRunStatusChanged {
                         id: agent_run_id.clone(),
                         status: oj_core::AgentRunStatus::Escalated,
-                        reason: Some(trigger.to_string()),
+                        reason: Some(ctx.trigger.to_string()),
                     },
                 },
                 // Cancel exit-deferred timer (agent is still alive; liveness continues)
@@ -428,7 +466,8 @@ pub fn build_action_effects_for_agent_run(
         }
 
         AgentAction::Gate => {
-            let command = action_config
+            let command = ctx
+                .action_config
                 .run()
                 .ok_or_else(|| RuntimeError::InvalidRunDirective {
                     context: format!("agent_run {}", agent_run.id),

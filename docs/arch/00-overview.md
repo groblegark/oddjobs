@@ -95,7 +95,7 @@ enum Effect {
     Emit { event: Event },
     CreateWorkspace { workspace_id: WorkspaceId, path: PathBuf, ... },
     SetTimer { id: TimerId, duration: Duration },
-    Shell { job_id: JobId, command: String, ... },
+    Shell { owner: Option<OwnerId>, command: String, ... },
     Notify { title: String, message: String },
     // ... see 02-effects.md for full list
 }
@@ -111,6 +111,7 @@ External integrations go through trait abstractions with production and fake imp
 |-------|-----------|------|
 | `SessionAdapter` | `TmuxAdapter` | `FakeSessionAdapter` / `NoOpSessionAdapter` |
 | `AgentAdapter` | `ClaudeAgentAdapter` | `FakeAgentAdapter` |
+| `NotifyAdapter` | `DesktopNotifyAdapter` | `FakeNotifyAdapter` / `NoOpNotifyAdapter` |
 
 Production adapters are wrapped with `TracedSession`, `TracedAgent` decorators for observability.
 

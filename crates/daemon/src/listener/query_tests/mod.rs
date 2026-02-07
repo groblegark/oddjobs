@@ -19,9 +19,34 @@ use oj_storage::{CronRecord, MaterializedState, QueueItem, QueueItemStatus, Work
 
 use oj_engine::breadcrumb::{Breadcrumb, BreadcrumbAgent};
 
+use crate::listener::ListenCtx;
 use crate::protocol::{Query, Response};
 
-use super::handle_query;
+use super::handle_query as real_handle_query;
+
+/// Wrapper that constructs a ListenCtx from individual params for test convenience.
+fn handle_query(
+    query: Query,
+    state: &Arc<Mutex<MaterializedState>>,
+    orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
+    logs_path: &std::path::Path,
+    start_time: Instant,
+) -> Response {
+    let ctx = ListenCtx {
+        event_bus: {
+            let wal = oj_storage::Wal::open(&logs_path.join("__query_test.wal"), 0).unwrap();
+            let (bus, _reader) = crate::event_bus::EventBus::new(wal);
+            bus
+        },
+        state: Arc::clone(state),
+        orphans: Arc::clone(orphans),
+        metrics_health: Arc::new(Mutex::new(Default::default())),
+        logs_path: logs_path.to_path_buf(),
+        start_time,
+        shutdown: Arc::new(tokio::sync::Notify::new()),
+    };
+    real_handle_query(&ctx, query)
+}
 
 fn empty_state() -> Arc<Mutex<MaterializedState>> {
     Arc::new(Mutex::new(MaterializedState::default()))
@@ -41,38 +66,24 @@ fn make_job(
     agent_id: Option<&str>,
     started_at_ms: u64,
 ) -> Job {
-    Job {
-        id: id.to_string(),
-        name: name.to_string(),
-        kind: "command".to_string(),
-        namespace: namespace.to_string(),
-        step: step.to_string(),
-        step_status,
-        step_started_at: Instant::now(),
-        step_history: vec![StepRecord {
+    Job::builder()
+        .id(id)
+        .name(name)
+        .kind("command")
+        .namespace(namespace)
+        .step(step)
+        .step_status(step_status)
+        .runbook_hash("")
+        .cwd("")
+        .step_history(vec![StepRecord {
             name: step.to_string(),
             started_at_ms,
             finished_at_ms: None,
             outcome,
             agent_id: agent_id.map(|s| s.to_string()),
             agent_name: None,
-        }],
-        vars: HashMap::new(),
-        runbook_hash: String::new(),
-        cwd: std::path::PathBuf::new(),
-        workspace_id: None,
-        workspace_path: None,
-        session_id: None,
-        created_at: Instant::now(),
-        error: None,
-        action_tracker: Default::default(),
-        cancelling: false,
-        total_retries: 0,
-        step_visits: HashMap::new(),
-        cron_name: None,
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    }
+        }])
+        .build()
 }
 
 fn make_worker(name: &str, namespace: &str, queue: &str, active: usize) -> WorkerRecord {
@@ -149,6 +160,7 @@ fn make_decision(id: &str, job_id: &str, created_at_ms: u64) -> Decision {
         message: None,
         created_at_ms,
         resolved_at_ms: None,
+        superseded_by: None,
         namespace: "oddjobs".to_string(),
     }
 }

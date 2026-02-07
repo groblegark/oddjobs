@@ -17,4 +17,6 @@ tracing = "0.1"
 zstd.workspace = true
 
 [dev-dependencies]
+oj-core = { path = "../core", version = "0.1.0", features = ["test-support"] }
 tempfile.workspace = true
+yare.workspace = true

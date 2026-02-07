@@ -100,6 +100,7 @@ fn log_summary_agent_prompt() {
         agent_id: AgentId::new("a1"),
         prompt_type: PromptType::Permission,
         question_data: None,
+        assistant_context: None,
     };
     assert_eq!(
         event.log_summary(),

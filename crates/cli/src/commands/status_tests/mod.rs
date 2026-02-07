@@ -1,3 +1,4 @@
+use oj_core::StepStatusKind;
 use oj_daemon::NamespaceStatus;
 
 mod formatting;
@@ -30,7 +31,7 @@ pub(super) fn job_entry(id: &str, kind: &str, step: &str) -> oj_daemon::JobStatu
         name: id.to_string(),
         kind: kind.to_string(),
         step: step.to_string(),
-        step_status: "running".to_string(),
+        step_status: StepStatusKind::Running,
         elapsed_ms: 60_000,
         last_activity_ms: 0,
         waiting_reason: None,

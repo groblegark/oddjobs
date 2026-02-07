@@ -79,7 +79,7 @@ async fn handle_watch_frame(
         }
     };
 
-    let (uptime_secs, namespaces) = match client.status_overview().await {
+    let (uptime_secs, namespaces, metrics_health) = match client.status_overview().await {
         Ok(data) => data,
         Err(crate::client::ClientError::DaemonNotRunning) => {
             let content = format_not_running(format);
@@ -101,11 +101,17 @@ async fn handle_watch_frame(
 
     let namespaces = filter_namespaces(namespaces, project_filter);
     let content = match format {
-        OutputFormat::Text => format_text(uptime_secs, &namespaces, Some(interval)),
+        OutputFormat::Text => format_text(
+            uptime_secs,
+            &namespaces,
+            Some(interval),
+            metrics_health.as_ref(),
+        ),
         OutputFormat::Json => {
             let obj = serde_json::json!({
                 "uptime_secs": uptime_secs,
                 "namespaces": namespaces,
+                "metrics_health": metrics_health,
             });
             format!("{}\n", serde_json::to_string_pretty(&obj)?)
         }
@@ -151,7 +157,7 @@ async fn handle_once(
         }
     };
 
-    let (uptime_secs, namespaces) = match client.status_overview().await {
+    let (uptime_secs, namespaces, metrics_health) = match client.status_overview().await {
         Ok(data) => data,
         Err(crate::client::ClientError::DaemonNotRunning) => {
             return handle_not_running(format);
@@ -169,11 +175,20 @@ async fn handle_once(
 
     let namespaces = filter_namespaces(namespaces, project_filter);
     match format {
-        OutputFormat::Text => print!("{}", format_text(uptime_secs, &namespaces, watch_interval)),
+        OutputFormat::Text => print!(
+            "{}",
+            format_text(
+                uptime_secs,
+                &namespaces,
+                watch_interval,
+                metrics_health.as_ref()
+            )
+        ),
         OutputFormat::Json => {
             let obj = serde_json::json!({
                 "uptime_secs": uptime_secs,
                 "namespaces": namespaces,
+                "metrics_health": metrics_health,
             });
             println!("{}", serde_json::to_string_pretty(&obj)?);
         }
@@ -210,6 +225,7 @@ fn format_text(
     uptime_secs: u64,
     namespaces: &[oj_daemon::NamespaceStatus],
     watch_interval: Option<&str>,
+    metrics_health: Option<&oj_daemon::MetricsHealthSummary>,
 ) -> String {
     let mut out = String::new();
 
@@ -255,6 +271,27 @@ fn format_text(
                 "s"
             }
         );
+    }
+    // Metrics health summary
+    if let Some(mh) = metrics_health {
+        if let Some(ref err) = mh.last_error {
+            let short = if err.len() > 30 {
+                format!("{}...", &err[..27])
+            } else {
+                err.clone()
+            };
+            let _ = write!(out, " | metrics: {} ({})", color::status("error"), short);
+        } else if mh.sessions_tracked > 0 || !mh.ghost_sessions.is_empty() {
+            let _ = write!(out, " | metrics: {} sessions", mh.sessions_tracked);
+            if !mh.ghost_sessions.is_empty() {
+                let _ = write!(
+                    out,
+                    ", {} {}",
+                    mh.ghost_sessions.len(),
+                    color::yellow("ghost")
+                );
+            }
+        }
     }
     out.push('\n');
 
@@ -323,7 +360,7 @@ fn format_text(
                     id: p.id.short(8).to_string(),
                     name: friendly_name_label(&p.name, &p.kind, &p.id),
                     kind_step: format!("{}/{}", p.kind, p.step),
-                    status: p.step_status.clone(),
+                    status: p.step_status.to_string(),
                     suffix: format_duration_ms(p.elapsed_ms),
                     reason: None,
                 })
@@ -353,7 +390,7 @@ fn format_text(
                         id: p.id.short(8).to_string(),
                         name: friendly_name_label(&p.name, &p.kind, &p.id),
                         kind_step: format!("{}/{}", p.kind, p.step),
-                        status: p.step_status.clone(),
+                        status: p.step_status.to_string(),
                         suffix: format!("{}{}", source_label, elapsed),
                         reason: p.waiting_reason.clone(),
                     }

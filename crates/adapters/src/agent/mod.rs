@@ -26,7 +26,7 @@ pub mod log_entry;
 mod watcher;
 
 pub use claude::{extract_process_name, ClaudeAgentAdapter};
-pub use watcher::find_session_log;
+pub use watcher::{extract_last_assistant_text, find_session_log};
 
 /// Configuration for reconnecting to an existing agent session
 #[derive(Debug, Clone)]
@@ -95,6 +95,66 @@ pub struct AgentSpawnConfig {
     pub session_config: std::collections::HashMap<String, serde_json::Value>,
     /// Owner of this agent (job or agent_run)
     pub owner: OwnerId,
+}
+
+impl AgentSpawnConfig {
+    pub fn new(
+        agent_id: AgentId,
+        command: impl Into<String>,
+        workspace_path: PathBuf,
+        owner: OwnerId,
+    ) -> Self {
+        Self {
+            agent_id,
+            command: command.into(),
+            workspace_path: workspace_path.clone(),
+            owner,
+            agent_name: String::new(),
+            env: Vec::new(),
+            cwd: None,
+            prompt: String::new(),
+            job_name: String::new(),
+            job_id: String::new(),
+            project_root: workspace_path,
+            session_config: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn agent_name(mut self, v: impl Into<String>) -> Self {
+        self.agent_name = v.into();
+        self
+    }
+    pub fn prompt(mut self, v: impl Into<String>) -> Self {
+        self.prompt = v.into();
+        self
+    }
+    pub fn job_name(mut self, v: impl Into<String>) -> Self {
+        self.job_name = v.into();
+        self
+    }
+    pub fn job_id(mut self, v: impl Into<String>) -> Self {
+        self.job_id = v.into();
+        self
+    }
+    pub fn env(mut self, v: Vec<(String, String)>) -> Self {
+        self.env = v;
+        self
+    }
+    pub fn cwd(mut self, v: PathBuf) -> Self {
+        self.cwd = Some(v);
+        self
+    }
+    pub fn project_root(mut self, v: PathBuf) -> Self {
+        self.project_root = v;
+        self
+    }
+    pub fn session_config(
+        mut self,
+        v: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.session_config = v;
+        self
+    }
 }
 
 /// Handle to a running agent
@@ -166,6 +226,11 @@ pub trait AgentAdapter: Clone + Send + Sync + 'static {
     /// Returns `None` if the log file doesn't exist or can't be read.
     /// Used by the idle grace timer to detect activity during the grace period.
     async fn session_log_size(&self, agent_id: &AgentId) -> Option<u64>;
+
+    /// Extract the last assistant text message from the agent's session log.
+    ///
+    /// Used to provide context on decisions (idle, dead, prompt, question).
+    async fn last_assistant_message(&self, agent_id: &AgentId) -> Option<String>;
 }
 
 #[cfg(test)]

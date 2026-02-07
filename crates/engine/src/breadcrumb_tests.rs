@@ -7,17 +7,13 @@ use std::collections::HashMap;
 use tempfile::TempDir;
 
 fn test_job() -> Job {
-    let config = JobConfig {
-        id: "test-job-001".to_string(),
-        name: "test-job".to_string(),
-        kind: "deploy".to_string(),
-        vars: HashMap::from([("branch".to_string(), "main".to_string())]),
-        runbook_hash: "abc123".to_string(),
-        cwd: PathBuf::from("/tmp/test"),
-        initial_step: "build".to_string(),
-        namespace: "myproject".to_string(),
-        cron_name: None,
-    };
+    let config = JobConfig::builder("test-job-001", "deploy", "build")
+        .name("test-job")
+        .vars(HashMap::from([("branch".to_string(), "main".to_string())]))
+        .runbook_hash("abc123")
+        .cwd("/tmp/test")
+        .namespace("myproject")
+        .build();
     Job::new(config, &SystemClock)
 }
 

@@ -16,11 +16,25 @@ still running.
 This is not a resource leak (the orphaned task completes eventually), but
 it is wasted work and can compound under repeated retries.
 
+## Current State
+
+No cancellation or client-disconnect detection exists. Each connection is
+handled in a spawned tokio task with no awareness of client state.
+
+Individual subprocess calls within handlers *do* have timeouts via
+`run_with_timeout()` (e.g., `TMUX_TIMEOUT` 10s, `GIT_WORKTREE_TIMEOUT`
+60s), but there is no overall handler-level timeout or cancellation. A
+handler iterating over multiple subprocesses (e.g., pruning several
+workspaces) can exceed the 5-second IPC timeout while each individual
+subprocess stays within its own limit. `SessionPrune` is a notable gap —
+it calls `tmux kill-session` without any timeout wrapper.
+
 ## Current Impact
 
 Low. The scenario requires a handler that blocks for >5 seconds, which only
 happens with subprocess-calling handlers (`PeekSession`, `WorkspacePrune`,
-`AgentResume`). These are infrequently used and the orphaned tasks self-clean.
+`AgentResume`, `SessionPrune`). These are infrequently used and the
+orphaned tasks self-clean.
 
 ## When This Matters
 

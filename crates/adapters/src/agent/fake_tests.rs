@@ -3,28 +3,28 @@
 
 use super::*;
 use oj_core::JobId;
-use std::collections::HashMap;
 use std::path::PathBuf;
+
+fn test_spawn_config(agent_id: &str) -> AgentSpawnConfig {
+    AgentSpawnConfig::new(
+        AgentId::new(agent_id),
+        "claude",
+        PathBuf::from("/workspace"),
+        OwnerId::Job(JobId::default()),
+    )
+    .agent_name("claude")
+    .prompt("Test")
+    .job_name("test")
+    .job_id("pipe-1")
+    .project_root(PathBuf::from("/project"))
+}
 
 #[tokio::test]
 async fn spawn_and_kill() {
     let adapter = FakeAgentAdapter::new();
     let (tx, _rx) = mpsc::channel(10);
 
-    let config = AgentSpawnConfig {
-        agent_id: AgentId::new("test-agent"),
-        agent_name: "claude".to_string(),
-        command: "claude".to_string(),
-        env: vec![],
-        workspace_path: PathBuf::from("/workspace"),
-        cwd: None,
-        prompt: "Test prompt".to_string(),
-        job_name: "test".to_string(),
-        job_id: "pipe-1".to_string(),
-        project_root: PathBuf::from("/project"),
-        session_config: HashMap::new(),
-        owner: OwnerId::Job(JobId::default()),
-    };
+    let config = test_spawn_config("test-agent").prompt("Test prompt");
 
     let handle = adapter.spawn(config, tx).await.unwrap();
     assert_eq!(handle.agent_id, AgentId::new("test-agent"));
@@ -39,20 +39,7 @@ async fn state_changes() {
     let adapter = FakeAgentAdapter::new();
     let (tx, mut rx) = mpsc::channel(10);
 
-    let config = AgentSpawnConfig {
-        agent_id: AgentId::new("agent-1"),
-        agent_name: "claude".to_string(),
-        command: "claude".to_string(),
-        env: vec![],
-        workspace_path: PathBuf::from("/workspace"),
-        cwd: None,
-        prompt: "Test".to_string(),
-        job_name: "test".to_string(),
-        job_id: "pipe-1".to_string(),
-        project_root: PathBuf::from("/project"),
-        session_config: HashMap::new(),
-        owner: OwnerId::Job(JobId::default()),
-    };
+    let config = test_spawn_config("agent-1");
 
     adapter.spawn(config, tx).await.unwrap();
 
@@ -94,20 +81,7 @@ async fn error_injection() {
 
     adapter.set_spawn_error(AgentAdapterError::SpawnFailed("test error".to_string()));
 
-    let config = AgentSpawnConfig {
-        agent_id: AgentId::new("agent-1"),
-        agent_name: "claude".to_string(),
-        command: "claude".to_string(),
-        env: vec![],
-        workspace_path: PathBuf::from("/workspace"),
-        cwd: None,
-        prompt: "Test".to_string(),
-        job_name: "test".to_string(),
-        job_id: "pipe-1".to_string(),
-        project_root: PathBuf::from("/project"),
-        session_config: HashMap::new(),
-        owner: OwnerId::Job(JobId::default()),
-    };
+    let config = test_spawn_config("agent-1");
 
     let result = adapter.spawn(config, tx).await;
     assert!(result.is_err());
@@ -118,20 +92,17 @@ async fn call_recording() {
     let adapter = FakeAgentAdapter::new();
     let (tx, _rx) = mpsc::channel(10);
 
-    let config = AgentSpawnConfig {
-        agent_id: AgentId::new("agent-1"),
-        agent_name: "claude".to_string(),
-        command: "claude code".to_string(),
-        env: vec![],
-        workspace_path: PathBuf::from("/workspace"),
-        cwd: None,
-        prompt: "Test".to_string(),
-        job_name: "test".to_string(),
-        job_id: "pipe-1".to_string(),
-        project_root: PathBuf::from("/project"),
-        session_config: HashMap::new(),
-        owner: OwnerId::Job(JobId::default()),
-    };
+    let config = AgentSpawnConfig::new(
+        AgentId::new("agent-1"),
+        "claude code",
+        PathBuf::from("/workspace"),
+        OwnerId::Job(JobId::default()),
+    )
+    .agent_name("claude")
+    .prompt("Test")
+    .job_name("test")
+    .job_id("pipe-1")
+    .project_root(PathBuf::from("/project"));
 
     adapter.spawn(config, tx).await.unwrap();
     adapter

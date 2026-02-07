@@ -4,26 +4,10 @@
 //! Unit tests for worker lifecycle handling (start/stop/resize/reconcile)
 
 use crate::runtime::handlers::worker::WorkerStatus;
-use crate::{RuntimeConfig, RuntimeDeps};
-use oj_adapters::{FakeAgentAdapter, FakeNotifyAdapter, FakeSessionAdapter};
-use oj_core::{Clock, Event, FakeClock, JobId, TimerId};
-use oj_storage::{MaterializedState, QueueItemStatus};
+use crate::test_helpers::{load_runbook_hash, setup_with_runbook, TestContext};
+use oj_core::{Clock, Event, JobId, TimerId};
+use oj_storage::QueueItemStatus;
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use parking_lot::Mutex;
-use tempfile::tempdir;
-use tokio::sync::mpsc;
-
-type TestRuntime =
-    crate::runtime::Runtime<FakeSessionAdapter, FakeAgentAdapter, FakeNotifyAdapter, FakeClock>;
-
-struct TestContext {
-    runtime: TestRuntime,
-    clock: FakeClock,
-    project_root: PathBuf,
-}
 
 /// External queue runbook (default queue type)
 const EXTERNAL_RUNBOOK: &str = r#"
@@ -125,65 +109,6 @@ source = { queue = "bugs" }
 handler = { job = "build" }
 concurrency = 2
 "#;
-
-async fn setup_with_runbook(runbook_content: &str) -> TestContext {
-    let dir = tempdir().unwrap();
-    let dir_path = dir.keep();
-
-    let runbook_dir = dir_path.join(".oj/runbooks");
-    std::fs::create_dir_all(&runbook_dir).unwrap();
-    std::fs::write(runbook_dir.join("test.toml"), runbook_content).unwrap();
-
-    let sessions = FakeSessionAdapter::new();
-    let agents = FakeAgentAdapter::new();
-    let notifier = FakeNotifyAdapter::new();
-    let clock = FakeClock::new();
-    let (event_tx, _event_rx) = mpsc::channel(100);
-    let runtime = TestRuntime::new(
-        RuntimeDeps {
-            sessions,
-            agents,
-            notifier,
-            state: Arc::new(Mutex::new(MaterializedState::default())),
-        },
-        clock.clone(),
-        RuntimeConfig {
-            state_dir: dir_path.clone(),
-            log_dir: dir_path.join("logs"),
-        },
-        event_tx,
-    );
-
-    TestContext {
-        runtime,
-        clock,
-        project_root: dir_path,
-    }
-}
-
-/// Parse a runbook, load it into cache + state, and return its hash.
-fn load_runbook_hash(ctx: &TestContext, content: &str) -> String {
-    let runbook = oj_runbook::parse_runbook(content).unwrap();
-    let runbook_json = serde_json::to_value(&runbook).unwrap();
-    let hash = {
-        use sha2::{Digest, Sha256};
-        let canonical = serde_json::to_string(&runbook_json).unwrap();
-        let digest = Sha256::digest(canonical.as_bytes());
-        format!("{:x}", digest)
-    };
-    {
-        let mut cache = ctx.runtime.runbook_cache.lock();
-        cache.insert(hash.clone(), runbook);
-    }
-    ctx.runtime.lock_state_mut(|state| {
-        state.apply_event(&Event::RunbookLoaded {
-            hash: hash.clone(),
-            version: 1,
-            runbook: runbook_json,
-        });
-    });
-    hash
-}
 
 /// Collect all pending timer IDs from the scheduler.
 fn pending_timer_ids(ctx: &TestContext) -> Vec<String> {
@@ -1190,5 +1115,85 @@ async fn reconcile_respects_namespace_scoping() {
         status,
         Some(QueueItemStatus::Dead),
         "orphaned namespaced item should go Dead"
+    );
+}
+
+// ============================================================================
+// reconcile_active_jobs tests (runs for all queue types)
+// ============================================================================
+
+#[tokio::test]
+async fn reconcile_external_queue_terminal_job_releases_slot() {
+    // External queue workers should also reconcile terminal jobs in their
+    // active set after daemon restart. Previously only persisted queues
+    // ran this reconciliation, so external queue workers accumulated
+    // zombie jobs that consumed no slots but were never cleaned up.
+    let ctx = setup_with_runbook(EXTERNAL_RUNBOOK).await;
+    let hash = load_runbook_hash(&ctx, EXTERNAL_RUNBOOK);
+
+    // Pre-populate state as if daemon restarted with an active external queue job
+    // that already reached terminal state (done).
+    ctx.runtime.lock_state_mut(|state| {
+        state.apply_event(&Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash.clone(),
+            queue_name: "bugs".to_string(),
+            concurrency: 2,
+            namespace: String::new(),
+        });
+        // Simulate a dispatched job with an item.id var
+        state.apply_event(&Event::WorkerItemDispatched {
+            worker_name: "fixer".to_string(),
+            item_id: "ext-item-done".to_string(),
+            job_id: JobId::new("pipe-done"),
+            namespace: String::new(),
+        });
+        // Job created and already at terminal step
+        state.apply_event(&Event::JobCreated {
+            id: JobId::new("pipe-done"),
+            kind: "build".to_string(),
+            name: "terminal-job".to_string(),
+            runbook_hash: hash.clone(),
+            cwd: ctx.project_root.clone(),
+            vars: {
+                let mut m = HashMap::new();
+                m.insert("item.id".to_string(), "ext-item-done".to_string());
+                m
+            },
+            initial_step: "init".to_string(),
+            created_at_epoch_ms: 1000,
+            namespace: String::new(),
+            cron_name: None,
+        });
+        state.apply_event(&Event::JobAdvanced {
+            id: JobId::new("pipe-done"),
+            step: "done".to_string(),
+        });
+    });
+
+    // Restart the worker — reconcile_active_jobs should detect the terminal job
+    ctx.runtime
+        .handle_event(Event::WorkerStarted {
+            worker_name: "fixer".to_string(),
+            project_root: ctx.project_root.clone(),
+            runbook_hash: hash,
+            queue_name: "bugs".to_string(),
+            concurrency: 2,
+            namespace: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // After reconciliation, the terminal job should be removed from active_jobs
+    let workers = ctx.runtime.worker_states.lock();
+    let state = workers.get("fixer").unwrap();
+    assert!(
+        !state.active_jobs.contains(&JobId::new("pipe-done")),
+        "terminal job should be removed from active_jobs after reconciliation"
+    );
+    assert!(
+        !state.item_job_map.contains_key(&JobId::new("pipe-done")),
+        "terminal job should be removed from item_job_map after reconciliation"
     );
 }

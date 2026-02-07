@@ -8,7 +8,7 @@ use std::time::Instant;
 use parking_lot::Mutex;
 use tempfile::tempdir;
 
-use oj_core::{StepOutcome, StepStatus};
+use oj_core::{StepOutcome, StepStatus, StepStatusKind};
 
 use oj_engine::breadcrumb::{Breadcrumb, BreadcrumbAgent};
 
@@ -32,7 +32,7 @@ fn list_jobs_includes_orphans() {
             assert_eq!(jobs.len(), 1);
             assert_eq!(jobs[0].id, "orphan-1234");
             assert_eq!(jobs[0].name, "fix/orphan");
-            assert_eq!(jobs[0].step_status, "orphaned");
+            assert_eq!(jobs[0].step_status, StepStatusKind::Orphaned);
             assert_eq!(jobs[0].namespace, "oddjobs");
             assert!(jobs[0].updated_at_ms > 0);
         }
@@ -65,7 +65,7 @@ fn get_job_falls_back_to_orphan() {
         Response::Job { job } => {
             let p = job.expect("should find orphan job");
             assert_eq!(p.id, "orphan-5678");
-            assert_eq!(p.step_status, "orphaned");
+            assert_eq!(p.step_status, StepStatusKind::Orphaned);
             assert_eq!(p.session_id.as_deref(), Some("tmux-orphan-1"));
             assert!(p.error.is_some());
             assert_eq!(p.agents.len(), 1);
@@ -119,7 +119,7 @@ fn get_job_prefers_state_over_orphan() {
             let p = job.expect("should find job");
             // State version should be returned, not orphan
             assert_eq!(p.name, "fix/real");
-            assert_ne!(p.step_status, "orphaned");
+            assert_ne!(p.step_status, StepStatusKind::Orphaned);
         }
         other => panic!("unexpected response: {:?}", other),
     }
@@ -151,7 +151,7 @@ fn get_job_orphan_prefix_match() {
         Response::Job { job } => {
             let p = job.expect("should find orphan by prefix");
             assert_eq!(p.id, "orphan-abcdef123456");
-            assert_eq!(p.step_status, "orphaned");
+            assert_eq!(p.step_status, StepStatusKind::Orphaned);
         }
         other => panic!("unexpected response: {:?}", other),
     }

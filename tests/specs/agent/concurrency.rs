@@ -232,8 +232,8 @@ on_idle = "done"
     temp.oj().args(&["run", "job2"]).passes();
     temp.oj().args(&["run", "job3"]).passes();
 
-    // Wait for all three to complete
-    let all_done = wait_for(SPEC_WAIT_MAX_MS * 5, || {
+    // Wait for all three to complete (3 agents each need idle grace + spawn time)
+    let all_done = wait_for(SPEC_WAIT_MAX_MS * 7, || {
         let out = temp.oj().args(&["job", "list"]).passes().stdout();
         out.matches("completed").count() >= 3
     });

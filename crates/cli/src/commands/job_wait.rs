@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use oj_core::ShortId;
+use oj_core::{ShortId, StepOutcomeKind};
 
 use crate::client::DaemonClient;
 use crate::exit_error::ExitError;
@@ -147,7 +147,10 @@ pub(crate) fn print_step_progress(
             continue;
         }
 
-        let is_terminal = matches!(step.outcome.as_str(), "completed" | "failed");
+        let is_terminal = matches!(
+            step.outcome,
+            StepOutcomeKind::Completed | StepOutcomeKind::Failed
+        );
 
         if is_terminal {
             // Print "started" for steps we haven't announced yet (skipped running state)
@@ -157,11 +160,11 @@ pub(crate) fn print_step_progress(
             }
 
             let elapsed = format_duration(step.started_at_ms, step.finished_at_ms);
-            match step.outcome.as_str() {
-                "completed" => {
+            match step.outcome {
+                StepOutcomeKind::Completed => {
                     let _ = writeln!(out, "{}{} completed ({})", prefix, step.name, elapsed);
                 }
-                "failed" => {
+                StepOutcomeKind::Failed => {
                     let suffix = match &step.detail {
                         Some(d) if !d.is_empty() => format!(" - {}", d),
                         _ => String::new(),
@@ -176,10 +179,10 @@ pub(crate) fn print_step_progress(
             }
             tracker.printed_count = i + 1;
             tracker.printed_started = false;
-        } else if step.outcome == "running" && !tracker.printed_started {
+        } else if step.outcome == StepOutcomeKind::Running && !tracker.printed_started {
             let _ = writeln!(out, "{}{} started", prefix, step.name);
             tracker.printed_started = true;
-        } else if step.outcome == "waiting" && !tracker.printed_started {
+        } else if step.outcome == StepOutcomeKind::Waiting && !tracker.printed_started {
             let reason = step.detail.as_deref().unwrap_or("waiting");
             let _ = writeln!(out, "{}{} waiting ({})", prefix, step.name, reason);
             tracker.printed_started = true;

@@ -12,7 +12,9 @@ use oj_storage::MaterializedState;
 use crate::protocol::Response;
 
 use super::super::handle_queue_push;
-use super::{drain_events, project_with_queue_and_worker, project_with_queue_only, test_event_bus};
+use super::{
+    drain_events, make_ctx, project_with_queue_and_worker, project_with_queue_only, test_event_bus,
+};
 
 /// Helper: create a project dir with an external queue and worker.
 fn project_with_external_queue_and_worker() -> tempfile::TempDir {
@@ -52,9 +54,10 @@ fn push_auto_starts_stopped_worker() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, state);
 
     let data = serde_json::json!({ "task": "test-value" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     assert!(
         matches!(result, Response::QueuePushed { ref queue_name, .. } if queue_name == "tasks"),
@@ -108,10 +111,10 @@ fn push_wakes_running_worker() {
             namespace: String::new(),
         },
     );
-    let state = Arc::new(Mutex::new(initial_state));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial_state)));
 
     let data = serde_json::json!({ "task": "test-value" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     assert!(matches!(result, Response::QueuePushed { .. }));
 
@@ -136,9 +139,10 @@ fn push_with_no_workers_succeeds() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, state);
 
     let data = serde_json::json!({ "task": "test-value" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     assert!(matches!(result, Response::QueuePushed { .. }));
 
@@ -171,11 +175,11 @@ fn push_external_queue_wakes_workers() {
             namespace: String::new(),
         },
     );
-    let state = Arc::new(Mutex::new(initial_state));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial_state)));
 
     // Push with empty data — should refresh, not error
     let data = serde_json::json!({});
-    let result = handle_queue_push(project.path(), "", "issues", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "issues", data).unwrap();
 
     assert!(
         matches!(result, Response::Ok),
@@ -202,9 +206,10 @@ fn push_external_queue_auto_starts_stopped_worker() {
     let wal_dir = tempdir().unwrap();
     let (event_bus, wal, _) = test_event_bus(wal_dir.path());
     let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = make_ctx(event_bus, state);
 
     let data = serde_json::json!({});
-    let result = handle_queue_push(project.path(), "", "issues", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "issues", data).unwrap();
 
     assert!(
         matches!(result, Response::Ok),
@@ -250,11 +255,11 @@ fn push_deduplicates_pending_item_with_same_data() {
         pushed_at_epoch_ms: 1_000_000,
         namespace: String::new(),
     });
-    let state = Arc::new(Mutex::new(initial_state));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial_state)));
 
     // Push the same data again
     let data = serde_json::json!({ "task": "build-feature-x" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     // Should return the existing item ID, not create a new one
     assert!(
@@ -301,11 +306,11 @@ fn push_deduplicates_active_item_with_same_data() {
         worker_name: "w1".to_string(),
         namespace: String::new(),
     });
-    let state = Arc::new(Mutex::new(initial_state));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial_state)));
 
     // Push the same data again
     let data = serde_json::json!({ "task": "build-feature-y" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     // Should return the existing active item ID
     assert!(
@@ -349,11 +354,11 @@ fn push_allows_duplicate_data_when_previous_is_completed() {
         item_id: "completed-item-1".to_string(),
         namespace: String::new(),
     });
-    let state = Arc::new(Mutex::new(initial_state));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial_state)));
 
     // Push the same data again — should succeed since the previous item is completed
     let data = serde_json::json!({ "task": "build-feature-z" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     // Should create a new item (different ID from completed one)
     match result {
@@ -398,11 +403,11 @@ fn push_allows_duplicate_data_when_previous_is_dead() {
         item_id: "dead-item-1".to_string(),
         namespace: String::new(),
     });
-    let state = Arc::new(Mutex::new(initial_state));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial_state)));
 
     // Push the same data again — should succeed since the previous item is dead
     let data = serde_json::json!({ "task": "build-feature-w" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     match result {
         Response::QueuePushed {
@@ -441,11 +446,11 @@ fn push_different_data_is_not_deduplicated() {
         pushed_at_epoch_ms: 1_000_000,
         namespace: String::new(),
     });
-    let state = Arc::new(Mutex::new(initial_state));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial_state)));
 
     // Push different data — should create a new item
     let data = serde_json::json!({ "task": "build-feature-y" });
-    let result = handle_queue_push(project.path(), "", "tasks", data, &event_bus, &state).unwrap();
+    let result = handle_queue_push(&ctx, project.path(), "", "tasks", data).unwrap();
 
     match result {
         Response::QueuePushed {
@@ -491,17 +496,16 @@ fn push_with_wrong_project_root_falls_back_to_namespace() {
             namespace: "my-project".to_string(),
         },
     );
-    let state = Arc::new(Mutex::new(initial));
+    let ctx = make_ctx(event_bus, Arc::new(Mutex::new(initial)));
 
     // Call with a wrong project_root (simulating --project from a different directory).
     let data = serde_json::json!({ "task": "test-value" });
     let result = handle_queue_push(
+        &ctx,
         std::path::Path::new("/wrong/path"),
         "my-project",
         "tasks",
         data,
-        &event_bus,
-        &state,
     )
     .unwrap();
 

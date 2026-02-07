@@ -6,15 +6,15 @@
 //! Handles `import` and `const` blocks in HCL runbooks:
 //!
 //! ```hcl
-//! import "oj/wok" { const = { prefix = "oj" } }
-//! import "oj/merge" "merge" {}
+//! import "oj/wok" { const "prefix" { value = "oj" } }
+//! import "oj/git" { alias = "git" }
 //! ```
 
 use crate::find::extract_file_comment;
 use crate::parser::{Format, ParseError, Runbook};
 use crate::template::escape_for_shell;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -28,23 +28,47 @@ use std::sync::LazyLock;
 /// const "prefix" {}                    # required, no default
 /// const "check" { default = "true" }   # optional, has default
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct ConstDef {
-    pub name: String,
+    #[serde(default)]
     pub default: Option<String>,
+}
+
+/// A const value provided at an import site.
+///
+/// ```hcl
+/// const "prefix" { value = "oj" }
+/// ```
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ImportConst {
+    pub value: String,
 }
 
 /// An import declaration in a user runbook.
 ///
 /// ```hcl
 /// import "oj/wok" {}
-/// import "oj/wok" "wok" { const = { prefix = "oj" } }
+/// import "oj/wok" {
+///   alias = "wok"
+///   const "prefix" { value = "oj" }
+/// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ImportDef {
-    pub source: String,
+    #[serde(default)]
     pub alias: Option<String>,
-    pub consts: HashMap<String, String>,
+    #[serde(default, rename = "const")]
+    pub consts: HashMap<String, ImportConst>,
+}
+
+impl ImportDef {
+    /// Flatten const values into a simple string map.
+    pub fn const_values(&self) -> HashMap<String, String> {
+        self.consts
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect()
+    }
 }
 
 /// Warning from import resolution.
@@ -80,261 +104,99 @@ impl std::fmt::Display for ImportWarning {
 }
 
 // =============================================================================
-// Serde helpers for parsing block bodies
-// =============================================================================
-
-#[derive(Deserialize, Default)]
-struct ImportBody {
-    #[serde(default, rename = "const")]
-    consts: HashMap<String, String>,
-}
-
-#[derive(Deserialize, Default)]
-struct ConstBody {
-    #[serde(default)]
-    default: Option<String>,
-}
-
-// =============================================================================
-// Block extraction
-// =============================================================================
-
-/// Extract quoted string labels from a block header line.
-///
-/// Given `import "oj/wok" "wok" {`, returns `["oj/wok", "wok"]`.
-fn extract_labels(line: &str, block_id: &str) -> Vec<String> {
-    let rest = line.trim().strip_prefix(block_id).unwrap_or("");
-    let mut labels = Vec::new();
-    let mut chars = rest.chars().peekable();
-
-    while let Some(&c) = chars.peek() {
-        if c == '"' {
-            chars.next(); // consume opening quote
-            let mut label = String::new();
-            loop {
-                match chars.next() {
-                    Some('"') | None => break,
-                    Some('\\') => {
-                        if let Some(escaped) = chars.next() {
-                            label.push(escaped);
-                        }
-                    }
-                    Some(c) => label.push(c),
-                }
-            }
-            labels.push(label);
-        } else if c == '{' {
-            break;
-        } else {
-            chars.next();
-        }
-    }
-
-    labels
-}
-
-/// Find the position of the matching closing brace, handling nested braces and strings.
-///
-/// `start` should be the position of the opening `{`.
-/// Returns the position of the matching `}`.
-fn find_closing_brace(content: &str, start: usize) -> Option<usize> {
-    let bytes = content.as_bytes();
-    let mut depth: i32 = 0;
-    let mut i = start;
-    let mut in_string = false;
-    let mut escape_next = false;
-
-    while i < bytes.len() {
-        if escape_next {
-            escape_next = false;
-            i += 1;
-            continue;
-        }
-        match bytes[i] {
-            b'\\' if in_string => escape_next = true,
-            b'"' => in_string = !in_string,
-            b'{' if !in_string => depth += 1,
-            b'}' if !in_string => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Result of extracting import/const blocks from HCL content.
-pub struct ExtractResult {
-    pub imports: Vec<ImportDef>,
-    pub consts: Vec<ConstDef>,
-    pub remaining: String,
-}
-
-/// Extract `import` and `const` blocks from HCL content.
-///
-/// Returns the extracted definitions and the remaining HCL content
-/// with those blocks removed (safe for serde parsing).
-pub fn extract_blocks(content: &str) -> Result<ExtractResult, ParseError> {
-    let mut imports = Vec::new();
-    let mut consts = Vec::new();
-
-    // Track byte ranges to remove
-    let mut remove_ranges: Vec<(usize, usize)> = Vec::new();
-
-    let mut search_from = 0;
-    while search_from < content.len() {
-        // Find next import or const block
-        let rest = &content[search_from..];
-
-        // Look for block start patterns
-        let import_pos = find_block_start(rest, "import");
-        let const_pos = find_block_start(rest, "const");
-
-        let (block_id, offset) = match (import_pos, const_pos) {
-            (Some(ip), Some(cp)) => {
-                if ip <= cp {
-                    ("import", ip)
-                } else {
-                    ("const", cp)
-                }
-            }
-            (Some(ip), None) => ("import", ip),
-            (None, Some(cp)) => ("const", cp),
-            (None, None) => break,
-        };
-
-        let abs_offset = search_from + offset;
-        let line_content = &content[abs_offset..];
-
-        // Extract labels
-        let labels = extract_labels(line_content, block_id);
-
-        // Find opening brace
-        let brace_start = match content[abs_offset..].find('{') {
-            Some(pos) => abs_offset + pos,
-            None => {
-                return Err(ParseError::InvalidFormat {
-                    location: format!("{} block", block_id),
-                    message: "missing opening brace".to_string(),
-                });
-            }
-        };
-
-        // Find matching closing brace
-        let brace_end = match find_closing_brace(content, brace_start) {
-            Some(pos) => pos,
-            None => {
-                return Err(ParseError::InvalidFormat {
-                    location: format!("{} block", block_id),
-                    message: "missing closing brace".to_string(),
-                });
-            }
-        };
-
-        // Extract body content (between braces, exclusive)
-        let body = &content[brace_start + 1..brace_end];
-
-        match block_id {
-            "import" => {
-                let source = labels
-                    .first()
-                    .cloned()
-                    .ok_or_else(|| ParseError::InvalidFormat {
-                        location: "import block".to_string(),
-                        message: "import requires a source path label".to_string(),
-                    })?;
-                let alias = labels.get(1).cloned();
-                let import_body: ImportBody = if body.trim().is_empty() {
-                    ImportBody::default()
-                } else {
-                    hcl::from_str(body).map_err(|e| ParseError::InvalidFormat {
-                        location: format!("import \"{}\"", source),
-                        message: format!("invalid import body: {}", e),
-                    })?
-                };
-                imports.push(ImportDef {
-                    source,
-                    alias,
-                    consts: import_body.consts,
-                });
-            }
-            "const" => {
-                let name = labels
-                    .first()
-                    .cloned()
-                    .ok_or_else(|| ParseError::InvalidFormat {
-                        location: "const block".to_string(),
-                        message: "const requires a name label".to_string(),
-                    })?;
-                let const_body: ConstBody = if body.trim().is_empty() {
-                    ConstBody::default()
-                } else {
-                    hcl::from_str(body).map_err(|e| ParseError::InvalidFormat {
-                        location: format!("const \"{}\"", name),
-                        message: format!("invalid const body: {}", e),
-                    })?
-                };
-                consts.push(ConstDef {
-                    name,
-                    default: const_body.default,
-                });
-            }
-            _ => unreachable!(),
-        }
-
-        // Record range to remove (from block start to after closing brace + newline)
-        let end = if brace_end + 1 < content.len() && content.as_bytes()[brace_end + 1] == b'\n' {
-            brace_end + 2
-        } else {
-            brace_end + 1
-        };
-        remove_ranges.push((abs_offset, end));
-        search_from = end;
-    }
-
-    // Build remaining content by removing the extracted block ranges
-    let mut remaining = String::with_capacity(content.len());
-    let mut last_end = 0;
-    for (start, end) in &remove_ranges {
-        remaining.push_str(&content[last_end..*start]);
-        last_end = *end;
-    }
-    remaining.push_str(&content[last_end..]);
-
-    Ok(ExtractResult {
-        imports,
-        consts,
-        remaining,
-    })
-}
-
-/// Find the byte offset of the next block start for the given identifier.
-///
-/// Looks for lines starting with `{id} "` (with optional leading whitespace).
-fn find_block_start(content: &str, id: &str) -> Option<usize> {
-    let pattern = format!("{} \"", id);
-    for (line_offset, line) in content.split('\n').scan(0usize, |offset, line| {
-        let start = *offset;
-        *offset += line.len() + 1; // +1 for newline
-        Some((start, line))
-    }) {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with(&pattern) {
-            // Return offset of the trimmed start
-            let leading_ws = line.len() - trimmed.len();
-            return Some(line_offset + leading_ws);
-        }
-    }
-    None
-}
-
-// =============================================================================
 // Const interpolation
 // =============================================================================
+
+/// Regex for `%{ if const.name == "x" }` directives.
+///
+/// Supports:
+/// - `%{ if const.name == "x" }` — equality
+/// - `%{ if const.name != "x" }` — inequality
+#[allow(clippy::expect_used)]
+static IF_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"%\{~?\s*if\s+const\.([a-zA-Z_][a-zA-Z0-9_]*)\s*(==|!=)\s*"([^"]*)"\s*~?\}"#)
+        .expect("constant regex pattern is valid")
+});
+
+/// Regex for `%{ else }` directives.
+#[allow(clippy::expect_used)]
+static ELSE_DIRECTIVE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"%\{~?\s*else\s*~?\}").expect("constant regex pattern is valid"));
+
+/// Regex for `%{ endif }` directives.
+#[allow(clippy::expect_used)]
+static ENDIF_DIRECTIVE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"%\{~?\s*endif\s*~?\}").expect("constant regex pattern is valid"));
+
+/// Process `%{ if const.name == "x" }` / `%{ else }` / `%{ endif }` directives.
+///
+/// Evaluates conditionals based on const values. Supports:
+/// - Comparison: `%{ if const.name == "value" }` / `%{ if const.name != "value" }`
+/// - `%{ else }` branches and nesting
+fn process_const_directives(
+    content: &str,
+    values: &HashMap<String, String>,
+) -> Result<String, String> {
+    let mut kept_lines: Vec<&str> = Vec::new();
+    // Stack of (active, else_seen) — active means we're emitting lines
+    let mut stack: Vec<(bool, bool)> = Vec::new();
+
+    for line in content.split('\n') {
+        if let Some(caps) = IF_DIRECTIVE.captures(line) {
+            let name = &caps[1];
+            let op = &caps[2];
+            let literal = &caps[3];
+            let value = values.get(name).map(|v| v.as_str()).unwrap_or("");
+            let condition = {
+                let matches = value == literal;
+                if op == "==" {
+                    matches
+                } else {
+                    !matches
+                }
+            };
+            // Only active if parent is active (or we're at top level)
+            let parent_active = stack.last().is_none_or(|&(a, _)| a);
+            stack.push((parent_active && condition, false));
+            continue;
+        }
+
+        if ELSE_DIRECTIVE.is_match(line) {
+            let len = stack.len();
+            if len == 0 {
+                return Err("else without matching if".to_string());
+            }
+            if stack[len - 1].1 {
+                return Err("duplicate else".to_string());
+            }
+            stack[len - 1].1 = true;
+            let parent_active = if len > 1 { stack[len - 2].0 } else { true };
+            // Flip: if parent is active, toggle current; if parent inactive, stay inactive
+            stack[len - 1].0 = parent_active && !stack[len - 1].0;
+            continue;
+        }
+
+        if ENDIF_DIRECTIVE.is_match(line) {
+            if stack.is_empty() {
+                return Err("endif without matching if".to_string());
+            }
+            stack.pop();
+            continue;
+        }
+
+        // Keep line if all levels are active
+        let active = stack.last().is_none_or(|&(a, _)| a);
+        if active {
+            kept_lines.push(line);
+        }
+    }
+
+    if !stack.is_empty() {
+        return Err("unclosed if directive".to_string());
+    }
+
+    Ok(kept_lines.join("\n"))
+}
 
 /// Regex for `${raw(const.name)}` patterns.
 #[allow(clippy::expect_used)]
@@ -351,12 +213,17 @@ static CONST_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Interpolate const values into library content.
 ///
-/// - `${const.name}` → shell-escaped value (safe for data)
-/// - `${raw(const.name)}` → raw value (for command templates)
-pub fn interpolate_consts(content: &str, values: &HashMap<String, String>) -> String {
-    // First, replace ${raw(const.name)} with raw values
+/// 1. Evaluate `%{ if/else/endif }` directives — strip or keep text blocks
+/// 2. Substitute `${raw(const.name)}` and `${const.name}` in remaining text
+pub fn interpolate_consts(
+    content: &str,
+    values: &HashMap<String, String>,
+) -> Result<String, String> {
+    let content = process_const_directives(content, values)?;
+
+    // Replace ${raw(const.name)} with raw values
     let result = RAW_CONST_PATTERN
-        .replace_all(content, |caps: &regex::Captures| {
+        .replace_all(&content, |caps: &regex::Captures| {
             let name = &caps[1];
             values
                 .get(name)
@@ -365,8 +232,8 @@ pub fn interpolate_consts(content: &str, values: &HashMap<String, String>) -> St
         })
         .to_string();
 
-    // Then, replace ${const.name} with shell-escaped values
-    CONST_PATTERN
+    // Replace ${const.name} with shell-escaped values
+    Ok(CONST_PATTERN
         .replace_all(&result, |caps: &regex::Captures| {
             let name = &caps[1];
             match values.get(name) {
@@ -374,14 +241,14 @@ pub fn interpolate_consts(content: &str, values: &HashMap<String, String>) -> St
                 None => caps[0].to_string(),
             }
         })
-        .to_string()
+        .to_string())
 }
 
 /// Validate const values against const definitions.
 ///
 /// Returns the resolved values map (with defaults applied) and any warnings.
 pub fn validate_consts(
-    defs: &[ConstDef],
+    defs: &HashMap<String, ConstDef>,
     provided: &HashMap<String, String>,
     source: &str,
 ) -> Result<(HashMap<String, String>, Vec<ImportWarning>), ParseError> {
@@ -389,21 +256,21 @@ pub fn validate_consts(
     let mut warnings = Vec::new();
 
     // Check each defined const
-    for def in defs {
-        match provided.get(&def.name) {
+    for (name, def) in defs {
+        match provided.get(name) {
             Some(val) => {
-                values.insert(def.name.clone(), val.clone());
+                values.insert(name.clone(), val.clone());
             }
             None => match &def.default {
                 Some(default) => {
-                    values.insert(def.name.clone(), default.clone());
+                    values.insert(name.clone(), default.clone());
                 }
                 None => {
                     return Err(ParseError::InvalidFormat {
                         location: format!("import \"{}\"", source),
                         message: format!(
-                            "missing required const '{}'; add const = {{ {} = \"...\" }}",
-                            def.name, def.name
+                            "missing required const '{}'; add const \"{}\" {{ value = \"...\" }}",
+                            name, name
                         ),
                     });
                 }
@@ -412,9 +279,8 @@ pub fn validate_consts(
     }
 
     // Warn on unknown consts
-    let known: std::collections::HashSet<&str> = defs.iter().map(|d| d.name.as_str()).collect();
     for name in provided.keys() {
-        if !known.contains(name.as_str()) {
+        if !defs.contains_key(name) {
             warnings.push(ImportWarning::UnknownConst {
                 source: source.to_string(),
                 name: name.clone(),
@@ -429,55 +295,61 @@ pub fn validate_consts(
 // Library resolution
 // =============================================================================
 
-/// Built-in library: oj/wok
-const LIBRARY_WOK: &str = include_str!("library/wok.hcl");
+/// A built-in library: a named collection of HCL files.
+struct BuiltinLibrary {
+    source: &'static str,
+    files: &'static [(&'static str, &'static str)],
+}
 
-/// Built-in library: oj/merge
-const LIBRARY_MERGE: &str = include_str!("library/merge.hcl");
+// Registry of all built-in libraries (auto-generated from `library/` directory).
+include!(concat!(env!("OUT_DIR"), "/builtin_libraries.rs"));
 
 /// Metadata about a built-in library.
 #[derive(Debug, Clone)]
 pub struct LibraryInfo {
     pub source: &'static str,
-    pub content: &'static str,
+    pub files: &'static [(&'static str, &'static str)],
     pub description: String,
 }
 
 /// Return metadata for all built-in libraries.
 pub fn available_libraries() -> Vec<LibraryInfo> {
-    static SOURCES: &[(&str, &str)] = &[("oj/merge", LIBRARY_MERGE), ("oj/wok", LIBRARY_WOK)];
-    SOURCES
+    BUILTIN_LIBRARIES
         .iter()
-        .map(|(source, content)| {
-            let description = extract_file_comment(content)
+        .map(|lib| {
+            let description = lib
+                .files
+                .first()
+                .and_then(|(_, content)| extract_file_comment(content))
                 .map(|c| c.short)
                 .unwrap_or_default();
             LibraryInfo {
-                source,
-                content,
+                source: lib.source,
+                files: lib.files,
                 description,
             }
         })
         .collect()
 }
 
-/// Resolve a library source path to its HCL content.
-///
-/// Built-in libraries:
-/// - `oj/wok` — Wok-based issue queues (fix, chore)
-/// - `oj/merge` — Local merge queue with conflict resolution
-pub fn resolve_library(source: &str) -> Result<&'static str, ParseError> {
-    match source {
-        "oj/wok" => Ok(LIBRARY_WOK),
-        "oj/merge" => Ok(LIBRARY_MERGE),
-        _ => Err(ParseError::InvalidFormat {
-            location: format!("import \"{}\"", source),
-            message: format!(
-                "unknown library '{}'; available libraries: oj/wok, oj/merge",
-                source
-            ),
-        }),
+/// Resolve a library source path to its HCL file list.
+pub fn resolve_library(
+    source: &str,
+) -> Result<&'static [(&'static str, &'static str)], ParseError> {
+    for lib in BUILTIN_LIBRARIES {
+        if lib.source == source {
+            return Ok(lib.files);
+        }
     }
+    let available: Vec<&str> = BUILTIN_LIBRARIES.iter().map(|l| l.source).collect();
+    Err(ParseError::InvalidFormat {
+        location: format!("import \"{}\"", source),
+        message: format!(
+            "unknown library '{}'; available libraries: {}",
+            source,
+            available.join(", ")
+        ),
+    })
 }
 
 // =============================================================================
@@ -486,7 +358,7 @@ pub fn resolve_library(source: &str) -> Result<&'static str, ParseError> {
 
 /// Merge an imported runbook into the target runbook.
 ///
-/// If `alias` is provided, all entity names in `source` are prefixed with `alias.`.
+/// If `alias` is provided, all entity names in `source` are prefixed with `alias:`.
 /// Internal cross-references within the imported runbook are also updated.
 ///
 /// Conflict handling:
@@ -584,32 +456,32 @@ fn prefix_names(runbook: &mut Runbook, prefix: &str) {
     let cmd_renames: HashMap<String, String> = runbook
         .commands
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let job_renames: HashMap<String, String> = runbook
         .jobs
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let agent_renames: HashMap<String, String> = runbook
         .agents
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let queue_renames: HashMap<String, String> = runbook
         .queues
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let worker_renames: HashMap<String, String> = runbook
         .workers
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
     let cron_renames: HashMap<String, String> = runbook
         .crons
         .keys()
-        .map(|k| (k.clone(), format!("{}.{}", prefix, k)))
+        .map(|k| (k.clone(), format!("{}:{}", prefix, k)))
         .collect();
 
     // Rename entity map keys
@@ -703,55 +575,117 @@ fn rename_run_directive(
 
 /// Parse an HCL runbook with import resolution.
 ///
-/// 1. Extracts `import` and `const` blocks from the content
-/// 2. Parses the remaining content as a normal runbook
-/// 3. For each import, loads the library, validates consts, interpolates, parses, and merges
-/// 4. Validates cross-references on the merged result
+/// 1. Parses the content (import/const blocks are regular serde fields)
+/// 2. For each import, loads the library, validates consts, interpolates, parses, and merges
+/// 3. Validates cross-references on the merged result
 ///
 /// Returns the merged runbook and any warnings.
 pub fn parse_with_imports(
     content: &str,
     format: Format,
 ) -> Result<(Runbook, Vec<ImportWarning>), ParseError> {
-    let extracted = extract_blocks(content)?;
+    // Parse full content — imports and consts are now regular Runbook fields
+    let mut runbook = crate::parser::parse_runbook_no_xref(content, format)?;
 
-    if extracted.imports.is_empty() && extracted.consts.is_empty() {
-        // No imports/consts — parse normally
-        let runbook = crate::parser::parse_runbook_with_format(content, format)?;
+    if runbook.imports.is_empty() {
+        // No imports — validate cross-refs and return
+        runbook.consts.clear();
+        crate::parser::validate_cross_refs(&runbook)?;
         return Ok((runbook, Vec::new()));
     }
 
-    // Parse the remaining content without cross-ref validation
-    let mut runbook = crate::parser::parse_runbook_no_xref(&extracted.remaining, format)?;
+    // Take imports, clear metadata fields
+    let imports = std::mem::take(&mut runbook.imports);
+    runbook.consts.clear();
+
     let mut all_warnings = Vec::new();
 
     // Resolve each import
-    for import_def in &extracted.imports {
-        let library_content = resolve_library(&import_def.source)?;
+    for (source, import_def) in &imports {
+        let library_files = resolve_library(source)?;
 
-        // Extract const definitions from library
-        let lib_extracted = extract_blocks(library_content)?;
+        // Collect const definitions from all files in the library
+        let mut all_const_defs: HashMap<String, ConstDef> = HashMap::new();
+        let empty_values = HashMap::new();
+        for (filename, content) in library_files {
+            // Strip directives before parsing to avoid shell validation errors
+            // on template content (const defs are never inside conditional blocks)
+            let stripped = process_const_directives(content, &empty_values).map_err(|msg| {
+                ParseError::InvalidFormat {
+                    location: format!("import \"{}/{}\"", source, filename),
+                    message: msg,
+                }
+            })?;
+            let file_meta = crate::parser::parse_runbook_no_xref(&stripped, Format::Hcl)?;
+            for (name, def) in file_meta.consts {
+                if let Some(existing) = all_const_defs.get(&name) {
+                    if *existing != def {
+                        return Err(ParseError::InvalidFormat {
+                            location: format!("import \"{}\"", source),
+                            message: format!(
+                                "conflicting const '{}' in library file '{}'",
+                                name, filename
+                            ),
+                        });
+                    }
+                } else {
+                    all_const_defs.insert(name, def);
+                }
+            }
+        }
 
         // Validate and resolve const values
-        let (const_values, const_warnings) = validate_consts(
-            &lib_extracted.consts,
-            &import_def.consts,
-            &import_def.source,
-        )?;
+        let (const_values, const_warnings) =
+            validate_consts(&all_const_defs, &import_def.const_values(), source)?;
         all_warnings.extend(const_warnings);
 
-        // Interpolate consts into library content
-        let interpolated = interpolate_consts(&lib_extracted.remaining, &const_values);
+        // Parse each file, interpolate consts, and merge into a single library runbook
+        let mut lib_runbook = Runbook::default();
+        for (filename, content) in library_files {
+            let interpolated = interpolate_consts(content, &const_values).map_err(|msg| {
+                ParseError::InvalidFormat {
+                    location: format!("import \"{}/{}\"", source, filename),
+                    message: msg,
+                }
+            })?;
+            let mut file_runbook =
+                crate::parser::parse_runbook_with_format(&interpolated, Format::Hcl)?;
+            file_runbook.consts.clear();
+            file_runbook.imports.clear();
 
-        // Parse the interpolated library content
-        let lib_runbook = crate::parser::parse_runbook_with_format(&interpolated, Format::Hcl)?;
+            // Populate command descriptions from library source doc comments
+            let block_comments = crate::find::extract_block_comments(content);
+            let file_comment = extract_file_comment(content);
+            for (name, cmd) in file_runbook.commands.iter_mut() {
+                if cmd.description.is_none() {
+                    let comment = block_comments.get(name).or(file_comment.as_ref());
+                    if let Some(comment) = comment {
+                        let desc_line = comment
+                            .short
+                            .lines()
+                            .nth(1)
+                            .or_else(|| comment.short.lines().next())
+                            .unwrap_or("");
+                        if !desc_line.is_empty() {
+                            cmd.description = Some(desc_line.to_string());
+                        }
+                    }
+                }
+            }
+
+            let file_source = format!("{}/{}", source, filename);
+            merge_runbook(&mut lib_runbook, file_runbook, None, &file_source)?;
+        }
+
+        // Validate intra-library cross-references
+        crate::parser::validate_cross_refs(&lib_runbook)?;
 
         // Merge into the main runbook
         let merge_warnings = merge_runbook(
             &mut runbook,
             lib_runbook,
             import_def.alias.as_deref(),
-            &import_def.source,
+            source,
         )?;
         all_warnings.extend(merge_warnings);
     }

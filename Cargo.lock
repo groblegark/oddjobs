@@ -1206,6 +1206,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "yare",
 ]
 
 [[package]]
@@ -1223,6 +1224,7 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "tracing",
+ "yare",
 ]
 
 [[package]]
@@ -1265,6 +1267,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+ "yare",
  "zstd",
 ]
 

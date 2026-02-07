@@ -180,12 +180,12 @@ Manage human-in-the-loop decisions.
 oj decision list                     # List pending decisions
 oj decision list --project <name>    # Filter by project namespace
 oj decision show <id>                # Show details of a decision
-oj decision resolve <id>             # Resolve interactively
+oj decision review                   # Interactively review pending decisions
 oj decision resolve <id> 1           # Pick option #1
 oj decision resolve <id> -m "msg"    # Resolve with freeform message
 ```
 
-Decisions are created when jobs escalate (via `on_idle`, `on_dead`, or `on_error` with `escalate` action) and require human input to continue. Each decision has a context message and optional numbered choices.
+Decisions are created when jobs escalate and require human input to continue. See [DECISIONS.md](DECISIONS.md) for sources, option mapping, and lifecycle.
 
 ## Events
 

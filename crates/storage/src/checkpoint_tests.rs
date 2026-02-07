@@ -156,17 +156,11 @@ impl CheckpointWriter for FakeCheckpointWriter {
 // =============================================================================
 
 fn test_config(id: &str, name: &str) -> JobConfig {
-    JobConfig {
-        id: id.to_string(),
-        name: name.to_string(),
-        kind: "feature".to_string(),
-        vars: HashMap::new(),
-        runbook_hash: "testhash".to_string(),
-        cwd: PathBuf::from("/test/project"),
-        initial_step: "init".to_string(),
-        namespace: String::new(),
-        cron_name: None,
-    }
+    JobConfig::builder(id, "feature", "init")
+        .name(name)
+        .runbook_hash("testhash")
+        .cwd("/test/project")
+        .build()
 }
 
 fn create_test_state(num_jobs: usize) -> MaterializedState {

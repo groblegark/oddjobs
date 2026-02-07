@@ -18,16 +18,10 @@ mod query_queues;
 #[path = "query_status.rs"]
 mod query_status;
 
-use std::path::Path;
-use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use parking_lot::Mutex;
-
-use oj_core::{namespace_to_option, scoped_name, split_scoped_name};
+use oj_core::{namespace_to_option, scoped_name, split_scoped_name, StepStatusKind};
 use oj_storage::MaterializedState;
-
-use oj_engine::breadcrumb::Breadcrumb;
 
 use crate::protocol::{
     CronSummary, DecisionDetail, DecisionOptionDetail, DecisionSummary, JobDetail, JobSummary,
@@ -35,24 +29,20 @@ use crate::protocol::{
     WorkspaceDetail, WorkspaceSummary,
 };
 
+use super::ListenCtx;
+
 /// Handle query requests (read-only state access).
-pub(super) fn handle_query(
-    query: Query,
-    state: &Arc<Mutex<MaterializedState>>,
-    orphans: &Arc<Mutex<Vec<Breadcrumb>>>,
-    logs_path: &Path,
-    start_time: Instant,
-) -> Response {
+pub(super) fn handle_query(ctx: &ListenCtx, query: Query) -> Response {
     match &query {
-        Query::ListOrphans => return query_orphans::handle_list_orphans(orphans),
+        Query::ListOrphans => return query_orphans::handle_list_orphans(&ctx.orphans),
         Query::DismissOrphan { id } => {
-            return query_orphans::handle_dismiss_orphan(orphans, id, logs_path)
+            return query_orphans::handle_dismiss_orphan(&ctx.orphans, id, &ctx.logs_path)
         }
-        Query::ListProjects => return query_projects::handle_list_projects(state),
+        Query::ListProjects => return query_projects::handle_list_projects(&ctx.state),
         _ => {}
     }
 
-    let state = state.lock();
+    let state = ctx.state.lock();
 
     match query {
         Query::ListJobs => {
@@ -71,7 +61,7 @@ pub(super) fn handle_query(
                         name: p.name.clone(),
                         kind: p.kind.clone(),
                         step: p.step.clone(),
-                        step_status: p.step_status.to_string(),
+                        step_status: StepStatusKind::from(&p.step_status),
                         created_at_ms: p.step_history.first().map(|r| r.started_at_ms).unwrap_or(0),
                         updated_at_ms,
                         namespace: p.namespace.clone(),
@@ -80,7 +70,7 @@ pub(super) fn handle_query(
                 })
                 .collect();
 
-            query_orphans::append_orphan_summaries(&mut jobs, orphans);
+            query_orphans::append_orphan_summaries(&mut jobs, &ctx.orphans);
 
             Response::Jobs { jobs }
         }
@@ -93,7 +83,7 @@ pub(super) fn handle_query(
                 // Compute agent summaries from log files
                 let namespace = namespace_to_option(&p.namespace);
                 let agents =
-                    query_agents::compute_agent_summaries(&p.id, &steps, logs_path, namespace);
+                    query_agents::compute_agent_summaries(&p.id, &steps, &ctx.logs_path, namespace);
 
                 // Filter variables to only show declared scope prefixes
                 // System variables (agent_id, job_id, prompt, etc.) are excluded
@@ -104,7 +94,7 @@ pub(super) fn handle_query(
                     name: p.name.clone(),
                     kind: p.kind.clone(),
                     step: p.step.clone(),
-                    step_status: p.step_status.to_string(),
+                    step_status: StepStatusKind::from(&p.step_status),
                     vars,
                     workspace_path: p.workspace_path.clone(),
                     session_id: p.session_id.clone(),
@@ -116,12 +106,14 @@ pub(super) fn handle_query(
             });
 
             // If not found in state, check orphans
-            let job = job.or_else(|| query_orphans::find_orphan_detail(orphans, &id));
+            let job = job.or_else(|| query_orphans::find_orphan_detail(&ctx.orphans, &id));
 
             Response::Job { job }
         }
 
-        Query::GetAgent { agent_id } => query_agents::handle_get_agent(agent_id, &state, logs_path),
+        Query::GetAgent { agent_id } => {
+            query_agents::handle_get_agent(agent_id, &state, &ctx.logs_path)
+        }
 
         Query::ListSessions => {
             let sessions = state
@@ -191,11 +183,11 @@ pub(super) fn handle_query(
         }
 
         Query::GetAgentLogs { id, step, lines } => {
-            query_logs::handle_get_agent_logs(id, step, lines, &state, logs_path)
+            query_logs::handle_get_agent_logs(id, step, lines, &state, &ctx.logs_path)
         }
 
         Query::GetJobLogs { id, lines } => {
-            query_logs::handle_get_job_logs(id, lines, &state, orphans, logs_path)
+            query_logs::handle_get_job_logs(id, lines, &state, &ctx.orphans, &ctx.logs_path)
         }
 
         Query::ListQueues {
@@ -216,7 +208,7 @@ pub(super) fn handle_query(
                         .iter()
                         .map(|item| QueueItemSummary {
                             id: item.id.clone(),
-                            status: format!("{:?}", item.status).to_lowercase(),
+                            status: item.status.to_string(),
                             data: item.data.clone(),
                             worker_name: item.worker_name.clone(),
                             pushed_at_epoch_ms: item.pushed_at_epoch_ms,
@@ -288,7 +280,7 @@ pub(super) fn handle_query(
         }
 
         Query::ListAgents { job_id, status } => {
-            query_agents::handle_list_agents(job_id, status, &state, logs_path)
+            query_agents::handle_list_agents(job_id, status, &state, &ctx.logs_path)
         }
 
         Query::GetWorkerLogs {
@@ -302,7 +294,7 @@ pub(super) fn handle_query(
             lines,
             project_root,
             &state,
-            logs_path,
+            &ctx.logs_path,
         ),
 
         Query::ListWorkers => {
@@ -347,7 +339,7 @@ pub(super) fn handle_query(
             lines,
             project_root,
             &state,
-            logs_path,
+            &ctx.logs_path,
         ),
 
         Query::ListCrons => {
@@ -373,13 +365,18 @@ pub(super) fn handle_query(
             Response::Crons { crons }
         }
 
-        Query::StatusOverview => query_status::handle_status_overview(&state, orphans, start_time),
+        Query::StatusOverview => query_status::handle_status_overview(
+            &state,
+            &ctx.orphans,
+            &ctx.metrics_health,
+            ctx.start_time,
+        ),
 
         Query::GetQueueLogs {
             queue_name,
             namespace,
             lines,
-        } => query_logs::handle_get_queue_logs(queue_name, namespace, lines, logs_path),
+        } => query_logs::handle_get_queue_logs(queue_name, namespace, lines, &ctx.logs_path),
 
         Query::ListDecisions { namespace: _ } => {
             let mut decisions: Vec<DecisionSummary> = state
@@ -442,6 +439,7 @@ pub(super) fn handle_query(
                     message: d.message.clone(),
                     created_at_ms: d.created_at_ms,
                     resolved_at_ms: d.resolved_at_ms,
+                    superseded_by: d.superseded_by.as_ref().map(|id| id.to_string()),
                     namespace: d.namespace.clone(),
                 })
             });

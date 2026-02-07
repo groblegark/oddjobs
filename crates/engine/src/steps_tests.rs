@@ -4,37 +4,10 @@
 //! Tests for job step transition effects
 
 use super::*;
-use oj_core::{Effect, Job, StepStatus};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::time::Instant;
+use oj_core::{Effect, Job};
 
 fn test_job() -> Job {
-    Job {
-        id: "pipe-1".to_string(),
-        name: "test-job".to_string(),
-        kind: "build".to_string(),
-        step: "execute".to_string(),
-        step_status: StepStatus::Running,
-        runbook_hash: "testhash".to_string(),
-        cwd: PathBuf::from("/tmp/workspace"),
-        session_id: None,
-        workspace_id: None,
-        workspace_path: None,
-        vars: HashMap::new(),
-        created_at: Instant::now(),
-        step_started_at: Instant::now(),
-        error: None,
-        step_history: Vec::new(),
-        action_tracker: Default::default(),
-        namespace: String::new(),
-        cancelling: false,
-        total_retries: 0,
-        step_visits: HashMap::new(),
-        cron_name: None,
-        idle_grace_log_size: None,
-        last_nudge_at: None,
-    }
+    Job::builder().id("pipe-1").cwd("/tmp/workspace").build()
 }
 
 fn has_cancel_timer(effects: &[Effect], timer_id: &str) -> bool {

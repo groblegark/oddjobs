@@ -2,16 +2,12 @@
 // Copyright (c) 2026 Alfred Jean LLC
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use parking_lot::Mutex;
 use tempfile::tempdir;
 
-use oj_storage::{MaterializedState, Wal};
-
-use crate::event_bus::EventBus;
 use crate::protocol::Response;
 
+use super::super::test_ctx;
 use super::{handle_run_command, RunCommandParams};
 
 /// Helper: create a temp project with a runbook TOML and return the project root path.
@@ -21,14 +17,6 @@ fn project_with_runbook(toml_content: &str) -> tempfile::TempDir {
     std::fs::create_dir_all(&runbook_dir).unwrap();
     std::fs::write(runbook_dir.join("test.toml"), toml_content).unwrap();
     dir
-}
-
-/// Helper: create an EventBus backed by a temp WAL.
-fn test_event_bus(dir: &std::path::Path) -> EventBus {
-    let wal_path = dir.join("test.wal");
-    let wal = Wal::open(&wal_path, 0).unwrap();
-    let (event_bus, _reader) = EventBus::new(wal);
-    event_bus
 }
 
 #[tokio::test]
@@ -41,8 +29,7 @@ run = "echo deploying"
     );
 
     let wal_dir = tempdir().unwrap();
-    let event_bus = test_event_bus(wal_dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = test_ctx(wal_dir.path());
 
     let result = handle_run_command(RunCommandParams {
         project_root: project.path(),
@@ -51,8 +38,7 @@ run = "echo deploying"
         command: "deploy",
         args: &[],
         named_args: &HashMap::new(),
-        event_bus: &event_bus,
-        state: &state,
+        ctx: &ctx,
     })
     .await
     .unwrap();
@@ -82,8 +68,7 @@ run = "make"
     );
 
     let wal_dir = tempdir().unwrap();
-    let event_bus = test_event_bus(wal_dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = test_ctx(wal_dir.path());
 
     let result = handle_run_command(RunCommandParams {
         project_root: project.path(),
@@ -92,8 +77,7 @@ run = "make"
         command: "build",
         args: &[],
         named_args: &HashMap::new(),
-        event_bus: &event_bus,
-        state: &state,
+        ctx: &ctx,
     })
     .await
     .unwrap();
@@ -116,8 +100,7 @@ run = "echo deploying"
     );
 
     let wal_dir = tempdir().unwrap();
-    let event_bus = test_event_bus(wal_dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = test_ctx(wal_dir.path());
 
     let result = handle_run_command(RunCommandParams {
         project_root: project.path(),
@@ -126,8 +109,7 @@ run = "echo deploying"
         command: "deploj",
         args: &[],
         named_args: &HashMap::new(),
-        event_bus: &event_bus,
-        state: &state,
+        ctx: &ctx,
     })
     .await
     .unwrap();
@@ -142,8 +124,7 @@ run = "echo deploying"
 #[tokio::test]
 async fn unknown_command_returns_error_without_hint_when_no_match() {
     let wal_dir = tempdir().unwrap();
-    let event_bus = test_event_bus(wal_dir.path());
-    let state = Arc::new(Mutex::new(MaterializedState::default()));
+    let ctx = test_ctx(wal_dir.path());
 
     let result = handle_run_command(RunCommandParams {
         project_root: std::path::Path::new("/nonexistent"),
@@ -152,8 +133,7 @@ async fn unknown_command_returns_error_without_hint_when_no_match() {
         command: "xyz",
         args: &[],
         named_args: &HashMap::new(),
-        event_bus: &event_bus,
-        state: &state,
+        ctx: &ctx,
     })
     .await
     .unwrap();

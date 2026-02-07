@@ -66,6 +66,76 @@ pub enum StepOutcome {
     Waiting(String),
 }
 
+/// Tag-only variant of [`StepStatus`] for protocol DTOs (strips associated data).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepStatusKind {
+    Pending,
+    Running,
+    Waiting,
+    Completed,
+    Failed,
+    /// Orphaned job detected from breadcrumb (not a core step status).
+    Orphaned,
+}
+
+impl From<&StepStatus> for StepStatusKind {
+    fn from(s: &StepStatus) -> Self {
+        match s {
+            StepStatus::Pending => StepStatusKind::Pending,
+            StepStatus::Running => StepStatusKind::Running,
+            StepStatus::Waiting(_) => StepStatusKind::Waiting,
+            StepStatus::Completed => StepStatusKind::Completed,
+            StepStatus::Failed => StepStatusKind::Failed,
+        }
+    }
+}
+
+impl fmt::Display for StepStatusKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StepStatusKind::Pending => write!(f, "pending"),
+            StepStatusKind::Running => write!(f, "running"),
+            StepStatusKind::Waiting => write!(f, "waiting"),
+            StepStatusKind::Completed => write!(f, "completed"),
+            StepStatusKind::Failed => write!(f, "failed"),
+            StepStatusKind::Orphaned => write!(f, "orphaned"),
+        }
+    }
+}
+
+/// Tag-only variant of [`StepOutcome`] for protocol DTOs (strips associated data).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepOutcomeKind {
+    Running,
+    Completed,
+    Failed,
+    Waiting,
+}
+
+impl From<&StepOutcome> for StepOutcomeKind {
+    fn from(o: &StepOutcome) -> Self {
+        match o {
+            StepOutcome::Running => StepOutcomeKind::Running,
+            StepOutcome::Completed => StepOutcomeKind::Completed,
+            StepOutcome::Failed(_) => StepOutcomeKind::Failed,
+            StepOutcome::Waiting(_) => StepOutcomeKind::Waiting,
+        }
+    }
+}
+
+impl fmt::Display for StepOutcomeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StepOutcomeKind::Running => write!(f, "running"),
+            StepOutcomeKind::Completed => write!(f, "completed"),
+            StepOutcomeKind::Failed => write!(f, "failed"),
+            StepOutcomeKind::Waiting => write!(f, "waiting"),
+        }
+    }
+}
+
 /// Record of a step execution (for step history)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StepRecord {
@@ -94,6 +164,79 @@ pub struct JobConfig {
     pub namespace: String,
     /// Name of the cron that spawned this job, if any.
     pub cron_name: Option<String>,
+}
+
+impl JobConfig {
+    pub fn builder(
+        id: impl Into<String>,
+        kind: impl Into<String>,
+        initial_step: impl Into<String>,
+    ) -> JobConfigBuilder {
+        let id = id.into();
+        JobConfigBuilder {
+            id: id.clone(),
+            name: id,
+            kind: kind.into(),
+            vars: HashMap::new(),
+            runbook_hash: String::new(),
+            cwd: PathBuf::new(),
+            initial_step: initial_step.into(),
+            namespace: String::new(),
+            cron_name: None,
+        }
+    }
+}
+
+pub struct JobConfigBuilder {
+    id: String,
+    name: String,
+    kind: String,
+    vars: HashMap<String, String>,
+    runbook_hash: String,
+    cwd: PathBuf,
+    initial_step: String,
+    namespace: String,
+    cron_name: Option<String>,
+}
+
+impl JobConfigBuilder {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+    pub fn vars(mut self, vars: HashMap<String, String>) -> Self {
+        self.vars = vars;
+        self
+    }
+    pub fn runbook_hash(mut self, hash: impl Into<String>) -> Self {
+        self.runbook_hash = hash.into();
+        self
+    }
+    pub fn cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
+        self.cwd = cwd.into();
+        self
+    }
+    pub fn namespace(mut self, ns: impl Into<String>) -> Self {
+        self.namespace = ns.into();
+        self
+    }
+    pub fn cron_name(mut self, name: impl Into<String>) -> Self {
+        self.cron_name = Some(name.into());
+        self
+    }
+    pub fn build(self) -> JobConfig {
+        JobConfig {
+            id: self.id,
+            name: self.name,
+            kind: self.kind,
+            vars: self.vars,
+            runbook_hash: self.runbook_hash,
+            cwd: self.cwd,
+            initial_step: self.initial_step,
+            namespace: self.namespace,
+            cron_name: self.cron_name,
+        }
+    }
 }
 
 /// Maximum number of times any single step can be entered before the job
@@ -304,6 +447,169 @@ impl Job {
     /// Get the number of times a step has been visited.
     pub fn get_step_visits(&self, step: &str) -> u32 {
         self.step_visits.get(step).copied().unwrap_or(0)
+    }
+}
+
+/// Builder for `Job` with test defaults. Useful for tests and any context
+/// where you want a `Job` without going through the `JobConfig` + `Clock` path.
+#[cfg(any(test, feature = "test-support"))]
+pub struct JobBuilder {
+    id: String,
+    name: String,
+    kind: String,
+    namespace: String,
+    step: String,
+    step_status: StepStatus,
+    step_history: Vec<StepRecord>,
+    vars: HashMap<String, String>,
+    runbook_hash: String,
+    cwd: PathBuf,
+    workspace_id: Option<WorkspaceId>,
+    workspace_path: Option<PathBuf>,
+    session_id: Option<String>,
+    error: Option<String>,
+    action_tracker: ActionTracker,
+    cancelling: bool,
+    total_retries: u32,
+    step_visits: HashMap<String, u32>,
+    cron_name: Option<String>,
+    idle_grace_log_size: Option<u64>,
+    last_nudge_at: Option<u64>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Default for JobBuilder {
+    fn default() -> Self {
+        Self {
+            id: "test-1".to_string(),
+            name: "test-job".to_string(),
+            kind: "build".to_string(),
+            namespace: String::new(),
+            step: "execute".to_string(),
+            step_status: StepStatus::Running,
+            step_history: Vec::new(),
+            vars: HashMap::new(),
+            runbook_hash: "testhash".to_string(),
+            cwd: PathBuf::from("/tmp/test"),
+            workspace_id: None,
+            workspace_path: None,
+            session_id: None,
+            error: None,
+            action_tracker: ActionTracker::default(),
+            cancelling: false,
+            total_retries: 0,
+            step_visits: HashMap::new(),
+            cron_name: None,
+            idle_grace_log_size: None,
+            last_nudge_at: None,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl JobBuilder {
+    pub fn id(mut self, v: impl Into<String>) -> Self {
+        self.id = v.into();
+        self
+    }
+    pub fn name(mut self, v: impl Into<String>) -> Self {
+        self.name = v.into();
+        self
+    }
+    pub fn kind(mut self, v: impl Into<String>) -> Self {
+        self.kind = v.into();
+        self
+    }
+    pub fn namespace(mut self, v: impl Into<String>) -> Self {
+        self.namespace = v.into();
+        self
+    }
+    pub fn step(mut self, v: impl Into<String>) -> Self {
+        self.step = v.into();
+        self
+    }
+    pub fn step_status(mut self, v: StepStatus) -> Self {
+        self.step_status = v;
+        self
+    }
+    pub fn vars(mut self, v: HashMap<String, String>) -> Self {
+        self.vars = v;
+        self
+    }
+    pub fn runbook_hash(mut self, v: impl Into<String>) -> Self {
+        self.runbook_hash = v.into();
+        self
+    }
+    pub fn cwd(mut self, v: impl Into<PathBuf>) -> Self {
+        self.cwd = v.into();
+        self
+    }
+    pub fn workspace_id(mut self, v: WorkspaceId) -> Self {
+        self.workspace_id = Some(v);
+        self
+    }
+    pub fn workspace_path(mut self, v: impl Into<PathBuf>) -> Self {
+        self.workspace_path = Some(v.into());
+        self
+    }
+    pub fn session_id(mut self, v: impl Into<String>) -> Self {
+        self.session_id = Some(v.into());
+        self
+    }
+    pub fn error(mut self, v: impl Into<String>) -> Self {
+        self.error = Some(v.into());
+        self
+    }
+    pub fn cancelling(mut self, v: bool) -> Self {
+        self.cancelling = v;
+        self
+    }
+    pub fn total_retries(mut self, v: u32) -> Self {
+        self.total_retries = v;
+        self
+    }
+    pub fn cron_name(mut self, v: impl Into<String>) -> Self {
+        self.cron_name = Some(v.into());
+        self
+    }
+    pub fn step_history(mut self, v: Vec<StepRecord>) -> Self {
+        self.step_history = v;
+        self
+    }
+    pub fn build(self) -> Job {
+        Job {
+            id: self.id,
+            name: self.name,
+            kind: self.kind,
+            namespace: self.namespace,
+            step: self.step,
+            step_status: self.step_status,
+            step_started_at: Instant::now(),
+            step_history: self.step_history,
+            vars: self.vars,
+            runbook_hash: self.runbook_hash,
+            cwd: self.cwd,
+            workspace_id: self.workspace_id,
+            workspace_path: self.workspace_path,
+            session_id: self.session_id,
+            created_at: Instant::now(),
+            error: self.error,
+            action_tracker: self.action_tracker,
+            cancelling: self.cancelling,
+            total_retries: self.total_retries,
+            step_visits: self.step_visits,
+            cron_name: self.cron_name,
+            idle_grace_log_size: self.idle_grace_log_size,
+            last_nudge_at: self.last_nudge_at,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Job {
+    /// Create a builder with test defaults.
+    pub fn builder() -> JobBuilder {
+        JobBuilder::default()
     }
 }
 

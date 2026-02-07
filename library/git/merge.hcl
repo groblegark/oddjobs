@@ -4,6 +4,10 @@
 # resolve queue where an agent handles resolution without blocking
 # subsequent clean merges.
 #
+# LEGACY GUARD: In Gas Town, the GT refinery owns merge decisions. This
+# OJ merge queue is retained for non-gastown rigs only. Set the env var
+# OJ_LEGACY_MERGE=1 to enable. Without it, merge jobs exit immediately.
+#
 # Consts:
 #   check - verification command (default: "true")
 
@@ -62,6 +66,17 @@ job "merge" {
     on_start = "Merging: ${var.mr.title}"
     on_done  = "Merged: ${var.mr.title}"
     on_fail  = "Merge failed: ${var.mr.title}"
+  }
+
+  step "guard" {
+    run = <<-SHELL
+      if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+        echo "WARNING: OJ merge queue is disabled. GT refinery owns merge decisions."
+        echo "Set OJ_LEGACY_MERGE=1 to enable OJ-native merge processing."
+        exit 1
+      fi
+    SHELL
+    on_done = { step = "init" }
   }
 
   step "init" {
@@ -139,6 +154,17 @@ job "merge-conflict" {
     on_start = "Resolving conflicts: ${var.mr.title}"
     on_done  = "Resolved conflicts: ${var.mr.title}"
     on_fail  = "Conflict resolution failed: ${var.mr.title}"
+  }
+
+  step "guard" {
+    run = <<-SHELL
+      if [ "${OJ_LEGACY_MERGE:-}" != "1" ]; then
+        echo "WARNING: OJ merge queue is disabled. GT refinery owns merge decisions."
+        echo "Set OJ_LEGACY_MERGE=1 to enable OJ-native merge processing."
+        exit 1
+      fi
+    SHELL
+    on_done = { step = "init" }
   }
 
   step "init" {

@@ -3,9 +3,11 @@
 
 //! Notification adapters
 
+mod bus;
 mod desktop;
 mod noop;
 
+pub use bus::BusNotifyAdapter;
 pub use desktop::DesktopNotifyAdapter;
 pub use noop::NoOpNotifyAdapter;
 

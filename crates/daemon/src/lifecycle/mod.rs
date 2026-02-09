@@ -17,7 +17,8 @@ use fs2::FileExt;
 use oj_adapters::{
     ClaudeAgentAdapter, DesktopNotifyAdapter, TmuxAdapter, TracedAgent, TracedSession,
 };
-use oj_core::{Event, SystemClock};
+use oj_core::Event;
+use oj_core::SystemClock;
 use oj_engine::breadcrumb::{self, Breadcrumb};
 use oj_engine::{
     AgentLogger, MetricsHealth, Runtime, RuntimeConfig, RuntimeDeps, UsageMetricsCollector,
@@ -518,6 +519,90 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
     })
 }
 
+/// Map an OJ event to a beads bus emit call (if applicable).
+/// Returns None for events that don't need to be forwarded to beads.
+pub(crate) fn map_event_to_bus_emit(event: &Event) -> Option<(&'static str, serde_json::Value)> {
+    use serde_json::json;
+    match event {
+        Event::JobCreated { id, name, kind, .. } => Some(("OjJobCreated", json!({
+            "hook_event_name": "OjJobCreated",
+            "job_id": id.to_string(),
+            "job_name": name,
+            "job_kind": kind,
+        }))),
+        Event::JobAdvanced { id, step } => Some(("OjStepAdvanced", json!({
+            "hook_event_name": "OjStepAdvanced",
+            "job_id": id.to_string(),
+            "from_step": "",
+            "to_step": step,
+        }))),
+        Event::StepStarted { job_id, step, agent_id, agent_name } => Some(("OjAgentSpawned", json!({
+            "hook_event_name": "OjAgentSpawned",
+            "job_id": job_id.to_string(),
+            "step": step,
+            "agent_name": agent_name.as_deref().unwrap_or(""),
+            "session_id": agent_id.as_ref().map(|a| a.to_string()).unwrap_or_default(),
+        }))),
+        Event::AgentIdle { agent_id } => Some(("OjAgentIdle", json!({
+            "hook_event_name": "OjAgentIdle",
+            "job_id": "",
+            "agent_name": agent_id.to_string(),
+        }))),
+        Event::AgentFailed { agent_id, error, .. } => Some(("OjAgentEscalated", json!({
+            "hook_event_name": "OjAgentEscalated",
+            "job_id": "",
+            "agent_name": agent_id.to_string(),
+            "reason": error.to_string(),
+        }))),
+        Event::StepWaiting { job_id, step, reason, .. } => Some(("OjAgentEscalated", json!({
+            "hook_event_name": "OjAgentEscalated",
+            "job_id": job_id.to_string(),
+            "step": step,
+            "reason": reason.as_deref().unwrap_or(""),
+        }))),
+        Event::StepCompleted { job_id, step } => Some(("OjJobCompleted", json!({
+            "hook_event_name": "OjJobCompleted",
+            "job_id": job_id.to_string(),
+            "step": step,
+        }))),
+        Event::StepFailed { job_id, step, error } => Some(("OjJobFailed", json!({
+            "hook_event_name": "OjJobFailed",
+            "job_id": job_id.to_string(),
+            "step": step,
+            "error": error,
+        }))),
+        Event::WorkerPollComplete { worker_name, items } => Some(("OjWorkerPollComplete", json!({
+            "hook_event_name": "OjWorkerPollComplete",
+            "worker": worker_name,
+            "queue": "",
+            "item_count": items.len(),
+        }))),
+        _ => None,
+    }
+}
+
+/// Spawn a fire-and-forget `bd bus emit` subprocess for a beads event.
+fn spawn_bus_emit(event_type: &str, payload: serde_json::Value) {
+    let event_type = event_type.to_string();
+    tokio::spawn(async move {
+        let payload_str = payload.to_string();
+        match tokio::process::Command::new("bd")
+            .args(["bus", "emit", "--event", &event_type, "--payload", &payload_str])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(_child) => {
+                // Fire-and-forget: don't await the child
+                tracing::debug!(event_type, "bd bus emit spawned");
+            }
+            Err(e) => {
+                tracing::warn!(event_type, error = %e, "failed to spawn bd bus emit");
+            }
+        }
+    });
+}
+
 /// Spawn task to forward runtime events to the event bus.
 ///
 /// The runtime uses an mpsc channel internally. This task reads from that
@@ -527,17 +612,40 @@ async fn startup_inner(config: &Config) -> Result<StartupResult, LifecycleError>
 /// This eliminates the 10ms group-commit window for engine-produced events,
 /// making crash recovery reliable.
 fn spawn_runtime_event_forwarder(mut rx: mpsc::Receiver<Event>, event_bus: EventBus) {
+    let bus_emit_enabled = std::env::var("OJ_BUS_EMIT").is_ok_and(|v| v == "1");
+
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
+            // Extract bus emit data before sending (send consumes the event)
+            let bus_data = if bus_emit_enabled {
+                map_event_to_bus_emit(&event)
+            } else {
+                None
+            };
+
             if event_bus.send(event).is_err() {
                 tracing::warn!("Failed to forward runtime event to WAL");
                 continue;
             }
 
+            if let Some((event_type, payload)) = bus_data {
+                spawn_bus_emit(event_type, payload);
+            }
+
             // Drain any additional buffered events before flushing
             while let Ok(event) = rx.try_recv() {
+                let bus_data = if bus_emit_enabled {
+                    map_event_to_bus_emit(&event)
+                } else {
+                    None
+                };
+
                 if event_bus.send(event).is_err() {
                     tracing::warn!("Failed to forward runtime event to WAL");
+                }
+
+                if let Some((event_type, payload)) = bus_data {
+                    spawn_bus_emit(event_type, payload);
                 }
             }
 

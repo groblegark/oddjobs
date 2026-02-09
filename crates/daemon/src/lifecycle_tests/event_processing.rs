@@ -253,6 +253,172 @@ async fn result_events_delivered_once_through_engine_loop() {
     assert!(job.is_terminal());
 }
 
+// -- map_event_to_bus_emit tests --
+
+#[test]
+fn bus_emit_maps_job_created() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    let event = Event::JobCreated {
+        id: JobId::new("j-1"),
+        kind: "deploy".to_string(),
+        name: "build-app".to_string(),
+        runbook_hash: "abc".to_string(),
+        cwd: PathBuf::from("/tmp"),
+        vars: HashMap::new(),
+        initial_step: "init".to_string(),
+        created_at_epoch_ms: 0,
+        namespace: String::new(),
+        cron_name: None,
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjJobCreated");
+    assert_eq!(payload["job_id"], "j-1");
+    assert_eq!(payload["job_name"], "build-app");
+    assert_eq!(payload["job_kind"], "deploy");
+    assert_eq!(payload["hook_event_name"], "OjJobCreated");
+}
+
+#[test]
+fn bus_emit_maps_job_advanced() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    let event = Event::JobAdvanced {
+        id: JobId::new("j-2"),
+        step: "deploy".to_string(),
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjStepAdvanced");
+    assert_eq!(payload["job_id"], "j-2");
+    assert_eq!(payload["from_step"], "");
+    assert_eq!(payload["to_step"], "deploy");
+}
+
+#[test]
+fn bus_emit_maps_step_started() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    use oj_core::AgentId;
+    let event = Event::StepStarted {
+        job_id: JobId::new("j-3"),
+        step: "build".to_string(),
+        agent_id: Some(AgentId::new("a-1")),
+        agent_name: Some("builder".to_string()),
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjAgentSpawned");
+    assert_eq!(payload["job_id"], "j-3");
+    assert_eq!(payload["agent_name"], "builder");
+    assert_eq!(payload["session_id"], "a-1");
+}
+
+#[test]
+fn bus_emit_maps_agent_idle() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    use oj_core::AgentId;
+    let event = Event::AgentIdle {
+        agent_id: AgentId::new("a-2"),
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjAgentIdle");
+    assert_eq!(payload["job_id"], "");
+    assert_eq!(payload["agent_name"], "a-2");
+}
+
+#[test]
+fn bus_emit_maps_agent_failed_to_escalated() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    use oj_core::{AgentError, AgentId, OwnerId};
+    let event = Event::AgentFailed {
+        agent_id: AgentId::new("a-3"),
+        error: AgentError::Other("something broke".to_string()),
+        owner: OwnerId::Job(JobId::new("j-4")),
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjAgentEscalated");
+    assert_eq!(payload["job_id"], "");
+    assert_eq!(payload["agent_name"], "a-3");
+    assert_eq!(payload["reason"], "something broke");
+}
+
+#[test]
+fn bus_emit_maps_step_waiting_to_escalated() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    let event = Event::StepWaiting {
+        job_id: JobId::new("j-5"),
+        step: "approve".to_string(),
+        reason: Some("needs review".to_string()),
+        decision_id: None,
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjAgentEscalated");
+    assert_eq!(payload["job_id"], "j-5");
+    assert_eq!(payload["reason"], "needs review");
+}
+
+#[test]
+fn bus_emit_maps_step_completed() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    let event = Event::StepCompleted {
+        job_id: JobId::new("j-6"),
+        step: "build".to_string(),
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjJobCompleted");
+    assert_eq!(payload["job_id"], "j-6");
+    assert_eq!(payload["step"], "build");
+}
+
+#[test]
+fn bus_emit_maps_step_failed() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    let event = Event::StepFailed {
+        job_id: JobId::new("j-7"),
+        step: "deploy".to_string(),
+        error: "timeout".to_string(),
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjJobFailed");
+    assert_eq!(payload["job_id"], "j-7");
+    assert_eq!(payload["error"], "timeout");
+}
+
+#[test]
+fn bus_emit_maps_worker_poll_complete() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    let event = Event::WorkerPollComplete {
+        worker_name: "w-1".to_string(),
+        items: vec![serde_json::json!({"id": "item-1"})],
+    };
+    let (event_type, payload) = map_event_to_bus_emit(&event).unwrap();
+    assert_eq!(event_type, "OjWorkerPollComplete");
+    assert_eq!(payload["worker"], "w-1");
+    assert_eq!(payload["item_count"], 1);
+}
+
+#[test]
+fn bus_emit_returns_none_for_unmapped_events() {
+    use crate::lifecycle::map_event_to_bus_emit;
+    // Shutdown is not mapped
+    assert!(map_event_to_bus_emit(&Event::Shutdown).is_none());
+
+    // SessionCreated is not mapped
+    use oj_core::{OwnerId, SessionId};
+    assert!(map_event_to_bus_emit(&Event::SessionCreated {
+        id: SessionId::new("s-1"),
+        owner: OwnerId::Job(JobId::new("j-1")),
+    })
+    .is_none());
+
+    // AgentWorking is not mapped
+    use oj_core::AgentId;
+    assert!(map_event_to_bus_emit(&Event::AgentWorking {
+        agent_id: AgentId::new("a-1"),
+        owner: OwnerId::Job(JobId::new("j-1")),
+    })
+    .is_none());
+
+    // Custom is not mapped
+    assert!(map_event_to_bus_emit(&Event::Custom).is_none());
+}
+
 #[test]
 fn parking_lot_mutex_reentrant_lock_is_detected() {
     // parking_lot::Mutex does not allow re-entrant locking from the same thread.
